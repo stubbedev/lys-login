@@ -1,11 +1,11 @@
-// Command wayle-greeter is the greetd greeter (crates/wayle-greeter):
+// Command lys-greeter is the greetd greeter (crates/lys-greeter):
 // the lock screen's credential prompt over a session picker and the
 // login users, run as the single client of a kiosk compositor. On
 // success greetd starts the chosen session and replaces this process.
 //
-//	wayle-greeter [--config PATH] [--sessions DIR]... [--xsessions DIR]...
+//	lys-greeter [--config PATH] [--sessions DIR]... [--xsessions DIR]...
 //	              [--state PATH] [--env KEY=VAL]... [-- <session argv...>]
-//	wayle-greeter apply-config [--config PATH] <STAGED.toml>
+//	lys-greeter apply-config [--config PATH] <STAGED.toml>
 package main
 
 import (
@@ -13,13 +13,13 @@ import (
 	"log"
 	"os"
 
-	"github.com/stubbedev/wayle/config"
-	"github.com/stubbedev/wayle/greeter"
+	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-shell/greeter"
 )
 
 func main() {
 	args := os.Args[1:]
-	// The privileged config writer wayle-settings runs through pkexec:
+	// The privileged config writer lys-settings runs through pkexec:
 	// handled first, a plain side-effect-free CLI.
 	if len(args) > 0 && args[0] == "apply-config" {
 		os.Exit(greeter.RunApplyConfig(args[1:], os.Stdout, os.Stderr))
@@ -59,7 +59,7 @@ func main() {
 		SessionEnv:  opts.Env,
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "wayle-greeter:", err)
+		fmt.Fprintln(os.Stderr, "lys-greeter:", err)
 		os.Exit(1)
 	}
 }
