@@ -12,6 +12,10 @@ ExclusiveArch:  x86_64
 
 BuildRequires:  systemd-rpm-macros
 Requires:       pam
+Requires(post): policycoreutils
+Requires(post): policycoreutils-python-utils
+Requires(postun): policycoreutils
+Requires(postun): policycoreutils-python-utils
 Requires:       systemd
 Recommends:     lys-wm
 Recommends:     lys-secrets
@@ -45,12 +49,21 @@ install -m 0644 pam/fedora/lys-login pam/fedora/lys-shell %{buildroot}%{_sysconf
 %post
 %systemd_post lys-login.service
 %tmpfiles_create lys-login.conf
+if selinuxenabled; then
+    if [ "$1" -eq 1 ]; then
+        semanage fcontext -a -t xdm_exec_t %{_bindir}/lys-login
+    fi
+    restorecon %{_bindir}/lys-login
+fi
 
 %preun
 %systemd_preun lys-login.service
 
 %postun
 %systemd_postun lys-login.service
+if [ "$1" -eq 0 ] && selinuxenabled; then
+    semanage fcontext -d %{_bindir}/lys-login
+fi
 
 %files
 %license LICENSE eff_large_wordlist.NOTICE
