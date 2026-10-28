@@ -16,7 +16,7 @@
         # nix/tests/login-vm.nix.
         login-vm = pkgs.callPackage ./tests/login-vm.nix {
           inherit self;
-          inherit (inputs) lys-wm;
+          inherit (inputs) lys-wm lys-secrets;
         };
       }
       // {

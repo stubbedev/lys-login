@@ -32,6 +32,51 @@ func TestLoginOpensAndClosesItsSession(t *testing.T) {
 	}
 }
 
+// The login hands over the password it authenticated with once, and
+// clears what the conversation kept of it.
+func TestLoginTakeSecret(t *testing.T) {
+	f := &fakePAM{batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password:"}}}, password: "pw"}
+	conv := &pamConversation{ask: answering("pw", &[]Prompt{})}
+	l, err := authenticate(f, "lys-login", "alice", conv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conv.secret != nil {
+		t.Errorf("the conversation still holds %q", conv.secret)
+	}
+	if got := l.TakeSecret(); string(got) != "pw" {
+		t.Errorf("TakeSecret = %q, want the password", got)
+	}
+	if got := l.TakeSecret(); got != nil {
+		t.Errorf("a second TakeSecret = %q, want nil", got)
+	}
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	f = &fakePAM{batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password:"}}}, password: "pw"}
+	l, err = authenticate(f, "lys-login", "alice", &pamConversation{ask: answering("pw", &[]Prompt{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := l.secret
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if string(kept) != "\x00\x00" || l.TakeSecret() != nil {
+		t.Errorf("after Close the secret is %q, want it cleared", kept)
+	}
+
+	f = &fakePAM{batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password:"}}}, password: "pw"}
+	conv = &pamConversation{ask: answering("wrong", &[]Prompt{})}
+	if _, err := authenticate(f, "lys-login", "alice", conv); err == nil {
+		t.Fatal("a wrong password authenticated")
+	}
+	if string(conv.secret) != "\x00\x00\x00\x00\x00" {
+		t.Errorf("a refused password is kept as %q, want it cleared", conv.secret)
+	}
+}
+
 func TestLoginFailuresEndTheTransaction(t *testing.T) {
 	f := &fakePAM{batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password:"}}}, password: "pw"}
 	_, err := authenticate(f, "lys-login", "alice", &pamConversation{ask: answering("wrong", &[]Prompt{})})

@@ -38,6 +38,9 @@ type WorkerOptions struct {
 	Service string
 	// VT is the virtual terminal the sessions run on.
 	VT int
+	// Self is the lys-login program the workers, the greeter and the
+	// keyring unlock run.
+	Self string
 }
 
 // sessionEnv is the environment pam_systemd registers a session with.
@@ -213,6 +216,38 @@ func stopGroup(cmd *exec.Cmd, exited <-chan error) error {
 	}
 }
 
+// unlockKeyringAs starts `lys-login unlock-keyring` as a, in the
+// session's environment, and writes password to it: it unlocks the
+// session's login keyring once the keyring runs, in the background, so
+// the session never waits for it. The worker reaps it.
+func (o WorkerOptions) unlockKeyringAs(a account, env []string, password []byte) error {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("unlock the keyring: %w", err)
+	}
+	defer func() { _ = w.Close() }()
+	cmd := exec.Command(o.Self, "unlock-keyring") //nolint:gosec // lys-login itself
+	cmd.Env, cmd.Dir = env, a.home
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = r, os.Stderr, os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Credential: &syscall.Credential{Uid: a.uid, Gid: a.gid, Groups: a.groups},
+	}
+	err = cmd.Start()
+	_ = r.Close()
+	if err != nil {
+		return fmt.Errorf("start %s unlock-keyring as %s: %w", o.Self, a.name, err)
+	}
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			log.Printf("dm: lys-login unlock-keyring for %s: %v", a.name, err)
+		}
+	}()
+	if _, err := w.Write(password); err != nil {
+		return fmt.Errorf("hand the password to lys-login unlock-keyring: %w", err)
+	}
+	return nil
+}
+
 // refusalText is what the greeter shows for a failed login: PAM's own
 // reason when PAM refused it, the whole error otherwise.
 func refusalText(err error) string {
@@ -257,6 +292,8 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 			log.Printf("dm: session of %s: %v", req.User, err)
 		}
 	}()
+	secret := login.TakeSecret()
+	defer clear(secret)
 	if err := ch.send(event{Kind: evAuthenticated}); err != nil {
 		return err
 	}
@@ -274,13 +311,19 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}
+	env := a.environ(pamEnv, req.Env)
 	argv := append([]string{"/bin/sh", "-c", profileScript, "sh"}, req.Cmd...)
-	cmd, err := o.startAs(a, argv, a.environ(pamEnv, req.Env))
+	cmd, err := o.startAs(a, argv, env)
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}
 	if err := ch.send(event{Kind: evStarted}); err != nil {
 		log.Printf("dm: tell the daemon the session started: %v", err)
+	}
+	if secret != nil {
+		if err := o.unlockKeyringAs(a, env, secret); err != nil {
+			log.Printf("dm: the login keyring of %s stays locked: %v", a.name, err)
+		}
 	}
 	waitErr := cmd.Wait()
 	text := "exited"

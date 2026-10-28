@@ -36,18 +36,18 @@ fmt:
 
 # lys-login as the display manager in a NixOS VM (needs KVM): the greeter
 # in a lys-wm kiosk with no greetd or cage, a wrong and a right password,
-# the logind session, and the greeter back after it. Screenshots in
-# ./result.
+# the logind session, lys-secrets' login collection unlocked by the
+# login, and the greeter back after it. Screenshots in ./result.
 login-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.login-vm
 
 # Move lys-shell, lys-secrets, lys-ui and lys-lib to the heads of their
 # main branches (the module proxy lags fresh commits), the flake's
-# lys-shell input with them, then the vendor hash.
+# lys-shell and lys-secrets inputs with them, then the vendor hash.
 bump-lys:
     GOPROXY=direct GOPRIVATE=github.com/stubbedev/* go get github.com/stubbedev/lys-shell@master github.com/stubbedev/lys-secrets@main github.com/stubbedev/lys-ui@main github.com/stubbedev/lys-lib@main
     go mod tidy
-    nix flake update lys-shell lys-wm
+    nix flake update lys-shell lys-secrets lys-wm
     just vendor-hash
 
 # Recompute nix/package.nix's vendorHash after a go.mod change: the

@@ -16,7 +16,9 @@
 // on a VT, it shows the greeter in a lys-wm kiosk and starts the session
 // a user logs in to (its workers are `lys-login worker`, started by it).
 // apply-config is the privileged config writer lys-settings runs through
-// pkexec.
+// pkexec. unlock-keyring is the daemon's: a session worker runs it as the
+// user who logged in, with the password on stdin, to unlock the login
+// keyring (lys-secrets, else gnome-keyring) once the session starts one.
 package main
 
 import (
@@ -29,10 +31,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
+	"github.com/stubbedev/lys-secrets/control"
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/shell/lockclient"
+	"golang.org/x/sys/unix"
 
+	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
 	"github.com/stubbedev/lys-login/internal/lock"
@@ -55,6 +61,8 @@ func main() {
 		os.Exit(daemon(args))
 	case "worker":
 		os.Exit(worker(args))
+	case "unlock-keyring":
+		os.Exit(unlockKeyring(args))
 	case "apply-config":
 		os.Exit(greeter.RunApplyConfig(args, os.Stdout, os.Stderr))
 	default:
@@ -133,6 +141,37 @@ func lockSession(args []string) int {
 	}
 }
 
+// keyringWait bounds how long unlock-keyring waits for the session's
+// keyring to start.
+const keyringWait = time.Minute
+
+// unlockKeyring is `lys-login unlock-keyring`: a session worker runs it
+// as the user who just logged in, with the password on stdin, and it
+// hands the password to the session's keyring once one runs.
+func unlockKeyring(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintf(os.Stderr, "lys-login unlock-keyring: unexpected argument %q\n", args[0])
+		return 2
+	}
+	if err := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login unlock-keyring: make the process undumpable:", err)
+		return 1
+	}
+	password, err := control.ReadPassword(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login unlock-keyring:", err)
+		return 1
+	}
+	defer clear(password)
+	ctx, cancel := context.WithTimeout(context.Background(), keyringWait)
+	defer cancel()
+	if err := auth.AwaitLoginKeyring(ctx, password); err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login unlock-keyring:", err)
+		return 1
+	}
+	return 0
+}
+
 // workerFlags are the flags every worker takes.
 func workerFlags(fs *flag.FlagSet) *dm.WorkerOptions {
 	o := &dm.WorkerOptions{}
@@ -150,15 +189,15 @@ func daemon(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	self, err := self()
-	if err != nil {
+	var err error
+	if wo.Self, err = self(); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)
 		return 1
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	err = dm.Run(ctx, dm.Options{
-		WorkerOptions: *wo, Self: self, GreeterUser: *greeterUser,
+		WorkerOptions: *wo, GreeterUser: *greeterUser,
 		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
 	})
 	if err != nil {
@@ -183,6 +222,10 @@ func worker(args []string) int {
 		return 2
 	}
 	var err error
+	if wo.Self, err = self(); err != nil {
+		fmt.Fprintf(os.Stderr, "lys-login worker %s: %v\n", kind, err)
+		return 1
+	}
 	switch kind {
 	case "greeter":
 		if fs.NArg() == 0 {

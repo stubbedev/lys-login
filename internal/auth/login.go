@@ -21,6 +21,9 @@ func (e *RefusedError) Error() string { return e.Step + " failed: " + e.Reason }
 type Login struct {
 	txn  pamTxn
 	user string
+	// secret is the last secret the authentication was answered with,
+	// until TakeSecret or Close.
+	secret []byte
 	// last is the status pam_end receives.
 	last         int32
 	credentialed bool
@@ -51,15 +54,27 @@ func authenticate(lib pamLib, service, user string, conv *pamConversation) (*Log
 	l := &Login{txn: txn, user: user}
 	if l.last = txn.authenticate(); l.last != pamSuccess {
 		err := &RefusedError{Step: "authentication", Reason: txn.strerror(l.last)}
+		clear(conv.secret)
 		txn.end(l.last)
 		return nil, err
 	}
 	if l.last = txn.acctMgmt(); l.last != pamSuccess {
 		err := &RefusedError{Step: "account check", Reason: txn.strerror(l.last)}
+		clear(conv.secret)
 		txn.end(l.last)
 		return nil, err
 	}
+	l.secret, conv.secret = conv.secret, nil
 	return l, nil
+}
+
+// TakeSecret hands over the last secret the user authenticated with
+// (the password, for a password login), nil without one, and forgets
+// it: the caller clears it after use.
+func (l *Login) TakeSecret() []byte {
+	secret := l.secret
+	l.secret = nil
+	return secret
 }
 
 // User is the account the login is for.
@@ -93,6 +108,8 @@ func (l *Login) OpenSession(env []string) ([]string, error) {
 // Close closes an opened session, deletes the credentials it
 // established, and ends the transaction.
 func (l *Login) Close() error {
+	clear(l.secret)
+	l.secret = nil
 	var errs []string
 	if l.opened {
 		if rc := l.txn.closeSession(); rc != pamSuccess {

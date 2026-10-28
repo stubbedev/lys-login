@@ -128,7 +128,7 @@ func answering(answer string, seen *[]Prompt) Ask {
 }
 
 func newTestPAM(f *fakePAM, unlocked *[]string) *PAM {
-	return &PAM{Service: "lys-shell", lib: f, unlockKeyring: func(pw string) { *unlocked = append(*unlocked, pw) }}
+	return &PAM{Service: "lys-shell", lib: f, unlockKeyring: func(pw []byte) { *unlocked = append(*unlocked, string(pw)) }}
 }
 
 // TestPAMConversationHandling pins the conversation: an echo-off
@@ -237,7 +237,7 @@ func TestPAMEchoOnPromptIsVisible(t *testing.T) {
 	if code != pamSuccess || !replies[0].set || replies[0].text != "123456" {
 		t.Fatalf("echo-on reply: code %d %+v", code, replies)
 	}
-	if seen[0].Kind != PromptVisible || conv.secret != "" {
+	if seen[0].Kind != PromptVisible || conv.secret != nil {
 		t.Errorf("echo-on prompt kind %v, captured secret %q; a visible answer is not the password", seen[0].Kind, conv.secret)
 	}
 }

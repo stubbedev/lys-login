@@ -2,7 +2,8 @@
 # greeter, shown in a lys-wm kiosk by `lys-login daemon` with neither
 # greetd nor cage. The script logs a user in with a wrong and then the
 # right password, checks the session logind registered (the user, the
-# wayland type, the user class, the seat and the VT), and that the
+# wayland type, the user class, the seat and the VT), that the login
+# unlocked lys-secrets' login collection with the password, and that the
 # greeter comes back once the session ends.
 #
 # Build: nix build .#checks.<system>.login-vm -L
@@ -11,15 +12,26 @@
   lib,
   self,
   lys-wm,
+  lys-secrets,
 }: let
   user = "alice";
   password = "lys-login-vm";
 
   # The session the greeter offers: it records what it runs as and with,
-  # then ends, which hands the VT back to the greeter.
+  # asks for lys-secrets' login collection as a client would (which
+  # D-Bus-activates lys-secrets) until the login has unlocked it, then
+  # ends, which hands the VT back to the greeter.
   session = pkgs.writeShellScript "lys-login-vm-session" ''
     echo "$(id -un) $XDG_SESSION_TYPE $XDG_SESSION_CLASS $XDG_SEAT $XDG_VTNR $XDG_SESSION_ID" > /tmp/lys-login/session
     loginctl show-session "$XDG_SESSION_ID" -p Class -p Type -p Seat -p VTNr -p Name > /tmp/lys-login/logind
+    for _ in $(seq 60); do
+      ${pkgs.systemd}/bin/busctl --user get-property org.freedesktop.secrets \
+        /org/freedesktop/secrets/collection/login org.freedesktop.Secret.Collection Locked \
+        > /tmp/lys-login/keyring.tmp 2>&1 || true
+      mv /tmp/lys-login/keyring.tmp /tmp/lys-login/keyring
+      [ "$(cat /tmp/lys-login/keyring)" = "b false" ] && break
+      sleep 0.5
+    done
     sleep 5
   '';
 in
@@ -30,9 +42,11 @@ in
       imports = [
         self.nixosModules.default
         lys-wm.nixosModules.default
+        lys-secrets.nixosModules.default
       ];
 
       programs.lys-wm.enable = true;
+      services.lys-secrets.enable = true;
       programs.lys-login = {
         greeter = {
           enable = true;
@@ -105,6 +119,12 @@ in
           if want not in logind:
               raise Exception(f"logind's session lacks {want}:\n{logind}")
       machine.screenshot("03-session")
+
+      # The login handed the password to lys-secrets, whose login
+      # collection the session finds unlocked without a prompt.
+      machine.wait_until_succeeds("grep -qx 'b false' /tmp/lys-login/keyring", timeout=40)
+      if machine.execute("test -d /home/${user}/.local/share/lys-secrets")[0] != 0:
+          raise Exception("lys-secrets keeps no collection for ${user}")
 
       # When the session ends the greeter comes back at once, on its
       # first try.

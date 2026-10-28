@@ -3,11 +3,13 @@ package auth
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stubbedev/lys-lib/sockdir"
 	"github.com/stubbedev/lys-secrets/control"
@@ -50,7 +52,7 @@ func fakeKeyring(t *testing.T, length, result uint32) (path string, got <-chan [
 // byte, then big-endian packet length, op, and the password.
 func TestKeyringUnlockWire(t *testing.T) {
 	path, got := fakeKeyring(t, 8, keyringResultOK)
-	if err := keyringUnlock(path, "hunter2"); err != nil {
+	if err := keyringUnlock(path, []byte("hunter2")); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
 	msg := <-got
@@ -72,25 +74,34 @@ func TestKeyringUnlockFailures(t *testing.T) {
 		{12, keyringResultOK, "unexpected response length 12"},
 	} {
 		path, _ := fakeKeyring(t, tc.length, tc.result)
-		err := keyringUnlock(path, "pw")
+		err := keyringUnlock(path, []byte("pw"))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("result %d/len %d: err = %v, want %q", tc.result, tc.length, err, tc.want)
 		}
 	}
-	if err := keyringUnlock(filepath.Join(sockdir.Dir(t), "absent"), "pw"); err == nil {
-		t.Error("a missing daemon socket reported success")
+	if err := keyringUnlock(filepath.Join(sockdir.Dir(t), "absent"), []byte("pw")); !errors.Is(err, errKeyringAbsent) {
+		t.Errorf("a missing daemon socket = %v, want errKeyringAbsent", err)
 	}
 }
 
-func TestKeyringControlPath(t *testing.T) {
-	t.Setenv("GNOME_KEYRING_CONTROL", "/run/user/1000/keyring-x")
-	if got := keyringControlPath(); got != "/run/user/1000/keyring-x/control" {
-		t.Errorf("GNOME_KEYRING_CONTROL path = %q", got)
-	}
-	t.Setenv("GNOME_KEYRING_CONTROL", "")
+func TestKeyringSockets(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-	if got := keyringControlPath(); got != "/run/user/1000/keyring/control" {
-		t.Errorf("runtime-dir path = %q", got)
+	t.Setenv("GNOME_KEYRING_CONTROL", "/run/user/1000/keyring-x")
+	secrets, gnome, err := keyringSockets()
+	if err != nil || secrets != "/run/user/1000/lys-secrets/control" || gnome != "/run/user/1000/keyring-x/control" {
+		t.Errorf("with GNOME_KEYRING_CONTROL: %q, %q, %v", secrets, gnome, err)
+	}
+	for _, unset := range []string{"", "keyring-x"} {
+		t.Setenv("GNOME_KEYRING_CONTROL", unset)
+		if _, gnome, err := keyringSockets(); err != nil || gnome != "/run/user/1000/keyring/control" {
+			t.Errorf("GNOME_KEYRING_CONTROL=%q: %q, %v", unset, gnome, err)
+		}
+	}
+	for _, bad := range []string{"", "run/user/1000"} {
+		t.Setenv("XDG_RUNTIME_DIR", bad)
+		if secrets, gnome, err := keyringSockets(); err == nil {
+			t.Errorf("XDG_RUNTIME_DIR=%q: %q, %q, want an error", bad, secrets, gnome)
+		}
 	}
 }
 
@@ -118,13 +129,13 @@ func TestLoginKeyringPrefersLysSecrets(t *testing.T) {
 	go control.Serve(ctx, ln, u)
 	gnome, gnomeGot := fakeKeyring(t, 8, keyringResultOK)
 
-	if err := unlockLoginKeyring(secrets, gnome, "pw"); err != nil {
+	if err := unlockLoginKeyring(secrets, gnome, []byte("pw")); err != nil {
 		t.Fatalf("unlock through lys-secrets: %v", err)
 	}
 	if got := <-u.got; got != "pw" {
 		t.Errorf("lys-secrets got %q", got)
 	}
-	if err := unlockLoginKeyring(secrets, gnome, "other"); err == nil || !strings.Contains(err.Error(), "lys-secrets") {
+	if err := unlockLoginKeyring(secrets, gnome, []byte("other")); err == nil || !strings.Contains(err.Error(), "lys-secrets") {
 		t.Errorf("a wrong password = %v, want lys-secrets' refusal", err)
 	}
 	select {
@@ -134,13 +145,75 @@ func TestLoginKeyringPrefersLysSecrets(t *testing.T) {
 	}
 
 	absent := filepath.Join(sockdir.Dir(t), "absent")
-	if err := unlockLoginKeyring(absent, gnome, "pw"); err != nil {
+	if err := unlockLoginKeyring(absent, gnome, []byte("pw")); err != nil {
 		t.Fatalf("fall back to gnome-keyring: %v", err)
 	}
 	if msg := <-gnomeGot; !strings.HasSuffix(string(msg), "pw") {
 		t.Errorf("gnome-keyring got %q", msg)
 	}
-	if err := unlockLoginKeyring(absent, filepath.Join(sockdir.Dir(t), "absent2"), "pw"); err == nil || !strings.Contains(err.Error(), "lys-secrets is not running") {
-		t.Errorf("neither running = %v", err)
+	if err := unlockLoginKeyring(absent, filepath.Join(sockdir.Dir(t), "absent2"), []byte("pw")); !errors.Is(err, errNoKeyring) {
+		t.Errorf("neither running = %v, want errNoKeyring", err)
+	}
+}
+
+// serveSecrets runs lys-secrets' control server at the session's socket.
+func serveSecrets(t *testing.T, u control.Unlocker) {
+	t.Helper()
+	path, err := control.SocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := control.Listen(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { control.Serve(ctx, ln, u); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+}
+
+// A login hands the password over before the session's keyring runs:
+// AwaitLoginKeyring waits for lys-secrets to start, then unlocks it.
+func TestAwaitLoginKeyringWaitsForLysSecrets(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", sockdir.Dir(t))
+	t.Setenv("GNOME_KEYRING_CONTROL", "")
+	u := secretsUnlocker{got: make(chan string, 1)}
+	errs := make(chan error, 1)
+	go func() { errs <- AwaitLoginKeyring(t.Context(), []byte("pw")) }()
+	time.Sleep(3 * keyringPoll)
+	select {
+	case err := <-errs:
+		t.Fatalf("returned before a keyring ran: %v", err)
+	default:
+	}
+	serveSecrets(t, u)
+	if err := <-errs; err != nil {
+		t.Fatalf("AwaitLoginKeyring = %v", err)
+	}
+	if got := <-u.got; got != "pw" {
+		t.Errorf("lys-secrets got %q", got)
+	}
+}
+
+// A keyring that refuses the password ends the wait at once; none
+// running ends it when the context does, saying so.
+func TestAwaitLoginKeyringGivesUp(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", sockdir.Dir(t))
+	t.Setenv("GNOME_KEYRING_CONTROL", "")
+	ctx, cancel := context.WithTimeout(t.Context(), 2*keyringPoll)
+	defer cancel()
+	if err := AwaitLoginKeyring(ctx, []byte("pw")); !errors.Is(err, errNoKeyring) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("no keyring = %v, want errNoKeyring and the deadline", err)
+	}
+
+	serveSecrets(t, secretsUnlocker{got: make(chan string, 1)})
+	if err := AwaitLoginKeyring(t.Context(), []byte("wrong")); !errors.Is(err, control.ErrWrongPassword) {
+		t.Errorf("a wrong password = %v, want lys-secrets' refusal", err)
+	}
+
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	if err := AwaitLoginKeyring(t.Context(), []byte("pw")); err == nil || errors.Is(err, errNoKeyring) {
+		t.Errorf("no runtime dir = %v, want that error", err)
 	}
 }

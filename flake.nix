@@ -17,7 +17,14 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
       inputs.lys-wm.follows = "lys-wm";
+      inputs.lys-secrets.follows = "lys-secrets";
       inputs.lys-login.follows = "";
+    };
+    # The Secret Service the login VM check finds unlocked by the login.
+    lys-secrets = {
+      url = "github:stubbedev/lys-secrets";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
     };
     # The kiosk compositor the display manager shows the greeter in, for
     # the login VM check.

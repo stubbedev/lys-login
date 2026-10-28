@@ -24,8 +24,6 @@ import (
 // Options configure the daemon.
 type Options struct {
 	WorkerOptions
-	// Self is the lys-login program the workers and the greeter run.
-	Self string
 	// GreeterUser is the unprivileged account the greeter runs as.
 	GreeterUser string
 	// Compositor is the greeter's compositor command, lys-wm; the daemon

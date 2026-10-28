@@ -1,18 +1,22 @@
 package auth
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"math"
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/stubbedev/lys-lib/intconv"
+	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-secrets/control"
 )
 
@@ -36,21 +40,50 @@ const (
 // keyring starts locked: the lock screen is the first place the password
 // appears. Best effort — failures are logged, never blocking or denying
 // the unlock the user already earned.
-func UnlockLoginKeyring(password string) {
-	secrets, err := control.SocketPath()
-	if err != nil {
-		log.Printf("keyring: could not unlock the login keyring: %v", err)
-		return
+func UnlockLoginKeyring(password []byte) {
+	secrets, gnome, err := keyringSockets()
+	if err == nil {
+		err = unlockLoginKeyring(secrets, gnome, password)
 	}
-	if err := unlockLoginKeyring(secrets, keyringControlPath(), password); err != nil {
+	if err != nil {
 		log.Printf("keyring: could not unlock the login keyring: %v", err)
 	}
 }
 
+// keyringPoll spaces AwaitLoginKeyring's attempts.
+const keyringPoll = 250 * time.Millisecond
+
+// AwaitLoginKeyring is UnlockLoginKeyring for a session that is still
+// starting: it tries until lys-secrets or gnome-keyring answers, and
+// returns what that keyring said, or why none answered before ctx
+// ended.
+func AwaitLoginKeyring(ctx context.Context, password []byte) error {
+	secrets, gnome, err := keyringSockets()
+	if err != nil {
+		return err
+	}
+	tick := time.NewTicker(keyringPoll)
+	defer tick.Stop()
+	for {
+		err := unlockLoginKeyring(secrets, gnome, password)
+		if !errors.Is(err, errNoKeyring) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %w", err, context.Cause(ctx))
+		case <-tick.C:
+		}
+	}
+}
+
+// errNoKeyring is neither keyring running.
+var errNoKeyring = errors.New("neither lys-secrets nor gnome-keyring is running")
+
 // unlockLoginKeyring tries lys-secrets at secretsSock, then gnome-keyring
 // at gnomeSock when lys-secrets is not running.
-func unlockLoginKeyring(secretsSock, gnomeSock, password string) error {
-	err := control.Unlock(secretsSock, []byte(password))
+func unlockLoginKeyring(secretsSock, gnomeSock string, password []byte) error {
+	err := control.Unlock(secretsSock, password)
 	if err == nil {
 		return nil
 	}
@@ -58,20 +91,35 @@ func unlockLoginKeyring(secretsSock, gnomeSock, password string) error {
 		return fmt.Errorf("lys-secrets: %w", err)
 	}
 	if err := keyringUnlock(gnomeSock, password); err != nil {
+		if errors.Is(err, errKeyringAbsent) {
+			return fmt.Errorf("%w: %w", errNoKeyring, err)
+		}
 		return fmt.Errorf("lys-secrets is not running, and gnome-keyring: %w", err)
 	}
 	return nil
 }
 
-// keyringControlPath is the daemon's control socket:
-// $GNOME_KEYRING_CONTROL/control, else $XDG_RUNTIME_DIR/keyring/control.
-func keyringControlPath() string {
-	dir := os.Getenv("GNOME_KEYRING_CONTROL")
-	if dir == "" {
-		dir = filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "keyring")
+// keyringSockets are the session's lys-secrets control socket and
+// gnome-keyring control socket: $GNOME_KEYRING_CONTROL/control, else
+// $XDG_RUNTIME_DIR/keyring/control.
+func keyringSockets() (secrets, gnome string, err error) {
+	secrets, err = control.SocketPath()
+	if err != nil {
+		return "", "", fmt.Errorf("keyring: %w", err)
 	}
-	return filepath.Join(dir, "control")
+	gnomeDir := os.Getenv("GNOME_KEYRING_CONTROL")
+	if !filepath.IsAbs(gnomeDir) {
+		runtime, ok := xdg.OS.RuntimeHome()
+		if !ok {
+			return "", "", errors.New("keyring: XDG_RUNTIME_DIR is not set to an absolute path")
+		}
+		gnomeDir = filepath.Join(runtime, "keyring")
+	}
+	return secrets, filepath.Join(gnomeDir, "control"), nil
 }
+
+// errKeyringAbsent is no gnome-keyring daemon behind its socket.
+var errKeyringAbsent = errors.New("gnome-keyring is not running")
 
 // keyringUnlock speaks GKD_CONTROL_OP_UNLOCK directly, what
 // pam_gnome_keyring.so does — not `gnome-keyring-daemon --unlock`,
@@ -79,8 +127,11 @@ func keyringControlPath() string {
 // real one. Wire format, big-endian u32s: one credentials byte (0; the
 // daemon reads the peer's credentials off the socket), then
 // [packet_len][op][arg_len][arg], answered by [8][result].
-func keyringUnlock(path, password string) error {
+func keyringUnlock(path string, password []byte) error {
 	conn, err := net.DialTimeout("unix", path, keyringTimeout)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("%w: %w", errKeyringAbsent, err)
+	}
 	if err != nil {
 		return fmt.Errorf("connect %s: %w", path, err)
 	}

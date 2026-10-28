@@ -45,7 +45,6 @@
     "home-manager": {
       "inputs": {
         "nixpkgs": [
-          "lys-shell",
           "lys-secrets",
           "nixpkgs"
         ]
@@ -119,21 +118,19 @@
     "lys-secrets": {
       "inputs": {
         "flake-parts": [
-          "lys-shell",
           "flake-parts"
         ],
         "home-manager": "home-manager",
         "nixpkgs": [
-          "lys-shell",
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1793219484,
-        "narHash": "sha256-pK+9WLWA9SBv1EIBXfaI5L7+r3jKsXEHg1DZetXjR2s=",
+        "lastModified": 1793223199,
+        "narHash": "sha256-I4BQ29ZKOUREfEajKuRmie2qGQX6lcHZlf/dSK4EliM=",
         "owner": "stubbedev",
         "repo": "lys-secrets",
-        "rev": "5e7d4f0af5f502f0ada02cd9a0b4112a240e7be6",
+        "rev": "3da24f2c3c96145cf2e80d7d407b54ac2e477173",
         "type": "github"
       },
       "original": {
@@ -149,7 +146,9 @@
         ],
         "lys-lib": "lys-lib",
         "lys-login": [],
-        "lys-secrets": "lys-secrets",
+        "lys-secrets": [
+          "lys-secrets"
+        ],
         "lys-wm": [
           "lys-wm"
         ],
@@ -320,6 +319,7 @@
     "root": {
       "inputs": {
         "flake-parts": "flake-parts",
+        "lys-secrets": "lys-secrets",
         "lys-shell": "lys-shell",
         "lys-wm": "lys-wm",
         "nixpkgs": "nixpkgs"

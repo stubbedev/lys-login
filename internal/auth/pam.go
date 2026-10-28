@@ -74,7 +74,7 @@ type PAM struct {
 	lib     pamLib
 	// unlockKeyring hands the verified password to the session keyring;
 	// a field so tests observe it without a daemon.
-	unlockKeyring func(password string)
+	unlockKeyring func(password []byte)
 }
 
 // NewPAM returns the backend for service over the system libpam.
@@ -86,8 +86,9 @@ func NewPAM(service string) *PAM {
 // session user when empty), authenticates, then checks the account
 // (pam_authenticate + pam_acct_mgmt), and always ends with pam_end
 // carrying the last call's status, as nonstick's transaction does; it
-// sets no credentials, an unlock needs none. On success the last secret answered unlocks the session keyring's
-// login collection (lys-secrets, else gnome-keyring), best effort.
+// sets no credentials, an unlock needs none. On success the last secret
+// answered unlocks the session keyring's login collection (lys-secrets,
+// else gnome-keyring), best effort.
 func (p *PAM) Run(username string, ask Ask) error {
 	if username == "" {
 		username = CurrentUsername()
@@ -104,11 +105,13 @@ func (p *PAM) Run(username string, ask Ask) error {
 		log.Printf("auth: PAM %s: %v", p.Service, err)
 		return err
 	}
+	secret := l.TakeSecret()
+	defer clear(secret)
 	if err := l.Close(); err != nil {
 		log.Printf("auth: PAM %s: %v", p.Service, err)
 	}
-	if conv.secret != "" && p.unlockKeyring != nil {
-		p.unlockKeyring(conv.secret)
+	if secret != nil && p.unlockKeyring != nil {
+		p.unlockKeyring(secret)
 	}
 	return nil
 }
@@ -118,7 +121,7 @@ type pamConversation struct {
 	ask Ask
 	// secret is the last echo-off answer handed to PAM, kept for the
 	// post-auth keyring unlock.
-	secret string
+	secret []byte
 	// err records why the conversation aborted, for tests.
 	err error
 }
@@ -147,7 +150,8 @@ func (c *pamConversation) handle(msgs []pamMessage) ([]pamReply, int32) {
 				return nil, pamConvErr
 			}
 			if kind == PromptSecret {
-				c.secret = answer
+				clear(c.secret)
+				c.secret = []byte(answer)
 			}
 			replies[i] = pamReply{text: answer, set: true}
 		case pamTextInfo:
