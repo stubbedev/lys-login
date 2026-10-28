@@ -47,6 +47,7 @@
         ./nix/shell.nix
         ./nix/modules.nix
         ./nix/checks.nix
+        ./nix/distro-vm.nix
       ];
     };
 }

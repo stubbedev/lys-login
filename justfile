@@ -55,6 +55,13 @@ fmt:
 login-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.login-vm
 
+# The .deb or the .rpm built, installed and logged in through in a
+# Debian or Fedora cloud VM, as nix/distro-vm.nix describes (needs KVM,
+# and the network in the guest): `just distro-vm debian`.
+distro-vm distro: dist
+    ./scripts/ci/build-archive.sh dist 0.0.0 {{ arch() }}
+    nix run .#distro-vm-{{ distro }} -- lys-login-0.0.0-{{ arch() }}-linux.tar.gz
+
 # Move lys-shell, lys-secrets, lys-ui and lys-lib to the heads of their
 # main branches (the module proxy lags fresh commits), the flake's
 # lys-shell and lys-secrets inputs with them, then the vendor hash.
