@@ -10,12 +10,14 @@
     # The shell whose look and config the login screen shares: the
     # libraries its binaries dlopen, its dev shell's test stack, and the
     # GPU driver setup through its lys-lib input. The Go code comes
-    # through go.mod.
+    # through go.mod. Its own lys-login input (the lock screen its VM
+    # checks lock with) is this flake.
     lys-shell = {
       url = "github:stubbedev/lys-shell";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
       inputs.lys-wm.follows = "lys-wm";
+      inputs.lys-login.follows = "";
     };
     # The kiosk compositor the display manager shows the greeter in, for
     # the login VM check.

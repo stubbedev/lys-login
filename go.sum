@@ -30,8 +30,8 @@ github.com/stubbedev/lys-lib v0.1.1-0.20261028204108-649e32879841 h1:jUGA6sGpNvL
 github.com/stubbedev/lys-lib v0.1.1-0.20261028204108-649e32879841/go.mod h1:e9nE63jdQ2wn0BEPVl/Rvk0yjom/T6YW//u4YPgRbQw=
 github.com/stubbedev/lys-secrets v0.0.0-20261028203124-5e7d4f0af5f5 h1:FvD5/jLx99pZ2LRxptqvtrJQV02Es8zRh1tCmwP79PY=
 github.com/stubbedev/lys-secrets v0.0.0-20261028203124-5e7d4f0af5f5/go.mod h1:L2/G0O1nFe7oZbfblgmchS4wlOYSPpuc8pSIOsof0Do=
-github.com/stubbedev/lys-shell v0.1.1-0.20261028204807-cc4ebecc214b h1:YUgOYENALg1oyx7hT006lpEBsn3rSB85/FLequblXJY=
-github.com/stubbedev/lys-shell v0.1.1-0.20261028204807-cc4ebecc214b/go.mod h1:yp3jLqTVqJyUf/A2w6B78G1Y7Chm77/9JO+/xNXjIzI=
+github.com/stubbedev/lys-shell v0.1.1-0.20261028205657-30aad9ed4f39 h1:R5RKwSIRyt1x5nkgFuc27Gs43yh5pbx9eMJWzEGRGZ0=
+github.com/stubbedev/lys-shell v0.1.1-0.20261028205657-30aad9ed4f39/go.mod h1:0Tfj+bnT8CbwGdoIvlGbbzkGWUcgqa4GJMVb7l6gQJI=
 github.com/stubbedev/lys-ui v0.0.0-20261028203534-7c0a1e46a7c9 h1:I2AEGuXB8sc3PjRBBb2Bm4i/nVANNtfrEaJoVzhgXbM=
 github.com/stubbedev/lys-ui v0.0.0-20261028203534-7c0a1e46a7c9/go.mod h1:YhsgRRTobTFI+J6ordtOm3SNE+1425IdIk4yEDPFZZo=
 github.com/stubbedev/memory-go v0.3.0 h1:Hkm+aw0vs9qhwXLL9p98U3IbQFRxPLyGvlrf2GZ9ov8=

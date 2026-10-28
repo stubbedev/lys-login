@@ -148,6 +148,7 @@
           "flake-parts"
         ],
         "lys-lib": "lys-lib",
+        "lys-login": [],
         "lys-secrets": "lys-secrets",
         "lys-wm": [
           "lys-wm"
@@ -157,11 +158,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1793220487,
-        "narHash": "sha256-+5SVIa//k57dF6RbuhmaSheNpjzJbqjoMT30fPcy85s=",
+        "lastModified": 1793221017,
+        "narHash": "sha256-FzIqGuPcgv2oLpW/ZRLck9cjAQPnYYeo6bJXHw4eD08=",
         "owner": "stubbedev",
         "repo": "lys-shell",
-        "rev": "cc4ebecc214baa122735cc1ba999a97843d809b0",
+        "rev": "30aad9ed4f39c28660c596708d75648ee87ca0c6",
         "type": "github"
       },
       "original": {
