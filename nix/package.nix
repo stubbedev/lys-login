@@ -9,10 +9,10 @@
     system,
     ...
   }: let
-    # libpam (authentication and sessions), libvulkan and libva: what
-    # lys-shell's binaries dlopen through purego, the login screen
-    # drawing through the same lys-ui.
-    inherit (inputs.lys-shell.packages.${system}.lys-shell) libs;
+    # What the binary dlopens through purego: libpam for authentication
+    # and sessions, and what lys-shell's binaries load for drawing through
+    # the same lys-ui (libvulkan, libva).
+    libs = lib.unique ([pkgs.pam] ++ inputs.lys-shell.packages.${system}.lys-shell.libs);
   in {
     packages.default = pkgs.buildGo127Module {
       pname = "lys-login";
