@@ -9,16 +9,16 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-lib/render"
+	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-shell/i18n"
+	"github.com/stubbedev/lys-shell/imagedecode"
+	"github.com/stubbedev/lys-shell/shell/apptheme"
+	"github.com/stubbedev/lys-shell/shell/treetest"
 	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 	"github.com/stubbedev/memory-go"
 
-	"github.com/stubbedev/lys-shell/config"
-	"github.com/stubbedev/lys-shell/i18n"
-	"github.com/stubbedev/lys-shell/internal/imagedecode"
-	"github.com/stubbedev/lys-shell/service/auth"
-	"github.com/stubbedev/lys-shell/shell/apptheme"
-	"github.com/stubbedev/lys-shell/shell/treetest"
+	"github.com/stubbedev/lys-login/internal/auth"
 )
 
 // fakeLocker plays lys-ui's session lock: Lock builds one surface per

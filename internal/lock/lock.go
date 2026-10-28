@@ -20,16 +20,16 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-lib/render"
+	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-shell/i18n"
+	"github.com/stubbedev/lys-shell/imagedecode"
+	"github.com/stubbedev/lys-shell/shell/reveal"
 	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 	"github.com/stubbedev/memory-go"
 
-	"github.com/stubbedev/lys-shell/config"
-	"github.com/stubbedev/lys-shell/i18n"
-	"github.com/stubbedev/lys-shell/internal/imagedecode"
-	loginscreen "github.com/stubbedev/lys-shell/login/screen"
-	"github.com/stubbedev/lys-shell/service/auth"
-	"github.com/stubbedev/lys-shell/shell/reveal"
+	"github.com/stubbedev/lys-login/internal/auth"
+	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
 // blackout is the surface's clear color under the background, opaque

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stubbedev/lys-shell/service/auth"
+	"github.com/stubbedev/lys-login/internal/auth"
 )
 
 // TestMain lets the test binary be a session worker whose PAM is a

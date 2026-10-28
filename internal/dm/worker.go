@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stubbedev/lys-shell/service/auth"
+	"github.com/stubbedev/lys-login/internal/auth"
 )
 
 // Seat is the seat the display manager runs on.

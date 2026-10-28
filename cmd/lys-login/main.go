@@ -31,10 +31,11 @@ import (
 	"syscall"
 
 	"github.com/stubbedev/lys-shell/config"
-	"github.com/stubbedev/lys-shell/login/dm"
-	"github.com/stubbedev/lys-shell/login/greeter"
-	"github.com/stubbedev/lys-shell/login/lock"
-	"github.com/stubbedev/lys-shell/login/lockclient"
+	"github.com/stubbedev/lys-shell/shell/lockclient"
+
+	"github.com/stubbedev/lys-login/internal/dm"
+	"github.com/stubbedev/lys-login/internal/greeter"
+	"github.com/stubbedev/lys-login/internal/lock"
 )
 
 const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml>"

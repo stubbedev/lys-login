@@ -2,21 +2,32 @@ package screen
 
 import (
 	"image"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/stubbedev/memory-go"
-
-	"github.com/stubbedev/lys-shell/internal/imagedecode"
+	"github.com/stubbedev/lys-shell/imagedecode"
 	"github.com/stubbedev/lys-shell/shell/treetest"
+	"github.com/stubbedev/memory-go"
 )
 
-var progressivePhoto = filepath.Join("..", "..", "third_party", "jpeg", "testdata", "flat-1024.progressive.444.jpeg")
+// progressivePhoto is the large progressive JPEG lys-shell's jpeg
+// decoder is tested with, read from the lys-shell module this one
+// builds against.
+func progressivePhoto(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/stubbedev/lys-shell").Output()
+	if err != nil {
+		t.Fatalf("locate the lys-shell module: %v", err)
+	}
+	return filepath.Join(strings.TrimSpace(string(out)), "third_party", "jpeg", "testdata", "flat-1024.progressive.444.jpeg")
+}
 
 func TestLoadBackdropFreesTheDecodedJPEG(t *testing.T) {
+	photo := progressivePhoto(t)
 	onHeap := treetest.HeapBytes(func() {
-		if _, err := imagedecode.Open(progressivePhoto); err != nil {
+		if _, err := imagedecode.Open(photo); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -27,7 +38,7 @@ func TestLoadBackdropFreesTheDecodedJPEG(t *testing.T) {
 	var bg *Backdrop
 	heap := treetest.HeapBytes(func() {
 		var err error
-		if bg, err = LoadBackdrop(&mem, imagedecode.OpenOffHeap, progressivePhoto, 4, []image.Point{{256, 144}}); err != nil {
+		if bg, err = LoadBackdrop(&mem, imagedecode.OpenOffHeap, photo, 4, []image.Point{{256, 144}}); err != nil {
 			t.Fatal(err)
 		}
 	})

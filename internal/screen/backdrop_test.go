@@ -10,9 +10,8 @@ import (
 
 	"github.com/stubbedev/lys-lib/intconv"
 	"github.com/stubbedev/lys-lib/render"
-	"github.com/stubbedev/memory-go"
-
 	"github.com/stubbedev/lys-shell/shell/treetest"
+	"github.com/stubbedev/memory-go"
 )
 
 // photo is a w x h opaque test picture with detail at every scale:

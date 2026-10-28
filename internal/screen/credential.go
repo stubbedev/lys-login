@@ -12,11 +12,10 @@ package screen
 
 import (
 	"github.com/stubbedev/lys-lib/render"
-	"github.com/stubbedev/lys-ui/widget"
-	"github.com/stubbedev/lys-ui/widget/css"
-
 	"github.com/stubbedev/lys-shell/shell/widgets"
 	"github.com/stubbedev/lys-shell/styling"
+	"github.com/stubbedev/lys-ui/widget"
+	"github.com/stubbedev/lys-ui/widget/css"
 )
 
 // entryChars is the entries' width-chars.

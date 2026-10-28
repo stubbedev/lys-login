@@ -20,7 +20,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/stubbedev/lys-shell/service/auth"
+	"github.com/stubbedev/lys-login/internal/auth"
 )
 
 // A worker and the daemon exchange JSON lines over a socket pair: the

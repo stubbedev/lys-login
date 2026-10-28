@@ -2,9 +2,8 @@ package screen
 
 import (
 	"github.com/stubbedev/lys-lib/render"
-	"github.com/stubbedev/lys-ui/widget"
-
 	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-ui/widget"
 )
 
 // Mode is the situation the login screen is shown in.

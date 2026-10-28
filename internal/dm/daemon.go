@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/stubbedev/lys-shell/shlex"
 	"golang.org/x/sys/unix"
 
-	"github.com/stubbedev/lys-shell/internal/shlex"
-	"github.com/stubbedev/lys-shell/service/auth"
+	"github.com/stubbedev/lys-login/internal/auth"
 )
 
 // Options configure the daemon.

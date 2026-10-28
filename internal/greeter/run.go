@@ -10,16 +10,16 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-lib/render"
+	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-shell/imagedecode"
+	"github.com/stubbedev/lys-shell/logging"
+	"github.com/stubbedev/lys-shell/outputsize"
+	"github.com/stubbedev/lys-shell/shell/apptheme"
+	"github.com/stubbedev/lys-shell/styling"
 	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 
-	"github.com/stubbedev/lys-shell/config"
-	"github.com/stubbedev/lys-shell/internal/imagedecode"
-	"github.com/stubbedev/lys-shell/internal/logging"
-	"github.com/stubbedev/lys-shell/internal/outputsize"
-	"github.com/stubbedev/lys-shell/service/auth"
-	"github.com/stubbedev/lys-shell/shell/apptheme"
-	"github.com/stubbedev/lys-shell/styling"
+	"github.com/stubbedev/lys-login/internal/auth"
 )
 
 // Run shows the greeter until greetd starts a session (or the window

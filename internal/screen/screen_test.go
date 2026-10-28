@@ -7,10 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stubbedev/lys-ui/widget"
-
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/shell/treetest"
+	"github.com/stubbedev/lys-ui/widget"
 )
 
 // shape is a widget tree as its node types and classes, depth first,

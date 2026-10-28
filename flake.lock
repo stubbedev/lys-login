@@ -20,13 +20,293 @@
         "type": "github"
       }
     },
+    "flake-parts_2": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "lys-wm",
+          "lys-ui",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1790898470,
+        "narHash": "sha256-zTwuwezD0w3hpga6a6P8emidzAZFyWqlNeRBlpWOOl8=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "024633cd702b10285db5cb19b40ad48d2399ba60",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "home-manager": {
+      "inputs": {
+        "nixpkgs": [
+          "lys-shell",
+          "lys-secrets",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793193205,
+        "narHash": "sha256-X6xa6sGA7RnJQuZGbFMC+K+KToWAlBDCCjJXfTwEPsw=",
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "rev": "095fef2f265c3c0da4fe315efba8f8a04495ab34",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "home-manager",
+        "type": "github"
+      }
+    },
+    "lys-lib": {
+      "inputs": {
+        "flake-parts": [
+          "lys-shell",
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "lys-shell",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793218891,
+        "narHash": "sha256-youdkNH+berUjOjcmnTFXbdfPvhrDcaKQDARkt264xE=",
+        "owner": "stubbedev",
+        "repo": "lys-lib",
+        "rev": "e10e9a07cba0b19b25b58d3c90f48c3e03c33afb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-lib",
+        "type": "github"
+      }
+    },
+    "lys-lib_2": {
+      "inputs": {
+        "flake-parts": [
+          "lys-wm",
+          "lys-shell",
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "lys-wm",
+          "lys-shell",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793047547,
+        "narHash": "sha256-8Ms+DokxZdQQi0TScCkIAamLclmyNqYGafJcZvsHUGE=",
+        "owner": "stubbedev",
+        "repo": "lys-lib",
+        "rev": "c12a4ac52b17665b746dc47db6ba665d4da40e41",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-lib",
+        "type": "github"
+      }
+    },
+    "lys-secrets": {
+      "inputs": {
+        "flake-parts": [
+          "lys-shell",
+          "flake-parts"
+        ],
+        "home-manager": "home-manager",
+        "nixpkgs": [
+          "lys-shell",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793219484,
+        "narHash": "sha256-pK+9WLWA9SBv1EIBXfaI5L7+r3jKsXEHg1DZetXjR2s=",
+        "owner": "stubbedev",
+        "repo": "lys-secrets",
+        "rev": "5e7d4f0af5f502f0ada02cd9a0b4112a240e7be6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-secrets",
+        "type": "github"
+      }
+    },
+    "lys-shell": {
+      "inputs": {
+        "flake-parts": [
+          "flake-parts"
+        ],
+        "lys-lib": "lys-lib",
+        "lys-secrets": "lys-secrets",
+        "lys-wm": [
+          "lys-wm"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793220487,
+        "narHash": "sha256-+5SVIa//k57dF6RbuhmaSheNpjzJbqjoMT30fPcy85s=",
+        "owner": "stubbedev",
+        "repo": "lys-shell",
+        "rev": "cc4ebecc214baa122735cc1ba999a97843d809b0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-shell",
+        "type": "github"
+      }
+    },
+    "lys-shell_2": {
+      "inputs": {
+        "flake-parts": [
+          "lys-wm",
+          "flake-parts"
+        ],
+        "lys-lib": "lys-lib_2",
+        "lys-wm": "lys-wm_2",
+        "nixpkgs": [
+          "lys-wm",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793049426,
+        "narHash": "sha256-B4JmqeaCD4x3048zOyp70mAWkt6KwYkWecf/w4JkE7c=",
+        "owner": "stubbedev",
+        "repo": "lys-shell",
+        "rev": "a5e1a9c2aae4164bbc1f3df0504f4dd753cac695",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-shell",
+        "type": "github"
+      }
+    },
+    "lys-ui": {
+      "inputs": {
+        "flake-parts": [
+          "lys-wm",
+          "lys-shell",
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "lys-wm",
+          "lys-shell",
+          "lys-wm",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792847676,
+        "narHash": "sha256-Lh259vWm/n59pTknaCJqWL2bAXoj4spLTYG/2eWehW8=",
+        "owner": "stubbedev",
+        "repo": "lys-ui",
+        "rev": "b4ed4d0aa4f9b01018bca62f494600f85847ed9b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-ui",
+        "type": "github"
+      }
+    },
+    "lys-ui_2": {
+      "inputs": {
+        "flake-parts": "flake-parts_2",
+        "nixpkgs": [
+          "lys-wm",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792847676,
+        "narHash": "sha256-Lh259vWm/n59pTknaCJqWL2bAXoj4spLTYG/2eWehW8=",
+        "owner": "stubbedev",
+        "repo": "lys-ui",
+        "rev": "b4ed4d0aa4f9b01018bca62f494600f85847ed9b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-ui",
+        "type": "github"
+      }
+    },
+    "lys-wm": {
+      "inputs": {
+        "flake-parts": [
+          "flake-parts"
+        ],
+        "lys-shell": "lys-shell_2",
+        "lys-ui": "lys-ui_2",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793219828,
+        "narHash": "sha256-RvEEeoWzxvBHvOu5q+ycqt8qJzrvj2mE/gceWPZLfz4=",
+        "owner": "stubbedev",
+        "repo": "lys-wm",
+        "rev": "8258814933c2836d8c68d09db06347dfa5e4201f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-wm",
+        "type": "github"
+      }
+    },
+    "lys-wm_2": {
+      "inputs": {
+        "flake-parts": [
+          "lys-wm",
+          "lys-shell",
+          "flake-parts"
+        ],
+        "lys-ui": "lys-ui",
+        "nixpkgs": [
+          "lys-wm",
+          "lys-shell",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793036086,
+        "narHash": "sha256-APaUkJrh9GcHWh68PPlJQtw4Gu2+U/pcQVOoX66d0zs=",
+        "owner": "stubbedev",
+        "repo": "lys-wm",
+        "rev": "bfe4d609178870ad0d7ffefb14f7f51a127a2e3a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "stubbedev",
+        "repo": "lys-wm",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1791456040,
-        "narHash": "sha256-H83yz/do+hjOO0uujHyH8RgtIQP2v7Mw+cLwcZK/xKc=",
+        "lastModified": 1793110635,
+        "narHash": "sha256-dhoW6VgFWlaodSY5jrBn+CF2FLmaUvDVgM7+C7T2+NM=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "e7439b6b14ad3cc35d05608ebca9bce01a25f5f8",
+        "rev": "31ecbaca1bdefa45dffc409f0250bd8039ea0010",
         "type": "github"
       },
       "original": {
@@ -39,6 +319,8 @@
     "root": {
       "inputs": {
         "flake-parts": "flake-parts",
+        "lys-shell": "lys-shell",
+        "lys-wm": "lys-wm",
         "nixpkgs": "nixpkgs"
       }
     }
