@@ -20,11 +20,10 @@
         };
       }
       // {
-        # The package wraps the binary with the libraries it dlopens (libpam
-        # above all) and installs the polkit action apply-config runs under.
+        # The package wraps the binary with the libraries it dlopens, libpam
+        # above all.
         package = pkgs.runCommand "lys-login-package" {} ''
           grep -q "${lib.getLib pkgs.pam}/lib" ${pkg}/bin/lys-login || { echo "lys-login lacks libpam on its library path" >&2; exit 1; }
-          test -f ${pkg}/share/polkit-1/actions/dev.stubbe.lys.greeter.policy
           touch $out
         '';
       };

@@ -1,7 +1,8 @@
 // Package dm is the login screen's display manager: `lys-login daemon`,
 // run as root by its system service on a VT, shows the greeter there and
 // starts the session a user logs in to, with PAM as its only required
-// dependency. It replaces greetd, cage and the polkit apply path.
+// dependency. It replaces greetd and cage, and takes the logged-in
+// user's changes of the login screen without polkit.
 //
 // The daemon itself never authenticates or opens a session: each greeter
 // and each login runs in a worker, `lys-login worker`, a root process of
@@ -55,6 +56,8 @@ type event struct {
 	// Text is why the login failed (failed), or how the session ended
 	// (ended).
 	Text string `json:"text,omitempty"`
+	// UID is the account the session runs as (started).
+	UID uint32 `json:"uid"`
 }
 
 // The event kinds.

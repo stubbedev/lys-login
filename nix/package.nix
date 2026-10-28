@@ -43,11 +43,6 @@
 
       nativeBuildInputs = [pkgs.makeWrapper];
 
-      # The polkit action for `pkexec lys-login apply-config`.
-      postInstall = ''
-        install -Dm0644 resources/dev.stubbe.lys.greeter.policy -t $out/share/polkit-1/actions
-      '';
-
       postFixup = ''
         wrapProgram $out/bin/lys-login --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath libs}"
       '';

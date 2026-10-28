@@ -408,13 +408,6 @@ in {
       environment.etc."lys-shell/config.yaml" = lib.mkIf (cfg.greeter.settings != {}) {
         source = yamlFormat.generate "lys-greeter-config.yaml" cfg.greeter.settings;
       };
-
-      # Let any local user push their greeter (login-screen) choices from
-      # lys-settings to the system config via `pkexec lys-login
-      # apply-config` (writes only greeter keys to /etc/lys-shell/runtime.yaml,
-      # which the greeter overlays on config.yaml). Admin auth is required.
-      security.polkit.enable = true;
-      environment.etc."polkit-1/actions/dev.stubbe.lys.greeter.policy".source = "${cfg.package}/share/polkit-1/actions/dev.stubbe.lys.greeter.policy";
     })
   ];
 }

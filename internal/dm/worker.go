@@ -317,7 +317,7 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}
-	if err := ch.send(event{Kind: evStarted}); err != nil {
+	if err := ch.send(event{Kind: evStarted, UID: a.uid}); err != nil {
 		log.Printf("dm: tell the daemon the session started: %v", err)
 	}
 	if secret != nil {

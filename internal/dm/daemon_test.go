@@ -40,7 +40,7 @@ func fakeSessionWorker() int {
 	if err := ch.recv(&req); err != nil || req.Op != opStart {
 		return 0
 	}
-	_ = ch.send(event{Kind: evStarted})
+	_ = ch.send(event{Kind: evStarted, UID: 1000})
 	_ = ch.send(event{Kind: evEnded, Text: "exited"})
 	return 0
 }
@@ -87,8 +87,12 @@ func TestGreeterLogsInThroughTheDaemon(t *testing.T) {
 	if !slices.Equal(login.cmd, []string{"Hyprland"}) || !slices.Equal(login.env, []string{"LANG=C"}) {
 		t.Errorf("session = %v %v", login.cmd, login.env)
 	}
-	if err := login.run(); err != nil {
+	var started []uint32
+	if err := login.run(func(uid uint32) { started = append(started, uid) }); err != nil {
 		t.Errorf("run: %v", err)
+	}
+	if !slices.Equal(started, []uint32{1000}) {
+		t.Errorf("started = %v, want the session's uid once", started)
 	}
 }
 
@@ -123,7 +127,7 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session after the retry")
 	}
-	if err := login.run(); err != nil {
+	if err := login.run(func(uint32) {}); err != nil {
 		t.Error(err)
 	}
 }
@@ -261,7 +265,7 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session")
 	}
-	if err := login.run(); err != nil {
+	if err := login.run(func(uint32) {}); err != nil {
 		t.Error(err)
 	}
 	if _, err := idleClient.Write([]byte{0}); err == nil {

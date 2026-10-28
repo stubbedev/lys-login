@@ -11,8 +11,8 @@ greeter and the lock screen, plus a display manager of its own.
 - `lys-login daemon`: the display manager in place of greetd and cage.
 - `lys-login unlock-keyring`: the display manager's hand-off of the login
   password to the new session's keyring (below).
-- `lys-login apply-config`: the privileged config writer lys-settings runs
-  through pkexec.
+- `lys-login apply-config`: changes the login screen the system shows, from
+  your session (below).
 
 It shares the desktop's look and its `login` config section with
 [lys-shell](https://github.com/stubbedev/lys-shell), whose `config`,
@@ -118,12 +118,21 @@ home is readable by the greetd user (e.g. `chmod o+x` on `$HOME`); otherwise the
 These options live under **Login & Lock Screen** and **Greeter** in `lys-settings`. The
 greeter reads the *system* config (`/etc/lys-shell/config.yaml` plus a
 `runtime.yaml` overlay beside it), not your user config. The **Apply to login
-screen** button on that page pushes the current greeter values to the system via
-`pkexec lys-login apply-config` (bundled polkit action
-`dev.stubbe.lys.greeter.apply-config`, admin auth), writing only the login keys
-the greeter reads to `/etc/lys-shell/runtime.yaml` — so any user can set the login-screen background
-without hand-editing root-owned files, and a hand-written `config.yaml` is never
-clobbered.
+screen** button on that page pushes the current greeter values to the system
+with `lys-login apply-config <STAGED.yaml>`, which writes only the login keys
+the greeter reads, and an image background copied beside them, to
+`/etc/lys-shell/runtime.yaml`, so a hand-written `config.yaml` is never
+clobbered. It needs no polkit:
+
+- **Under `lys-login daemon`** the user logged in through it runs it as
+  themselves. It reads the staged file and the image with that user's rights
+  and hands them to the daemon over `/run/lys-login/apply.sock`; the daemon
+  takes a change from root and from the user whose session it runs, and
+  from nobody else (nobody at all while the greeter is up). The next greeter
+  shows it.
+- **Under greetd**, or with no session, root runs it (`sudo lys-login
+  apply-config`, `--config PATH` for another system config) and writes the
+  overlay itself.
 
 ### How it runs
 

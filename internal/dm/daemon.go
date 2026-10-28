@@ -32,19 +32,31 @@ type Options struct {
 	// GreeterArgs follow `lys-login greet`: the config, the state file,
 	// the session directories.
 	GreeterArgs []string
-	// RuntimeDir holds the greeter's socket and the kiosk config.
+	// RuntimeDir holds the greeter's socket, the apply socket and the
+	// kiosk config.
 	RuntimeDir string
+	// GreeterConfig is the system config the greeter reads, whose
+	// runtime.yaml the logged-in user's changes go to.
+	GreeterConfig string
 }
 
 // retryPause spaces greeters that fail to come up.
 const retryPause = 2 * time.Second
 
 // Run shows the greeter on the VT and starts each session a user logs
-// in to, until ctx ends.
+// in to, until ctx ends. Meanwhile it takes changes of the login screen
+// on the apply socket from root and from the user whose session runs.
 func Run(ctx context.Context, o Options) error {
 	if err := os.MkdirAll(o.RuntimeDir, 0o755); err != nil { //nolint:gosec // the greeter user reaches its socket through it
 		return fmt.Errorf("dm: create %s: %w", o.RuntimeDir, err)
 	}
+	owner := newSessionOwner()
+	apply, err := listenApply(ApplySocket(o.RuntimeDir))
+	if err != nil {
+		return fmt.Errorf("dm: %w", err)
+	}
+	defer func() { _ = apply.Close() }()
+	go serveApply(apply, owner, o.GreeterConfig)
 	for ctx.Err() == nil {
 		if err := activateVT(o.VT); err != nil {
 			log.Printf("dm: %v", err)
@@ -58,7 +70,9 @@ func Run(ctx context.Context, o Options) error {
 			}
 			continue
 		}
-		if err := login.run(); err != nil {
+		err = login.run(owner.set)
+		owner.clear()
+		if err != nil {
 			log.Printf("dm: session: %v", err)
 		}
 	}
@@ -372,8 +386,9 @@ func relay(conn net.Conn, w *worker) (loginState, error) {
 	return endedLogin, fmt.Errorf("dm: unexpected event %q while authenticating", ev.Kind)
 }
 
-// run starts the authenticated session and waits for it to end.
-func (l *pendingLogin) run() error {
+// run starts the authenticated session and waits for it to end,
+// telling started the uid it runs as once it does.
+func (l *pendingLogin) run(started func(uid uint32)) error {
 	defer l.w.wait()
 	if err := l.w.ch.send(request{Op: opStart, Cmd: l.cmd, Env: l.env}); err != nil {
 		return err
@@ -388,7 +403,8 @@ func (l *pendingLogin) run() error {
 		}
 		switch ev.Kind {
 		case evStarted:
-			log.Printf("dm: session started: %s", strings.Join(l.cmd, " "))
+			started(ev.UID)
+			log.Printf("dm: session of uid %d started: %s", ev.UID, strings.Join(l.cmd, " "))
 		case evFailed:
 			return fmt.Errorf("the session did not start: %s", ev.Text)
 		case evEnded:

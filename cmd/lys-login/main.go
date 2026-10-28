@@ -15,8 +15,9 @@
 // daemon is the display manager in place of greetd and cage: run as root
 // on a VT, it shows the greeter in a lys-wm kiosk and starts the session
 // a user logs in to (its workers are `lys-login worker`, started by it).
-// apply-config is the privileged config writer lys-settings runs through
-// pkexec. unlock-keyring is the daemon's: a session worker runs it as the
+// apply-config changes the login screen: run by the user logged in
+// through daemon it hands the change to the daemon, run as root it
+// writes it itself. unlock-keyring is the daemon's: a session worker runs it as the
 // user who logged in, with the password on stdin, to unlock the login
 // keyring (lys-secrets, else gnome-keyring) once the session starts one.
 package main
@@ -41,6 +42,7 @@ import (
 	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
+	"github.com/stubbedev/lys-login/internal/greeterconfig"
 	"github.com/stubbedev/lys-login/internal/lock"
 )
 
@@ -64,7 +66,7 @@ func main() {
 	case "unlock-keyring":
 		os.Exit(unlockKeyring(args))
 	case "apply-config":
-		os.Exit(greeter.RunApplyConfig(args, os.Stdout, os.Stderr))
+		os.Exit(applyConfig(args))
 	default:
 		fmt.Fprintf(os.Stderr, "lys-login: unknown mode %q\n%s\n", os.Args[1], usage)
 		os.Exit(2)
@@ -141,6 +143,49 @@ func lockSession(args []string) int {
 	}
 }
 
+// applyConfig is `lys-login apply-config [--config PATH] <STAGED.yaml>`:
+// it stages the login keys of STAGED, and the background image an image
+// background names, with the caller's rights, and puts them in the
+// runtime.yaml beside the greeter's system config. Root writes them
+// itself (into PATH's directory); anyone else hands them to the display
+// manager, which takes them from the user whose session it runs.
+func applyConfig(args []string) int {
+	fs := flag.NewFlagSet("lys-login apply-config", flag.ContinueOnError)
+	configPath := fs.String("config", "", "as root, the greeter's system config (default "+config.GreeterConfigPath+")")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: lys-login apply-config [--config PATH] <STAGED.yaml>")
+		return 2
+	}
+	asRoot := os.Geteuid() == 0
+	if *configPath != "" && !asRoot {
+		fmt.Fprintln(os.Stderr, "lys-login apply-config: --config is root's: a user's change goes to the display manager, which writes the config it shows")
+		return 2
+	}
+	c, err := greeterconfig.Stage(fs.Arg(0))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login apply-config:", err)
+		return 1
+	}
+	var dest string
+	if asRoot {
+		if *configPath == "" {
+			*configPath = config.GreeterConfigPath
+		}
+		dest, err = greeterconfig.Write(c, *configPath)
+	} else {
+		dest, err = dm.SendChange(dm.ApplySocket(dm.DefaultRuntimeDir), c)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login apply-config:", err)
+		return 1
+	}
+	fmt.Println("wrote", dest)
+	return 0
+}
+
 // keyringWait bounds how long unlock-keyring waits for the session's
 // keyring to start.
 const keyringWait = time.Minute
@@ -185,11 +230,15 @@ func daemon(args []string) int {
 	wo := workerFlags(fs)
 	greeterUser := fs.String("greeter-user", "lys-greeter", "account the greeter runs as")
 	compositor := fs.String("compositor", "lys-wm", "the greeter's compositor")
-	runtimeDir := fs.String("runtime-dir", "/run/lys-login", "directory for the greeter's socket")
+	runtimeDir := fs.String("runtime-dir", dm.DefaultRuntimeDir, "directory for the greeter's and the apply socket")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	var err error
+	greet, err := greeter.ParseOptions(fs.Args())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter's arguments:", err)
+		return 2
+	}
 	if wo.Self, err = self(); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)
 		return 1
@@ -199,6 +248,7 @@ func daemon(args []string) int {
 	err = dm.Run(ctx, dm.Options{
 		WorkerOptions: *wo, GreeterUser: *greeterUser,
 		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
+		GreeterConfig: greet.ConfigPath,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)

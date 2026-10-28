@@ -4,7 +4,10 @@
 # right password, checks the session logind registered (the user, the
 # wayland type, the user class, the seat and the VT), that the login
 # unlocked lys-secrets' login collection with the password, and that the
-# greeter comes back once the session ends.
+# greeter comes back once the session ends. The user changes the login
+# screen's background from the session with `lys-login apply-config`,
+# which the daemon takes from them and nobody else, without polkit, and
+# the next greeter shows it.
 #
 # Build: nix build .#checks.<system>.login-vm -L
 {
@@ -17,13 +20,21 @@
   user = "alice";
   password = "lys-login-vm";
 
+  # The login screen's background the user applies from the session.
+  staged = pkgs.writeText "lys-login-vm-staged.yaml" ''
+    login:
+      background-mode: color
+      background-color: "#ff0000"
+  '';
+
   # The session the greeter offers: it records what it runs as and with,
-  # asks for lys-secrets' login collection as a client would (which
-  # D-Bus-activates lys-secrets) until the login has unlocked it, then
-  # ends, which hands the VT back to the greeter.
+  # applies the staged background, asks for lys-secrets' login collection
+  # as a client would (which D-Bus-activates lys-secrets) until the login
+  # has unlocked it, then ends, which hands the VT back to the greeter.
   session = pkgs.writeShellScript "lys-login-vm-session" ''
     echo "$(id -un) $XDG_SESSION_TYPE $XDG_SESSION_CLASS $XDG_SEAT $XDG_VTNR $XDG_SESSION_ID" > /tmp/lys-login/session
     loginctl show-session "$XDG_SESSION_ID" -p Class -p Type -p Seat -p VTNr -p Name > /tmp/lys-login/logind
+    lys-login apply-config ${staged} > /tmp/lys-login/apply 2>&1; echo "exit $?" >> /tmp/lys-login/apply
     for _ in $(seq 60); do
       ${pkgs.systemd}/bin/busctl --user get-property org.freedesktop.secrets \
         /org/freedesktop/secrets/collection/login org.freedesktop.Secret.Collection Locked \
@@ -80,7 +91,24 @@ in
     };
 
     testScript = ''
+      import os
+      import re
       import time
+
+      def background():
+          """A pixel left of the login form, clear of the pointer in the
+          corner and the buttons along the bottom: the greeter's
+          background."""
+          path = os.path.join(machine.out_dir, "background.ppm")
+          machine.send_monitor_command(f"screendump {path}")
+          with open(path, "rb") as f:
+              data = f.read()
+          m = re.match(rb"P6\s+(\d+)\s+(\d+)\s+\d+\s", data)
+          if m is None:
+              raise Exception("the screendump is not a binary PPM")
+          width, height = int(m.group(1)), int(m.group(2))
+          at = m.end() + 3 * ((height // 2) * width + width // 10)
+          return tuple(data[at:at + 3])
 
       start_all()
       machine.wait_for_unit("lys-login.service")
@@ -96,6 +124,15 @@ in
       machine.wait_until_succeeds("loginctl list-sessions --no-legend | grep -q lys-greeter", timeout=30)
       time.sleep(3)
       machine.screenshot("01-greeter")
+      if background() != (0, 0, 0):
+          raise Exception(f"the first greeter's background is {background()}, want the default black")
+
+      # Without a session nobody but root changes the login screen, and
+      # no polkit action stands in for the daemon.
+      if machine.execute("su ${user} -s /bin/sh -c 'lys-login apply-config ${staged}'")[0] == 0:
+          raise Exception("a user without a session changed the login screen")
+      machine.fail("test -e /etc/lys-shell/runtime.yaml")
+      machine.fail("test -e /etc/polkit-1/actions/dev.stubbe.lys.greeter.policy")
 
       # A wrong password leaves the greeter up and starts nothing.
       machine.send_chars("${user}\n")
@@ -126,10 +163,21 @@ in
       if machine.execute("test -d /home/${user}/.local/share/lys-secrets")[0] != 0:
           raise Exception("lys-secrets keeps no collection for ${user}")
 
+      # The session's user changed the login screen through the daemon.
+      apply = machine.succeed("cat /tmp/lys-login/apply")
+      if "wrote /etc/lys-shell/runtime.yaml" not in apply or "exit 0" not in apply:
+          raise Exception(f"apply-config from the session: {apply}")
+      machine.succeed("grep -q 'ff0000' /etc/lys-shell/runtime.yaml")
+
       # When the session ends the greeter comes back at once, on its
-      # first try.
+      # first try, with the background the user applied.
       machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=30)
-      time.sleep(2)
+      for _ in range(30):
+          if background() == (255, 0, 0):
+              break
+          time.sleep(1)
+      else:
+          raise Exception(f"the next greeter's background is {background()}, want the applied red")
       machine.screenshot("04-greeter-again")
       journal = machine.succeed("journalctl -u lys-login --no-pager")
       if "dm: greeter: the greeter ended" in journal:
