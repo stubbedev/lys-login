@@ -103,13 +103,14 @@ func activateVT(vt int) error {
 }
 
 // kioskConfig is lys-wm's config for the greeter: no binds, so the
-// greeter's keys reach only it, and the greeter as the one program.
+// greeter's keys reach only it, no border, so the greeter fills the
+// screen to its edges, and the greeter as the one program.
 func kioskConfig(greet []string) string {
 	quoted := make([]string, len(greet))
 	for i, arg := range greet {
 		quoted[i] = shlex.MustQuote(arg)
 	}
-	return "binds: []\nautostart:\n  - " + yamlString(strings.Join(quoted, " ")) + "\n"
+	return "binds: []\nborders:\n  width: 0\nautostart:\n  - " + yamlString(strings.Join(quoted, " ")) + "\n"
 }
 
 // yamlString is s as a double-quoted YAML scalar.

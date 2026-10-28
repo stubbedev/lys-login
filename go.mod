@@ -9,6 +9,7 @@ require (
 	github.com/stubbedev/lys-shell v0.1.1-0.20261028212553-59f1ee84e861
 	github.com/stubbedev/lys-ui v0.0.0-20261028203534-7c0a1e46a7c9
 	github.com/stubbedev/memory-go v0.3.0
+	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.49.0
 )
 
@@ -24,7 +25,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/unxed/xkb-go v0.1.9 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/image v0.47.0 // indirect
 	golang.org/x/net v0.62.0 // indirect

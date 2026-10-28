@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/stubbedev/lys-login/internal/auth"
 )
 
@@ -190,9 +192,23 @@ func TestATruncatedRequestIsAnError(t *testing.T) {
 
 func TestKioskConfigQuotesTheGreeter(t *testing.T) {
 	got := kioskConfig([]string{"/nix/store/x/bin/lys-login", "greet", "--sessions", "/run/my sessions", `--env`, `A="b"`})
-	want := "binds: []\nautostart:\n  - \"/nix/store/x/bin/lys-login greet --sessions '/run/my sessions' --env 'A=\\\"b\\\"'\"\n"
+	want := "binds: []\nborders:\n  width: 0\nautostart:\n  - \"/nix/store/x/bin/lys-login greet --sessions '/run/my sessions' --env 'A=\\\"b\\\"'\"\n"
 	if got != want {
 		t.Errorf("kiosk config =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestKioskConfigDrawsNoBorder(t *testing.T) {
+	var cfg struct {
+		Borders struct {
+			Width *int `yaml:"width"`
+		} `yaml:"borders"`
+	}
+	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"})), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Borders.Width == nil || *cfg.Borders.Width != 0 {
+		t.Errorf("borders.width = %v, want 0 so lys-wm draws no border around the greeter", cfg.Borders.Width)
 	}
 }
 

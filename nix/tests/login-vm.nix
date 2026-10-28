@@ -96,9 +96,10 @@ in
       import time
 
       def background():
-          """A pixel left of the login form, clear of the pointer in the
-          corner and the buttons along the bottom: the greeter's
-          background."""
+          """The set of colours of two pixels of the greeter's background:
+          one left of the login form, clear of the pointer in the corner
+          and the buttons along the bottom, and one on the screen's left
+          edge, where a border around the greeter's window would show."""
           path = os.path.join(machine.out_dir, "background.ppm")
           machine.send_monitor_command(f"screendump {path}")
           with open(path, "rb") as f:
@@ -107,8 +108,12 @@ in
           if m is None:
               raise Exception("the screendump is not a binary PPM")
           width, height = int(m.group(1)), int(m.group(2))
-          at = m.end() + 3 * ((height // 2) * width + width // 10)
-          return tuple(data[at:at + 3])
+
+          def pixel(x, y):
+              at = m.end() + 3 * (y * width + x)
+              return tuple(data[at:at + 3])
+
+          return {pixel(width // 10, height // 2), pixel(0, height // 2)}
 
       start_all()
       machine.wait_for_unit("lys-login.service")
@@ -124,7 +129,7 @@ in
       machine.wait_until_succeeds("loginctl list-sessions --no-legend | grep -q lys-greeter", timeout=30)
       time.sleep(3)
       machine.screenshot("01-greeter")
-      if background() != (0, 0, 0):
+      if background() != {(0, 0, 0)}:
           raise Exception(f"the first greeter's background is {background()}, want the default black")
 
       # Without a session nobody but root changes the login screen, and
@@ -173,7 +178,7 @@ in
       # first try, with the background the user applied.
       machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=30)
       for _ in range(30):
-          if background() == (255, 0, 0):
+          if background() == {(255, 0, 0)}:
               break
           time.sleep(1)
       else:
