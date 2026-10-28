@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/imagedecode"
 	"github.com/stubbedev/lys-shell/logging"
@@ -37,7 +38,7 @@ var (
 // the lock. One lys-login per session holds the lock: a second Run
 // returns ErrHeld.
 func Run(cfg *config.Config, stdout io.Writer) error {
-	release, err := holdSession(os.Getenv("XDG_RUNTIME_DIR"))
+	release, err := holdSession(xdg.OS)
 	if err != nil {
 		return err
 	}
@@ -104,15 +105,17 @@ func Run(cfg *config.Config, stdout io.Writer) error {
 	return nil
 }
 
-// holdSession takes the session's lys-login lock file, held until the
-// returned release; another holder is ErrHeld. Without a runtime dir
-// there is no session to share it with, and nothing is held.
-func holdSession(runtimeDir string) (release func(), err error) {
-	if runtimeDir == "" {
+// holdSession takes the session's lys-login lock file under env's
+// $XDG_RUNTIME_DIR/lys-login, held until the returned release; another
+// holder is ErrHeld. Without a runtime dir there is no session to share
+// it with: the lock goes ahead unguarded, and the log says so.
+func holdSession(env xdg.Env) (release func(), err error) {
+	dir, ok := env.RuntimeDir("lys-login")
+	if !ok {
+		log.Print("lock: XDG_RUNTIME_DIR is not an absolute path; locking without the one-lock-per-session guard")
 		return func() {}, nil
 	}
-	dir := filepath.Join(runtimeDir, "lys-login")
-	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // our own dir under XDG_RUNTIME_DIR
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("lock: create %s: %w", dir, err)
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "lock.lock"), os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // our own runtime file
