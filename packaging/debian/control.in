@@ -1,0 +1,34 @@
+Source: lys-login
+Section: admin
+Priority: optional
+Maintainer: @MAINTAINER@
+Build-Depends:
+ debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/stubbedev/lys-login
+Vcs-Git: https://github.com/stubbedev/lys-login.git
+Vcs-Browser: https://github.com/stubbedev/lys-login
+
+Package: lys-login
+Architecture: amd64 arm64
+Depends:
+ ${misc:Depends},
+ libpam0g,
+ libpam-systemd,
+ systemd
+Recommends:
+ lys-wm,
+ lys-secrets,
+ libvulkan1,
+ mesa-vulkan-drivers
+Provides: x-display-manager
+Description: display manager, greeter and lock screen for the lys desktop
+ lys-login is the lys desktop's login screen: the greeter, the session
+ lock lys-shell starts, and a display manager of its own that shows the
+ greeter in a lys-wm kiosk and starts the session through PAM.
+ .
+ The package enables nothing: switch to it with
+ systemctl enable lys-login after disabling the current display manager.
+ It installs the lys-login PAM service the display manager logs in
+ through and the lys-shell PAM service the lock screen unlocks with.

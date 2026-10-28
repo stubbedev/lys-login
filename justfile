@@ -30,6 +30,20 @@ race:
 build:
     go build -o /dev/null ./...
 
+# The program interpreter the dist/ binary requests: the distro's loader
+# at its standard path. purego links it dynamically, and a Go toolchain
+# from Nix would otherwise name its own /nix/store loader, which exists
+# only on NixOS.
+fhs_interpreter := if arch() == "aarch64" { "/lib/ld-linux-aarch64.so.1" } else { "/lib64/ld-linux-x86-64.so.2" }
+
+# Build the release binary into dist/, as the archive and the Debian and
+# RPM packages ship it: pure Go (libpam and the drawing libraries load at
+# runtime through purego), stripped, asking for the standard loader;
+# beside it the notice of the wordlist lys-shell's config links in.
+dist:
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -I {{fhs_interpreter}}" -o dist/ ./cmd/lys-login
+    install -m 0644 "$(go list -m -f '{{{{.Dir}}' github.com/stubbedev/lys-shell)/service/bitwarden/generator/eff_large_wordlist.NOTICE" dist/
+
 # Format every Go source in place (gofumpt and gci via golangci-lint).
 fmt:
     golangci-lint fmt

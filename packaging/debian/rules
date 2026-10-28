@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+
+override_dh_dwz:
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+override_dh_auto_install:
+	install -d debian/lys-login/usr/bin
+	install -m 0755 lys-login debian/lys-login/usr/bin/
+
+	install -d debian/lys-login/usr/lib/systemd/system
+	install -m 0644 lys-login.service debian/lys-login/usr/lib/systemd/system/
+
+	install -D -m 0644 lys-login.sysusers debian/lys-login/usr/lib/sysusers.d/lys-login.conf
+	install -D -m 0644 lys-login.tmpfiles debian/lys-login/usr/lib/tmpfiles.d/lys-login.conf
+
+	install -d debian/lys-login/etc/pam.d
+	install -m 0644 pam/debian/lys-login pam/debian/lys-shell debian/lys-login/etc/pam.d/
+
+	install -D -m 0644 eff_large_wordlist.NOTICE debian/lys-login/usr/share/doc/lys-login/eff_large_wordlist.NOTICE

@@ -1,0 +1,18 @@
+[Unit]
+Description=lys-login display manager
+Conflicts=getty@tty1.service
+After=systemd-user-sessions.service getty@tty1.service plymouth-quit-wait.service
+Wants=systemd-user-sessions.service
+
+[Service]
+Type=idle
+ExecStart=/usr/bin/lys-login daemon --vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
+Restart=always
+RestartSec=1
+KeyringMode=shared
+IgnoreSIGPIPE=no
+SendSIGHUP=yes
+TimeoutStopSec=30s
+
+[Install]
+Alias=display-manager.service

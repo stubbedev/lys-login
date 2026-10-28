@@ -1,0 +1,66 @@
+%global debug_package %{nil}
+%global _build_id_links none
+
+Name:           lys-login
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Display manager, greeter and lock screen for the lys desktop
+License:        MIT AND Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND CC-BY-3.0-US AND blessing
+URL:            https://github.com/stubbedev/lys-login
+Source0:        https://github.com/stubbedev/lys-login/releases/download/v%{version}/lys-login-%{version}-%{_arch}-linux.tar.gz
+ExclusiveArch:  x86_64
+
+BuildRequires:  systemd-rpm-macros
+Requires:       pam
+Requires:       systemd
+Recommends:     lys-wm
+Recommends:     lys-secrets
+Recommends:     vulkan-loader
+Recommends:     mesa-vulkan-drivers
+Provides:       service(graphical-login)
+
+%description
+lys-login is the lys desktop's login screen: the greeter, the session lock lys-shell starts, and a display manager of its own that shows the greeter in a lys-wm kiosk and starts the session through PAM.
+
+The package enables nothing: switch to it with systemctl enable lys-login after disabling the current display manager. It installs the lys-login PAM service the display manager logs in through and the lys-shell PAM service the lock screen unlocks with.
+
+%prep
+%setup -q -n lys-login-%{version}-%{_arch}-linux
+
+%build
+
+%install
+install -d %{buildroot}%{_bindir}
+install -m 0755 lys-login %{buildroot}%{_bindir}/
+
+install -d %{buildroot}%{_unitdir}
+install -m 0644 lys-login.service %{buildroot}%{_unitdir}/
+
+install -D -m 0644 lys-login.sysusers %{buildroot}%{_sysusersdir}/lys-login.conf
+install -D -m 0644 lys-login.tmpfiles %{buildroot}%{_tmpfilesdir}/lys-login.conf
+
+install -d %{buildroot}%{_sysconfdir}/pam.d
+install -m 0644 pam/fedora/lys-login pam/fedora/lys-shell %{buildroot}%{_sysconfdir}/pam.d/
+
+%post
+%systemd_post lys-login.service
+%tmpfiles_create lys-login.conf
+
+%preun
+%systemd_preun lys-login.service
+
+%postun
+%systemd_postun lys-login.service
+
+%files
+%license LICENSE eff_large_wordlist.NOTICE
+%{_bindir}/lys-login
+%{_unitdir}/lys-login.service
+%{_sysusersdir}/lys-login.conf
+%{_tmpfilesdir}/lys-login.conf
+%config(noreplace) %{_sysconfdir}/pam.d/lys-login
+%config(noreplace) %{_sysconfdir}/pam.d/lys-shell
+
+%changelog
+* @DATE@ @MAINTAINER@ - @VERSION@-1
+- Packaged upstream binary release

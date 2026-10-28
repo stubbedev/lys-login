@@ -222,6 +222,34 @@ contains the session files of every installed Wayland compositor. Options:
 The last session/username are stored in `/var/lib/lys-greeter/`, owned by the
 greetd user.
 
+### Debian, Ubuntu and Fedora
+
+Each [release](https://github.com/stubbedev/lys-login/releases) carries a
+`.deb` and an `.rpm` (x86_64) with:
+
+- `/usr/bin/lys-login`, which lys-shell runs for the lock screen;
+- `lys-login.service`, the display manager on VT 1 with the greeter in
+  lys-wm (`Alias=display-manager.service`), installed but not enabled;
+- the `lys-greeter` system user (sysusers.d) and its state directory
+  `/var/lib/lys-greeter` (tmpfiles.d);
+- two PAM services written for the distribution: `lys-login`, which the
+  display manager logs in through (the usual display-manager stack, with
+  pam_systemd from the common session), and `lys-shell`, which the lock
+  screen unlocks with. Set `login.lock.pam-service: lys-shell` in your
+  lys-shell config, the name the NixOS and home-manager modules use too.
+
+lys-wm and lys-secrets are recommended. To switch display managers, disable
+the current one and enable lys-login, for example:
+
+```
+sudo systemctl disable gdm
+sudo systemctl enable lys-login
+```
+
+The release's `lys-login-<version>-x86_64-linux.tar.gz` holds the same
+files, with both distributions' PAM services under `pam/`, for other
+systems.
+
 ### Other distros (manual greetd)
 
 Point greetd's `default_session` at the greeter, hosted by cage:
@@ -286,12 +314,21 @@ lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... [--stat
 | `just login-vm` | The display manager in a NixOS VM (needs KVM) |
 | `just bump-lys` | lys-shell, lys-secrets, lys-ui and lys-lib to their heads, then the vendor hash |
 | `just vendor-hash` | Recompute `nix/package.nix`'s `vendorHash` after a go.mod change |
+| `just dist` | The release binary in `dist/`, asking for the standard loader, with the wordlist notice |
 
 The dev shell (`nix develop`, or `direnv allow`) is lys-shell's: the pinned
 Go toolchain, the lint stack, fonts, and the headless sway and private D-Bus
 the tests start. `nix flake check` checks the package and runs the login VM.
 
-## CI
+## CI and releases
+
+`.github/workflows/ci.yml` runs `just check` and the package check, and builds
+the archive, the `.deb` and the `.rpm` the way a release does (`package.yml`,
+with `scripts/ci/` and `packaging/`). It installs and runs each package
+(`scripts/ci/smoke-test.sh`), so a packaging break shows before a tag. The
+login VM needs KVM and runs locally (`just login-vm`, `nix flake check`).
+Pushing a tag `vX.Y.Z` runs `release.yml`: the same packages at that
+version, their `SHA256SUMS`, and a GitHub release with generated notes.
 
 `.github/workflows/security.yml` runs CodeQL (Go and GitHub Actions), Grype and
 govulncheck, uploading findings to code scanning; dependency review gates
