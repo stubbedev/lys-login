@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-shell/cursorrecord"
 	"github.com/stubbedev/lys-shell/styling"
 	"github.com/stubbedev/lys-ui/widget"
 )
@@ -182,12 +183,6 @@ func TestCursorParsers(t *testing.T) {
 	if c := parseIndexTheme("[Icon Theme]\nInherits=phinger-cursors-light, other\n"); c != (Cursor{Theme: "phinger-cursors-light"}) {
 		t.Errorf("index.theme: %+v", c)
 	}
-	if c := parseRecorded("theme=Bibata-Modern-Ice\nsize=32\n"); c != (Cursor{"Bibata-Modern-Ice", 32}) {
-		t.Errorf("record: %+v", c)
-	}
-	if c := parseRecorded(""); c != (Cursor{}) {
-		t.Errorf("blank record: %+v", c)
-	}
 	if got := (Cursor{Theme: "A"}).or(Cursor{"B", 24}); got != (Cursor{"A", 24}) {
 		t.Errorf("or: %+v", got)
 	}
@@ -214,9 +209,26 @@ func TestDetectCursorOrder(t *testing.T) {
 	if got := DetectCursor(home, "niri"); got != (Cursor{"NiriTheme", 40}) {
 		t.Errorf("niri session: %+v", got)
 	}
-	write(recordedRel, "theme=Recorded\nsize=36\n")
+	record := func(env map[string]string) bool {
+		t.Helper()
+		env["HOME"] = home
+		written, err := cursorrecord.Record(func(name string) string { return env[name] })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return written
+	}
+	if record(map[string]string{}) {
+		t.Error("a session naming no cursor wrote a record")
+	}
+	if got := DetectCursor(home, "niri"); got != (Cursor{"NiriTheme", 40}) {
+		t.Errorf("no record falls back to the dotfiles: %+v", got)
+	}
+	if !record(map[string]string{"XCURSOR_THEME": "Recorded", "XCURSOR_SIZE": "36"}) {
+		t.Fatal("the session's cursor was not recorded")
+	}
 	if got := DetectCursor(home, "niri"); got != (Cursor{"Recorded", 36}) {
-		t.Errorf("record must win: %+v", got)
+		t.Errorf("the record lys-shell wrote must win: %+v", got)
 	}
 	if got := DetectCursor(filepath.Join(home, "absent"), ""); got != (Cursor{}) {
 		t.Errorf("unreadable home: %+v", got)
@@ -241,32 +253,6 @@ func TestResolveCursor(t *testing.T) {
 	t.Setenv("XCURSOR_SIZE", "")
 	if got := ResolveCursor(config.DefaultsLogin().Greeter, Cursor{}); got != (Cursor{Size: 24}) {
 		t.Errorf("nothing anywhere: %+v, want the 24px size default", got)
-	}
-}
-
-func TestRecordCursor(t *testing.T) {
-	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
-	t.Setenv("XCURSOR_THEME", "")
-	t.Setenv("XCURSOR_SIZE", "")
-	t.Setenv("HYPRCURSOR_SIZE", "")
-	if err := RecordCursor(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(state, "lys-shell", recordFile)); err == nil {
-		t.Error("a blank environment wrote a record (it would clobber a good one)")
-	}
-	t.Setenv("XCURSOR_THEME", "Bibata")
-	t.Setenv("HYPRCURSOR_SIZE", "28")
-	if err := RecordCursor(); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(filepath.Join(state, "lys-shell", recordFile))
-	if string(data) != "theme=Bibata\nsize=28\n" {
-		t.Errorf("record = %q", data)
-	}
-	if got := parseRecorded(string(data)); got != (Cursor{"Bibata", 28}) {
-		t.Errorf("the greeter does not read back what the shell wrote: %+v", got)
 	}
 }
 

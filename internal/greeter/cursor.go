@@ -1,12 +1,16 @@
 package greeter
 
 import (
+	"errors"
+	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-shell/cursorrecord"
 	"github.com/stubbedev/lys-ui/gtksettings"
 )
 
@@ -23,13 +27,6 @@ import (
 // XCURSOR_SIZE, so the resolved cursor is applied by exporting those
 // before connecting. The bundled-PNG fallback the Rust greeter works
 // around does not exist here.
-
-// recordedRel is where a running lys-shell session records its live cursor
-// (RecordCursor), relative to the user's home.
-const recordedRel = ".local/state/lys-shell/greeter-cursor"
-
-// recordFile is the record's name inside the lys-shell state dir.
-const recordFile = "greeter-cursor"
 
 // Cursor is what one source found; either side may be missing.
 type Cursor struct {
@@ -58,7 +55,7 @@ func DetectCursor(home, session string) Cursor {
 		data, _ := os.ReadFile(filepath.Join(home, rel)) //nolint:gosec // best-effort dotfile read
 		return string(data)
 	}
-	found := parseRecorded(read(recordedRel))
+	found := recordedCursor(home)
 	if found.complete() {
 		return found
 	}
@@ -126,63 +123,18 @@ func ApplyCursor(c Cursor) {
 	_ = os.Setenv("XCURSOR_SIZE", strconv.FormatUint(uint64(c.Size), 10))
 }
 
-// RecordCursor is the shell side (cursor_record.rs): from inside the
-// live session, XCURSOR_THEME and XCURSOR_SIZE (falling back to
-// HYPRCURSOR_SIZE) are the resolved truth, so they are written to
-// $XDG_STATE_HOME/lys-shell/greeter-cursor for the next login screen.
-// Nothing is written when neither is exported, so a good record is
-// never clobbered by blanks.
-func RecordCursor() error {
-	theme := os.Getenv("XCURSOR_THEME")
-	sizeText := os.Getenv("XCURSOR_SIZE")
-	if sizeText == "" {
-		sizeText = os.Getenv("HYPRCURSOR_SIZE")
-	}
-	size, sizeErr := strconv.ParseUint(strings.TrimSpace(sizeText), 10, 32)
-	if theme == "" && sizeErr != nil {
-		return nil
-	}
-	dir := os.Getenv("XDG_STATE_HOME")
-	if dir == "" {
-		home := os.Getenv("HOME")
-		if home == "" {
-			return nil
+// recordedCursor is the cursor a lys-shell session of the user whose
+// home is home recorded; none when it left no record or the record
+// cannot be read, which is logged.
+func recordedCursor(home string) Cursor {
+	c, err := cursorrecord.Read(home)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("greeter: %v", err)
 		}
-		dir = filepath.Join(home, ".local", "state")
+		return Cursor{}
 	}
-	dir = filepath.Join(dir, "lys-shell")
-	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // lys-shell's state dir
-		return err
-	}
-	var body strings.Builder
-	if theme != "" {
-		body.WriteString("theme=" + theme + "\n")
-	}
-	if sizeErr == nil {
-		body.WriteString("size=" + strconv.FormatUint(size, 10) + "\n")
-	}
-	return os.WriteFile(filepath.Join(dir, recordFile), []byte(body.String()), 0o644) //nolint:gosec // readable by the greeter on purpose
-}
-
-// parseRecorded reads the theme=/size= record.
-func parseRecorded(text string) Cursor {
-	var c Cursor
-	for line := range strings.SplitSeq(text, "\n") {
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		value = strings.TrimSpace(value)
-		switch strings.TrimSpace(key) {
-		case "theme":
-			if value != "" {
-				c.Theme = value
-			}
-		case "size":
-			c.Size = parseSize(value)
-		}
-	}
-	return c
+	return Cursor(c)
 }
 
 func parseSize(s string) uint32 {
