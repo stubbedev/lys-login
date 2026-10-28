@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/stubbedev/lys-lib/peercred"
 
 	"github.com/stubbedev/lys-login/internal/greeterconfig"
 )
@@ -107,7 +107,7 @@ func serveApply(ln *net.UnixListener, owner *sessionOwner, configPath string) {
 
 func handleApply(conn *net.UnixConn, owner *sessionOwner, configPath string, mu *sync.Mutex) error {
 	_ = conn.SetDeadline(time.Now().Add(applyTimeout))
-	uid, err := peerUID(conn)
+	uid, err := peercred.UID(conn)
 	if err != nil {
 		return err
 	}
@@ -136,25 +136,6 @@ func replyApply(conn net.Conn, r applyReply, cause error) error {
 		return fmt.Errorf("reply: %w", err)
 	}
 	return cause
-}
-
-// peerUID is the uid of the process at conn's other end.
-func peerUID(conn *net.UnixConn) (uint32, error) {
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		return 0, fmt.Errorf("peer credentials: %w", err)
-	}
-	var cred *unix.Ucred
-	var credErr error
-	if err := raw.Control(func(fd uintptr) {
-		cred, credErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	}); err != nil {
-		return 0, fmt.Errorf("peer credentials: %w", err)
-	}
-	if credErr != nil {
-		return 0, fmt.Errorf("peer credentials: %w", credErr)
-	}
-	return cred.Uid, nil
 }
 
 // SendChange hands c to the display manager at the apply socket path
