@@ -20,9 +20,7 @@
 // through daemon it hands the change to the daemon, run as root it
 // writes it itself. record-cursor hands the cursor of the session it
 // runs in (XCURSOR_THEME, XCURSOR_SIZE) to daemon, which keeps it for
-// the next greeter. unlock-keyring is the daemon's: a session worker runs it as the
-// user who logged in, with the password on stdin, to unlock the login
-// keyring (lys-secrets, else gnome-keyring) once the session starts one.
+// the next greeter.
 package main
 
 import (
@@ -35,15 +33,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/stubbedev/lys-lib/xdg"
-	"github.com/stubbedev/lys-secrets/control"
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/shell/lockclient"
-	"golang.org/x/sys/unix"
 
-	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
@@ -68,8 +62,6 @@ func main() {
 		os.Exit(daemon(args))
 	case "worker":
 		os.Exit(worker(args))
-	case "unlock-keyring":
-		os.Exit(unlockKeyring(args))
 	case "apply-config":
 		os.Exit(applyConfig(args))
 	case "record-cursor":
@@ -216,37 +208,6 @@ func recordCursor(args []string) int {
 		return 1
 	}
 	fmt.Println("wrote", dest)
-	return 0
-}
-
-// keyringWait bounds how long unlock-keyring waits for the session's
-// keyring to start.
-const keyringWait = time.Minute
-
-// unlockKeyring is `lys-login unlock-keyring`: a session worker runs it
-// as the user who just logged in, with the password on stdin, and it
-// hands the password to the session's keyring once one runs.
-func unlockKeyring(args []string) int {
-	if len(args) != 0 {
-		fmt.Fprintf(os.Stderr, "lys-login unlock-keyring: unexpected argument %q\n", args[0])
-		return 2
-	}
-	if err := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); err != nil {
-		fmt.Fprintln(os.Stderr, "lys-login unlock-keyring: make the process undumpable:", err)
-		return 1
-	}
-	password, err := control.ReadPassword(os.Stdin)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "lys-login unlock-keyring:", err)
-		return 1
-	}
-	defer clear(password)
-	ctx, cancel := context.WithTimeout(context.Background(), keyringWait)
-	defer cancel()
-	if err := auth.AwaitLoginKeyring(ctx, password); err != nil {
-		fmt.Fprintln(os.Stderr, "lys-login unlock-keyring:", err)
-		return 1
-	}
 	return 0
 }
 

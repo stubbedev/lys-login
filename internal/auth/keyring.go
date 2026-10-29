@@ -10,7 +10,6 @@ import (
 	"log"
 	"math"
 	"net"
-	"os"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -41,7 +40,7 @@ const (
 // appears. Best effort — failures are logged, never blocking or denying
 // the unlock the user already earned.
 func UnlockLoginKeyring(password []byte) {
-	secrets, gnome, err := keyringSockets()
+	secrets, gnome, err := keyringSockets(xdg.OS)
 	if err == nil {
 		err = unlockLoginKeyring(secrets, gnome, password)
 	}
@@ -53,12 +52,12 @@ func UnlockLoginKeyring(password []byte) {
 // keyringPoll spaces AwaitLoginKeyring's attempts.
 const keyringPoll = 250 * time.Millisecond
 
-// AwaitLoginKeyring is UnlockLoginKeyring for a session that is still
-// starting: it tries until lys-secrets or gnome-keyring answers, and
-// returns what that keyring said, or why none answered before ctx
-// ended.
-func AwaitLoginKeyring(ctx context.Context, password []byte) error {
-	secrets, gnome, err := keyringSockets()
+// AwaitLoginKeyring is UnlockLoginKeyring for a session with
+// environment env that is still starting: it tries until lys-secrets or
+// gnome-keyring answers, and returns what that keyring said, or why
+// none answered before ctx ended.
+func AwaitLoginKeyring(ctx context.Context, env xdg.Env, password []byte) error {
+	secrets, gnome, err := keyringSockets(env)
 	if err != nil {
 		return err
 	}
@@ -99,17 +98,17 @@ func unlockLoginKeyring(secretsSock, gnomeSock string, password []byte) error {
 	return nil
 }
 
-// keyringSockets are the session's lys-secrets control socket and
-// gnome-keyring control socket: $GNOME_KEYRING_CONTROL/control, else
-// $XDG_RUNTIME_DIR/keyring/control.
-func keyringSockets() (secrets, gnome string, err error) {
-	secrets, err = control.SocketPath()
+// keyringSockets are the lys-secrets control socket and gnome-keyring
+// control socket of the session with environment env:
+// $GNOME_KEYRING_CONTROL/control, else $XDG_RUNTIME_DIR/keyring/control.
+func keyringSockets(env xdg.Env) (secrets, gnome string, err error) {
+	secrets, err = control.SocketPath(env)
 	if err != nil {
 		return "", "", fmt.Errorf("keyring: %w", err)
 	}
-	gnomeDir := os.Getenv("GNOME_KEYRING_CONTROL")
+	gnomeDir := env("GNOME_KEYRING_CONTROL")
 	if !filepath.IsAbs(gnomeDir) {
-		runtime, ok := xdg.OS.RuntimeHome()
+		runtime, ok := env.RuntimeHome()
 		if !ok {
 			return "", "", errors.New("keyring: XDG_RUNTIME_DIR is not set to an absolute path")
 		}

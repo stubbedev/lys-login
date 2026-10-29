@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-lib/sockdir"
+	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-secrets/control"
 )
 
@@ -84,22 +85,27 @@ func TestKeyringUnlockFailures(t *testing.T) {
 	}
 }
 
+// sessionEnv is a session's environment holding vars, apart from the
+// test's own.
+func sessionEnv(vars map[string]string) xdg.Env {
+	return func(name string) string { return vars[name] }
+}
+
 func TestKeyringSockets(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-	t.Setenv("GNOME_KEYRING_CONTROL", "/run/user/1000/keyring-x")
-	secrets, gnome, err := keyringSockets()
+	vars := map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000", "GNOME_KEYRING_CONTROL": "/run/user/1000/keyring-x"}
+	secrets, gnome, err := keyringSockets(sessionEnv(vars))
 	if err != nil || secrets != "/run/user/1000/lys-secrets/control" || gnome != "/run/user/1000/keyring-x/control" {
 		t.Errorf("with GNOME_KEYRING_CONTROL: %q, %q, %v", secrets, gnome, err)
 	}
 	for _, unset := range []string{"", "keyring-x"} {
-		t.Setenv("GNOME_KEYRING_CONTROL", unset)
-		if _, gnome, err := keyringSockets(); err != nil || gnome != "/run/user/1000/keyring/control" {
+		vars["GNOME_KEYRING_CONTROL"] = unset
+		if _, gnome, err := keyringSockets(sessionEnv(vars)); err != nil || gnome != "/run/user/1000/keyring/control" {
 			t.Errorf("GNOME_KEYRING_CONTROL=%q: %q, %v", unset, gnome, err)
 		}
 	}
 	for _, bad := range []string{"", "run/user/1000"} {
-		t.Setenv("XDG_RUNTIME_DIR", bad)
-		if secrets, gnome, err := keyringSockets(); err == nil {
+		vars["XDG_RUNTIME_DIR"] = bad
+		if secrets, gnome, err := keyringSockets(sessionEnv(vars)); err == nil {
 			t.Errorf("XDG_RUNTIME_DIR=%q: %q, %q, want an error", bad, secrets, gnome)
 		}
 	}
@@ -156,10 +162,11 @@ func TestLoginKeyringPrefersLysSecrets(t *testing.T) {
 	}
 }
 
-// serveSecrets runs lys-secrets' control server at the session's socket.
-func serveSecrets(t *testing.T, u control.Unlocker) {
+// serveSecrets runs lys-secrets' control server at the socket of the
+// session with environment env.
+func serveSecrets(t *testing.T, env xdg.Env, u control.Unlocker) {
 	t.Helper()
-	path, err := control.SocketPath()
+	path, err := control.SocketPath(env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,18 +183,17 @@ func serveSecrets(t *testing.T, u control.Unlocker) {
 // A login hands the password over before the session's keyring runs:
 // AwaitLoginKeyring waits for lys-secrets to start, then unlocks it.
 func TestAwaitLoginKeyringWaitsForLysSecrets(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", sockdir.Dir(t))
-	t.Setenv("GNOME_KEYRING_CONTROL", "")
+	env := sessionEnv(map[string]string{"XDG_RUNTIME_DIR": sockdir.Dir(t)})
 	u := secretsUnlocker{got: make(chan string, 1)}
 	errs := make(chan error, 1)
-	go func() { errs <- AwaitLoginKeyring(t.Context(), []byte("pw")) }()
+	go func() { errs <- AwaitLoginKeyring(t.Context(), env, []byte("pw")) }()
 	time.Sleep(3 * keyringPoll)
 	select {
 	case err := <-errs:
 		t.Fatalf("returned before a keyring ran: %v", err)
 	default:
 	}
-	serveSecrets(t, u)
+	serveSecrets(t, env, u)
 	if err := <-errs; err != nil {
 		t.Fatalf("AwaitLoginKeyring = %v", err)
 	}
@@ -199,21 +205,19 @@ func TestAwaitLoginKeyringWaitsForLysSecrets(t *testing.T) {
 // A keyring that refuses the password ends the wait at once; none
 // running ends it when the context does, saying so.
 func TestAwaitLoginKeyringGivesUp(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", sockdir.Dir(t))
-	t.Setenv("GNOME_KEYRING_CONTROL", "")
+	env := sessionEnv(map[string]string{"XDG_RUNTIME_DIR": sockdir.Dir(t)})
 	ctx, cancel := context.WithTimeout(t.Context(), 2*keyringPoll)
 	defer cancel()
-	if err := AwaitLoginKeyring(ctx, []byte("pw")); !errors.Is(err, errNoKeyring) || !errors.Is(err, context.DeadlineExceeded) {
+	if err := AwaitLoginKeyring(ctx, env, []byte("pw")); !errors.Is(err, errNoKeyring) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("no keyring = %v, want errNoKeyring and the deadline", err)
 	}
 
-	serveSecrets(t, secretsUnlocker{got: make(chan string, 1)})
-	if err := AwaitLoginKeyring(t.Context(), []byte("wrong")); !errors.Is(err, control.ErrWrongPassword) {
+	serveSecrets(t, env, secretsUnlocker{got: make(chan string, 1)})
+	if err := AwaitLoginKeyring(t.Context(), env, []byte("wrong")); !errors.Is(err, control.ErrWrongPassword) {
 		t.Errorf("a wrong password = %v, want lys-secrets' refusal", err)
 	}
 
-	t.Setenv("XDG_RUNTIME_DIR", "")
-	if err := AwaitLoginKeyring(t.Context(), []byte("pw")); err == nil || errors.Is(err, errNoKeyring) {
+	if err := AwaitLoginKeyring(t.Context(), sessionEnv(nil), []byte("pw")); err == nil || errors.Is(err, errNoKeyring) {
 		t.Errorf("no runtime dir = %v, want that error", err)
 	}
 }

@@ -9,8 +9,6 @@ greeter and the lock screen, plus a display manager of its own.
   lys-shell starts for its lock triggers (logind's Lock signal, idle,
   `lys-shell lock`, lock-on-start).
 - `lys-login daemon`: the display manager in place of greetd and cage.
-- `lys-login unlock-keyring`: the display manager's hand-off of the login
-  password to the new session's keyring (below).
 - `lys-login apply-config`: changes the login screen the system shows, from
   your session (below).
 - `lys-login record-cursor`: hands your session's cursor to the display
@@ -177,8 +175,8 @@ When the session ends the greeter comes back. A wrong password keeps the
 greeter up for the next attempt.
 
 The password you log in with also unlocks your login keyring: once the
-session starts, its worker runs `lys-login unlock-keyring` as you with the
-password on a pipe, which hands it to
+session starts, its worker hands it, from a thread that runs with your uid
+and groups (as `pam_gnome_keyring` does from gdm's worker), to
 [lys-secrets](https://github.com/stubbedev/lys-secrets) (else gnome-keyring)
 as soon as one runs in the new session, so the login collection is open
 before the first app asks for a secret. It waits up to a minute for a

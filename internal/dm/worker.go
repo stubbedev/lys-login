@@ -1,6 +1,7 @@
 package dm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,10 +11,15 @@ import (
 	"os/signal"
 	"os/user"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
+
+	"github.com/stubbedev/lys-lib/xdg"
+	"golang.org/x/sys/unix"
 
 	"github.com/stubbedev/lys-login/internal/auth"
 )
@@ -38,8 +44,7 @@ type WorkerOptions struct {
 	Service string
 	// VT is the virtual terminal the sessions run on.
 	VT int
-	// Self is the lys-login program the workers, the greeter and the
-	// keyring unlock run.
+	// Self is the lys-login program the workers and the greeter run.
 	Self string
 }
 
@@ -216,36 +221,76 @@ func stopGroup(cmd *exec.Cmd, exited <-chan error) error {
 	}
 }
 
-// unlockKeyringAs starts `lys-login unlock-keyring` as a, in the
-// session's environment, and writes password to it: it unlocks the
-// session's login keyring once the keyring runs, in the background, so
-// the session never waits for it. The worker reaps it.
-func (o WorkerOptions) unlockKeyringAs(a account, env []string, password []byte) error {
-	r, w, err := os.Pipe()
-	if err != nil {
-		return fmt.Errorf("unlock the keyring: %w", err)
-	}
-	defer func() { _ = w.Close() }()
-	cmd := exec.Command(o.Self, "unlock-keyring") //nolint:gosec // lys-login itself
-	cmd.Env, cmd.Dir = env, a.home
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = r, os.Stderr, os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Credential: &syscall.Credential{Uid: a.uid, Gid: a.gid, Groups: a.groups},
-	}
-	err = cmd.Start()
-	_ = r.Close()
-	if err != nil {
-		return fmt.Errorf("start %s unlock-keyring as %s: %w", o.Self, a.name, err)
-	}
+// keyringWait bounds how long a session's keyring has to start before
+// its login password is dropped.
+const keyringWait = time.Minute
+
+// unlockKeyringAs hands password to the login keyring of a's session,
+// whose environment is env, once one runs there, and reports what the
+// keyring said, or why none took it, on the returned channel. The
+// session never waits for it.
+//
+// The keyring takes the password from its own user alone, so it is
+// handed over from an OS thread of this process that takes a's
+// credentials first, as pam_gnome_keyring hands it over from a child of
+// gdm's worker that takes them, and ends with the hand-over. Nothing is
+// executed for it: under SELinux the session's domain may not enter
+// this program, which is labelled as a display manager's. It takes
+// password over and clears it before it reports.
+func unlockKeyringAs(a account, env []string, password []byte) <-chan error {
+	done := make(chan error, 1)
 	go func() {
-		if err := cmd.Wait(); err != nil {
-			log.Printf("dm: lys-login unlock-keyring for %s: %v", a.name, err)
-		}
+		runtime.LockOSThread()
+		err := handOverAs(a, env, password)
+		clear(password)
+		done <- err
 	}()
-	if _, err := w.Write(password); err != nil {
-		return fmt.Errorf("hand the password to lys-login unlock-keyring: %w", err)
+	return done
+}
+
+// handOverAs is unlockKeyringAs on its locked thread.
+func handOverAs(a account, env []string, password []byte) error {
+	if err := becomeOnThread(a); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), keyringWait)
+	defer cancel()
+	return auth.AwaitLoginKeyring(ctx, lookupIn(env), password)
+}
+
+// becomeOnThread gives the calling OS thread a's groups, gid and uid,
+// real, effective and saved: the thread can never take root's back, so
+// its goroutine must stay locked to it, which ends the thread with the
+// goroutine. The raw system calls change this thread alone, where the
+// syscall package's Setuid and the others change every thread.
+func becomeOnThread(a account) error {
+	var groups unsafe.Pointer
+	if len(a.groups) > 0 {
+		groups = unsafe.Pointer(&a.groups[0]) //nolint:gosec // setgroups(2) reads len(a.groups) gid_t values here
+	}
+	if _, _, errno := unix.RawSyscall(unix.SYS_SETGROUPS, uintptr(len(a.groups)), uintptr(groups), 0); errno != 0 {
+		return fmt.Errorf("give the keyring's thread %s's groups: %w", a.name, errno)
+	}
+	if _, _, errno := unix.RawSyscall(unix.SYS_SETRESGID, uintptr(a.gid), uintptr(a.gid), uintptr(a.gid)); errno != 0 {
+		return fmt.Errorf("give the keyring's thread %s's gid %d: %w", a.name, a.gid, errno)
+	}
+	if _, _, errno := unix.RawSyscall(unix.SYS_SETRESUID, uintptr(a.uid), uintptr(a.uid), uintptr(a.uid)); errno != 0 {
+		return fmt.Errorf("give the keyring's thread %s's uid %d: %w", a.name, a.uid, errno)
 	}
 	return nil
+}
+
+// lookupIn is env, KEY=value pairs, as an xdg.Env: the last value of a
+// key, as getenv(3) finds the first.
+func lookupIn(env []string) xdg.Env {
+	return func(name string) string {
+		for _, kv := range slices.Backward(env) {
+			if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+				return v
+			}
+		}
+		return ""
+	}
 }
 
 // refusalText is what the greeter shows for a failed login: PAM's own
@@ -293,7 +338,7 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 		}
 	}()
 	secret := login.TakeSecret()
-	defer clear(secret)
+	defer func() { clear(secret) }()
 	if err := ch.send(event{Kind: evAuthenticated}); err != nil {
 		return err
 	}
@@ -321,9 +366,13 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 		log.Printf("dm: tell the daemon the session started: %v", err)
 	}
 	if secret != nil {
-		if err := o.unlockKeyringAs(a, env, secret); err != nil {
-			log.Printf("dm: the login keyring of %s stays locked: %v", a.name, err)
-		}
+		unlocked := unlockKeyringAs(a, env, secret)
+		secret = nil
+		go func() {
+			if err := <-unlocked; err != nil {
+				log.Printf("dm: the login keyring of %s stays locked: %v", a.name, err)
+			}
+		}()
 	}
 	waitErr := cmd.Wait()
 	text := "exited"

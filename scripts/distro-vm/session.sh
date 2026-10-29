@@ -8,4 +8,13 @@ OUT=/run/lys-distro-vm
 	loginctl show-session "${XDG_SESSION_ID}" -p Name -p Class -p Type -p Seat -p VTNr
 } >"${OUT}/session.tmp"
 mv "${OUT}/session.tmp" "${OUT}/session"
+
+systemctl --user start lys-secrets.service
+for _ in $(seq 60); do
+	busctl --user get-property org.freedesktop.secrets /org/freedesktop/secrets/collection/login \
+		org.freedesktop.Secret.Collection Locked >"${OUT}/keyring.tmp" 2>&1 || true
+	mv "${OUT}/keyring.tmp" "${OUT}/keyring"
+	[ "$(cat "${OUT}/keyring")" = "b false" ] && break
+	sleep 0.5
+done
 sleep 3

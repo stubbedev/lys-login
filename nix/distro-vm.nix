@@ -1,8 +1,15 @@
 # The release's .deb and .rpm, built and installed in a Debian and a
 # Fedora cloud VM the way CI builds them, then logged in through: see
-# scripts/distro-vm. Run with `just distro-vm <debian|fedora>`; it needs
-# KVM and the guest needs the network for the build tools.
-{lib, ...}: {
+# scripts/distro-vm. lys-secrets' package is built and installed beside
+# it from the flake's lys-secrets, whose static binary runs on either
+# distribution, so the login can unlock its login collection. Run with
+# `just distro-vm <debian|fedora>`; it needs KVM and the guest needs the
+# network for the build tools.
+{
+  lib,
+  inputs,
+  ...
+}: {
   perSystem = {pkgs, ...}: let
     images = {
       debian = pkgs.fetchurl {
@@ -14,10 +21,17 @@
         sha256 = "28680fe5b371a5a82ebf43a31926e086a168e59949d03969c5093e7071f90b7f";
       };
     };
-    guest = lib.fileset.toSource {
-      root = ../.;
-      fileset = lib.fileset.unions [../packaging ../scripts/ci ../scripts/distro-vm];
-    };
+    lysSecrets = inputs.lys-secrets.packages.${pkgs.stdenv.hostPlatform.system}.default;
+    guest = pkgs.runCommand "lys-login-distro-vm-guest" {} ''
+      cp -r ${lib.fileset.toSource {
+        root = ../.;
+        fileset = lib.fileset.unions [../packaging ../scripts/ci ../scripts/distro-vm];
+      }} $out
+      chmod -R u+w $out
+      mkdir -p $out/lys-secrets/bin
+      cp -r ${inputs.lys-secrets}/{LICENSE,packaging,resources,scripts} $out/lys-secrets/
+      cp ${lysSecrets}/bin/lys-secrets $out/lys-secrets/bin/
+    '';
     run = distro: image:
       pkgs.writeShellApplication {
         name = "lys-login-distro-vm-${distro}";

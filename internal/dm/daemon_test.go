@@ -311,3 +311,32 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 		t.Error("the idle connection stayed open after the login")
 	}
 }
+
+// A keyring thread that cannot take the session's user's credentials
+// hands nothing over, says why, and leaves the worker as it was.
+func TestUnlockKeyringAsRefusedCredentials(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root may take any credentials")
+	}
+	other := account{name: "other", uid: uint32(os.Getuid()) + 1, gid: uint32(os.Getgid()) + 1}
+	password := []byte("pw")
+	err := <-unlockKeyringAs(other, []string{"XDG_RUNTIME_DIR=" + t.TempDir()}, password)
+	if err == nil || !strings.Contains(err.Error(), "other") {
+		t.Errorf("unlock as another user = %v, want the credentials refused", err)
+	}
+	if os.Getuid() == int(other.uid) || os.Getgid() == int(other.gid) {
+		t.Error("the worker took the keyring thread's credentials")
+	}
+	if string(password) == "pw" {
+		t.Error("the password outlived the hand-over")
+	}
+}
+
+func TestLookupIn(t *testing.T) {
+	env := lookupIn([]string{"A=1", "B=x=y", "A=2", "C"})
+	for name, want := range map[string]string{"A": "2", "B": "x=y", "C": "", "D": ""} {
+		if got := env(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+}

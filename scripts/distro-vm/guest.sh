@@ -34,7 +34,7 @@ case "${DISTRO_ID}" in
 debian)
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get update -q
-	apt-get install -y -q --no-install-recommends build-essential debhelper dpkg-dev pamtester
+	apt-get install -y -q --no-install-recommends build-essential debhelper dpkg-dev pamtester dbus-user-session
 	FORMAT=deb
 	BUILT=debbuild/DEBS
 	;;
@@ -50,6 +50,19 @@ scripts/ci/build-packages.sh "${ARCHIVE}" "${VERSION}" "${FORMAT}"
 PACKAGE="$(find "${BUILT}" -name "*.${FORMAT}")"
 [[ -n ${PACKAGE} ]] || fail "build-packages.sh built no .${FORMAT} under ${BUILT}"
 scripts/ci/smoke-test.sh "${PACKAGE}"
+
+ARCH="$(uname -m)"
+(
+	cd lys-secrets
+	scripts/ci/build-archive.sh bin "${VERSION}" "${ARCH}"
+	scripts/ci/build-packages.sh "lys-secrets-${VERSION}-${ARCH}-linux.tar.gz" "${VERSION}" "${FORMAT}"
+)
+SECRETS_PACKAGE="$(find "lys-secrets/${BUILT}" -name "*.${FORMAT}")"
+[[ -n ${SECRETS_PACKAGE} ]] || fail "lys-secrets' build-packages.sh built no .${FORMAT} under lys-secrets/${BUILT}"
+case "${FORMAT}" in
+deb) apt-get install -y -q --no-install-recommends "./${SECRETS_PACKAGE}" ;;
+rpm) dnf -y -q --setopt=install_weak_deps=False install "./${SECRETS_PACKAGE}" ;;
+esac
 
 useradd -m "${LOGIN_USER}"
 echo "${LOGIN_USER}:${PASSWORD}" | chpasswd
@@ -91,6 +104,10 @@ done
 [[ -e ${OUT}/greeter-again ]] || fail "the greeter did not come back after the session"
 loginctl list-sessions --no-legend | grep -q lys-greeter || fail "logind has no session for the greeter"
 
+[[ "$(cat "${OUT}/keyring" 2>/dev/null)" == "b false" ]] ||
+	fail "the login did not unlock lys-secrets' login collection: $(cat "${OUT}/keyring" 2>/dev/null)"
+[[ -d "/home/${LOGIN_USER}/.local/share/lys-secrets" ]] || fail "lys-secrets keeps no collection for ${LOGIN_USER}"
+
 if echo wrong-password | runuser -u "${LOGIN_USER}" -- pamtester lys-shell "${LOGIN_USER}" authenticate; then
 	fail "lys-shell accepted a wrong password"
 fi
@@ -101,4 +118,4 @@ if journalctl -b --no-pager | grep -F 'avc:  denied'; then
 	fail "SELinux denied the above"
 fi
 
-echo "distro-vm: ${DISTRO}: logged in through lys-login and unlocked through lys-shell"
+echo "distro-vm: ${DISTRO}: logged in through lys-login, which unlocked lys-secrets, and unlocked through lys-shell"
