@@ -20,18 +20,26 @@ const (
 type User struct {
 	// Name is the login name greetd authenticates.
 	Name string
+	// UID keys the cursor record the account's last session left.
+	UID uint32
 	// DisplayName is the GECOS full name, else Name.
 	DisplayName string
-	// Home seeds ~/.face and cursor detection (it may be unreadable).
+	// Home seeds ~/.face and the cursor read from dotfiles (it may be
+	// unreadable).
 	Home string
 	// Icon is a readable avatar path, "" when none.
 	Icon string
 }
 
-// LoadUsers reads the login users from /etc/passwd, avatars resolved.
-func LoadUsers() []User {
+// ReadUsers reads the login users from /etc/passwd.
+func ReadUsers() []User {
 	data, _ := os.ReadFile("/etc/passwd")
-	users := parsePasswd(string(data))
+	return parsePasswd(string(data))
+}
+
+// LoadUsers is ReadUsers with the avatars resolved.
+func LoadUsers() []User {
+	users := ReadUsers()
 	for i := range users {
 		users[i].Icon = useraccount.FindAvatar(users[i].Name, users[i].Home)
 	}
@@ -57,7 +65,7 @@ func parsePasswd(text string) []User {
 		if display == "" {
 			display = f[0]
 		}
-		users = append(users, User{Name: f[0], DisplayName: display, Home: f[5]})
+		users = append(users, User{Name: f[0], UID: uint32(uid), DisplayName: display, Home: f[5]})
 	}
 	sort.SliceStable(users, func(i, j int) bool {
 		return strings.ToLower(users[i].DisplayName) < strings.ToLower(users[j].DisplayName)

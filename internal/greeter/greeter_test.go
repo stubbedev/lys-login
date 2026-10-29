@@ -9,9 +9,10 @@ import (
 	"testing"
 
 	"github.com/stubbedev/lys-shell/config"
-	"github.com/stubbedev/lys-shell/cursorrecord"
 	"github.com/stubbedev/lys-shell/styling"
 	"github.com/stubbedev/lys-ui/widget"
+
+	"github.com/stubbedev/lys-login/internal/cursorrecord"
 )
 
 func TestParseOptions(t *testing.T) {
@@ -155,7 +156,7 @@ func TestParsePasswd(t *testing.T) {
 	if len(users) != 2 || users[0].Name != "alice" || users[1].Name != "bob" {
 		t.Fatalf("users = %+v, want alice and bob", users)
 	}
-	if users[0].DisplayName != "Alice Wonder" || users[1].DisplayName != "bob" || users[0].Home != "/home/alice" {
+	if users[0].DisplayName != "Alice Wonder" || users[1].DisplayName != "bob" || users[0].Home != "/home/alice" || users[0].UID != 1000 || users[1].UID != 1001 {
 		t.Errorf("fields: %+v", users)
 	}
 	if len(parsePasswd("garbage\nno:fields\n")) != 0 {
@@ -191,7 +192,8 @@ func TestCursorParsers(t *testing.T) {
 // TestDetectCursorOrder: the record wins; else the remembered
 // session's compositor is consulted first.
 func TestDetectCursorOrder(t *testing.T) {
-	home := t.TempDir()
+	home, records := t.TempDir(), t.TempDir()
+	ada := User{Name: "ada", UID: 1000, Home: home}
 	write := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(home, rel)
@@ -203,35 +205,98 @@ func TestDetectCursorOrder(t *testing.T) {
 	write(".config/hypr/hyprland.conf", "env = XCURSOR_THEME,HyprTheme\nenv = XCURSOR_SIZE,30\nsource = extra.conf\n")
 	write(".config/hypr/extra.conf", "")
 	write(".config/niri/config.kdl", "xcursor-theme \"NiriTheme\"\nxcursor-size 40\n")
-	if got := DetectCursor(home, "hyprland"); got != (Cursor{"HyprTheme", 30}) {
+	if got := DetectCursor(records, ada, "hyprland"); got != (Cursor{"HyprTheme", 30}) {
 		t.Errorf("hyprland session: %+v", got)
 	}
-	if got := DetectCursor(home, "niri"); got != (Cursor{"NiriTheme", 40}) {
+	if got := DetectCursor(records, ada, "niri"); got != (Cursor{"NiriTheme", 40}) {
 		t.Errorf("niri session: %+v", got)
 	}
-	record := func(env map[string]string) bool {
-		t.Helper()
-		env["HOME"] = home
-		written, err := cursorrecord.Record(func(name string) string { return env[name] })
-		if err != nil {
-			t.Fatal(err)
-		}
-		return written
+	if _, err := cursorrecord.Write(records, 1001, cursorrecord.Cursor{Theme: "Someone else's", Size: 64}); err != nil {
+		t.Fatal(err)
 	}
-	if record(map[string]string{}) {
-		t.Error("a session naming no cursor wrote a record")
+	if got := DetectCursor(records, ada, "niri"); got != (Cursor{"NiriTheme", 40}) {
+		t.Errorf("another uid's record must not count: %+v", got)
 	}
-	if got := DetectCursor(home, "niri"); got != (Cursor{"NiriTheme", 40}) {
-		t.Errorf("no record falls back to the dotfiles: %+v", got)
+	if _, err := cursorrecord.Write(records, ada.UID, cursorrecord.Cursor{Theme: "Recorded", Size: 36}); err != nil {
+		t.Fatal(err)
 	}
-	if !record(map[string]string{"XCURSOR_THEME": "Recorded", "XCURSOR_SIZE": "36"}) {
-		t.Fatal("the session's cursor was not recorded")
+	if got := DetectCursor(records, ada, "niri"); got != (Cursor{"Recorded", 36}) {
+		t.Errorf("the record the session handed over must win: %+v", got)
 	}
-	if got := DetectCursor(home, "niri"); got != (Cursor{"Recorded", 36}) {
-		t.Errorf("the record lys-shell wrote must win: %+v", got)
+	if got := DetectCursor(records, User{Name: "bob", UID: 1002, Home: filepath.Join(home, "absent")}, ""); got != (Cursor{}) {
+		t.Errorf("no record and an unreadable home: %+v", got)
 	}
-	if got := DetectCursor(filepath.Join(home, "absent"), ""); got != (Cursor{}) {
-		t.Errorf("unreadable home: %+v", got)
+}
+
+// The record reaches the greeter when the user's home is closed to it,
+// as a default 0700 home is to the greeter's account.
+func TestDetectCursorThroughAClosedHome(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root enters every home")
+	}
+	home, records := filepath.Join(t.TempDir(), "ada"), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config/gtk-4.0"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config/gtk-4.0/settings.ini"), []byte("[Settings]\ngtk-cursor-theme-name=Dotfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(home, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(home, 0o700) })
+	ada := User{Name: "ada", UID: 1000, Home: home}
+	if got := DetectCursor(records, ada, ""); got != (Cursor{}) {
+		t.Fatalf("a closed home without a record yielded %+v", got)
+	}
+	if _, err := cursorrecord.Write(records, ada.UID, cursorrecord.Cursor{Theme: "Bibata", Size: 48}); err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectCursor(records, ada, ""); got != (Cursor{"Bibata", 48}) {
+		t.Errorf("through a closed home: %+v, want the record's Bibata at 48", got)
+	}
+}
+
+func TestCursorUser(t *testing.T) {
+	ada, bob := User{Name: "ada", UID: 1000}, User{Name: "bob", UID: 1001}
+	if u, ok := cursorUser([]User{ada, bob}, "bob"); !ok || u != bob {
+		t.Errorf("the remembered user: %+v, %v", u, ok)
+	}
+	if u, ok := cursorUser([]User{ada}, ""); !ok || u != ada {
+		t.Errorf("the only user: %+v, %v", u, ok)
+	}
+	if u, ok := cursorUser([]User{ada, bob}, "carol"); ok {
+		t.Errorf("an unknown remembered user among several: %+v", u)
+	}
+}
+
+// The display manager's cursor for the kiosk: the greeter's config
+// over the remembered user's record, and nobody's dotfiles.
+func TestKioskCursor(t *testing.T) {
+	records, home := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config/gtk-4.0"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config/gtk-4.0/settings.ini"), []byte("[Settings]\ngtk-cursor-theme-name=Dotfile\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ada, bob := User{Name: "ada", UID: 1000, Home: home}, User{Name: "bob", UID: 1001, Home: home}
+	if _, err := cursorrecord.Write(records, ada.UID, cursorrecord.Cursor{Theme: "Bibata", Size: 48}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XCURSOR_THEME", "")
+	t.Setenv("XCURSOR_SIZE", "")
+	defaults := config.DefaultsLogin().Greeter
+	if got := KioskCursor(defaults, records, []User{ada, bob}, "ada"); got != (Cursor{"Bibata", 48}) {
+		t.Errorf("ada's record: %+v", got)
+	}
+	if got := KioskCursor(defaults, records, []User{ada, bob}, "bob"); got != (Cursor{Size: 24}) {
+		t.Errorf("bob has no record and his dotfiles stay unread: %+v", got)
+	}
+	g := defaults
+	g.CursorTheme, g.CursorThemeExplicit = "Configured", true
+	if got := KioskCursor(g, records, []User{ada, bob}, "ada"); got != (Cursor{"Configured", 48}) {
+		t.Errorf("the config's theme over the record's: %+v", got)
 	}
 }
 

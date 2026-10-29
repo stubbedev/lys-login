@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/greeter"
 )
 
 // TestMain lets the test binary be a session worker whose PAM is a
@@ -191,8 +193,8 @@ func TestATruncatedRequestIsAnError(t *testing.T) {
 }
 
 func TestKioskConfigQuotesTheGreeter(t *testing.T) {
-	got := kioskConfig([]string{"/nix/store/x/bin/lys-login", "greet", "--sessions", "/run/my sessions", `--env`, `A="b"`})
-	want := "binds: []\nborders:\n  width: 0\nautostart:\n  - \"/nix/store/x/bin/lys-login greet --sessions '/run/my sessions' --env 'A=\\\"b\\\"'\"\n"
+	got := kioskConfig([]string{"/nix/store/x/bin/lys-login", "greet", "--sessions", "/run/my sessions", `--env`, `A="b"`}, greeter.Cursor{Size: 24})
+	want := "binds: []\nborders:\n  width: 0\nenv:\n  XCURSOR_SIZE: \"24\"\nautostart:\n  - \"/nix/store/x/bin/lys-login greet --sessions '/run/my sessions' --env 'A=\\\"b\\\"'\"\n"
 	if got != want {
 		t.Errorf("kiosk config =\n%s\nwant\n%s", got, want)
 	}
@@ -204,11 +206,32 @@ func TestKioskConfigDrawsNoBorder(t *testing.T) {
 			Width *int `yaml:"width"`
 		} `yaml:"borders"`
 	}
-	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"})), &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Size: 24})), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Borders.Width == nil || *cfg.Borders.Width != 0 {
 		t.Errorf("borders.width = %v, want 0 so lys-wm draws no border around the greeter", cfg.Borders.Width)
+	}
+}
+
+// lys-wm draws the greeter's cursor, from the theme and size in the
+// kiosk config's environment, which the greeter inherits.
+func TestKioskConfigCarriesTheCursor(t *testing.T) {
+	var cfg struct {
+		Env map[string]string `yaml:"env"`
+	}
+	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Theme: `Bibata "Ice"`, Size: 48})), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"XCURSOR_THEME": `Bibata "Ice"`, "XCURSOR_SIZE": "48"}; !reflect.DeepEqual(cfg.Env, want) {
+		t.Errorf("env = %v, want %v", cfg.Env, want)
+	}
+	cfg.Env = nil
+	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Size: 24})), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"XCURSOR_SIZE": "24"}; !reflect.DeepEqual(cfg.Env, want) {
+		t.Errorf("no theme: env = %v, want %v, lys-wm's own theme", cfg.Env, want)
 	}
 }
 

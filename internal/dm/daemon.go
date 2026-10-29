@@ -15,10 +15,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/shlex"
 	"golang.org/x/sys/unix"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/greeter"
 )
 
 // Options configure the daemon.
@@ -32,12 +34,17 @@ type Options struct {
 	// GreeterArgs follow `lys-login greet`: the config, the state file,
 	// the session directories.
 	GreeterArgs []string
-	// RuntimeDir holds the greeter's socket, the apply socket and the
-	// kiosk config.
+	// RuntimeDir holds the greeter's socket, ApplySocket, CursorSocket
+	// and the kiosk config.
 	RuntimeDir string
 	// GreeterConfig is the system config the greeter reads, whose
 	// runtime.yaml the logged-in user's changes go to.
 	GreeterConfig string
+	// GreeterState is the greeter's state file, beside which it
+	// remembers the last user.
+	GreeterState string
+	// CursorDir holds the cursor records the sessions hand over.
+	CursorDir string
 }
 
 // retryPause spaces greeters that fail to come up.
@@ -45,18 +52,25 @@ const retryPause = 2 * time.Second
 
 // Run shows the greeter on the VT and starts each session a user logs
 // in to, until ctx ends. Meanwhile it takes changes of the login screen
-// on the apply socket from root and from the user whose session runs.
+// on ApplySocket from root and from the user whose session runs, and
+// that session's cursor on CursorSocket.
 func Run(ctx context.Context, o Options) error {
 	if err := os.MkdirAll(o.RuntimeDir, 0o755); err != nil { //nolint:gosec // the greeter user reaches its socket through it
 		return fmt.Errorf("dm: create %s: %w", o.RuntimeDir, err)
 	}
 	owner := newSessionOwner()
-	apply, err := listenApply(ApplySocket(o.RuntimeDir))
+	apply, err := ApplySocket.listen(o.RuntimeDir)
 	if err != nil {
 		return fmt.Errorf("dm: %w", err)
 	}
 	defer func() { _ = apply.Close() }()
-	go serveApply(apply, owner, o.GreeterConfig)
+	cursor, err := CursorSocket.listen(o.RuntimeDir)
+	if err != nil {
+		return fmt.Errorf("dm: %w", err)
+	}
+	defer func() { _ = cursor.Close() }()
+	go ApplySocket.serve(apply, applyChange(owner, o.GreeterConfig))
+	go CursorSocket.serve(cursor, recordCursor(owner, o.CursorDir))
 	for ctx.Err() == nil {
 		if err := activateVT(o.VT); err != nil {
 			log.Printf("dm: %v", err)
@@ -104,13 +118,32 @@ func activateVT(vt int) error {
 
 // kioskConfig is lys-wm's config for the greeter: no binds, so the
 // greeter's keys reach only it, no border, so the greeter fills the
-// screen to its edges, and the greeter as the one program.
-func kioskConfig(greet []string) string {
+// screen to its edges, the greeter as the one program, and cursor in
+// the environment, from which lys-wm draws the cursor the greeter asks
+// for and which the greeter inherits.
+func kioskConfig(greet []string, cursor greeter.Cursor) string {
 	quoted := make([]string, len(greet))
 	for i, arg := range greet {
 		quoted[i] = shlex.MustQuote(arg)
 	}
-	return "binds: []\nborders:\n  width: 0\nautostart:\n  - " + yamlString(strings.Join(quoted, " ")) + "\n"
+	var b strings.Builder
+	b.WriteString("binds: []\nborders:\n  width: 0\nenv:\n")
+	b.WriteString("  XCURSOR_SIZE: " + yamlString(strconv.FormatUint(uint64(cursor.Size), 10)) + "\n")
+	if cursor.Theme != "" {
+		b.WriteString("  XCURSOR_THEME: " + yamlString(cursor.Theme) + "\n")
+	}
+	b.WriteString("autostart:\n  - " + yamlString(strings.Join(quoted, " ")) + "\n")
+	return b.String()
+}
+
+// greeterCursor is the cursor the next greeter shows: the greeter's
+// config, else the record the remembered user's last session left.
+func (o Options) greeterCursor() greeter.Cursor {
+	cfg, err := config.LoadGreeter(o.GreeterConfig, config.StderrDiagnostics)
+	if err != nil {
+		log.Printf("dm: the greeter's config: %v", err)
+	}
+	return greeter.KioskCursor(cfg.Login.Greeter, o.CursorDir, greeter.ReadUsers(), greeter.LoadLast(greeter.LastUserPath(o.GreeterState)))
 }
 
 // yamlString is s as a double-quoted YAML scalar.
@@ -149,7 +182,7 @@ func (o Options) greet(ctx context.Context) (*pendingLogin, error) {
 	defer func() { _ = ln.Close() }()
 	cfg := filepath.Join(o.RuntimeDir, "kiosk.yaml")
 	greet := append([]string{o.Self, "greet"}, o.GreeterArgs...)
-	if err := os.WriteFile(cfg, []byte(kioskConfig(greet)), 0o644); err != nil { //nolint:gosec // the greeter user reads it
+	if err := os.WriteFile(cfg, []byte(kioskConfig(greet, o.greeterCursor())), 0o644); err != nil { //nolint:gosec // the greeter user reads it
 		return nil, fmt.Errorf("write %s: %w", cfg, err)
 	}
 	args := []string{

@@ -13,6 +13,8 @@ greeter and the lock screen, plus a display manager of its own.
   password to the new session's keyring (below).
 - `lys-login apply-config`: changes the login screen the system shows, from
   your session (below).
+- `lys-login record-cursor`: hands your session's cursor to the display
+  manager for the next greeter (below).
 
 It shares the desktop's look and its `login` config section with
 [lys-shell](https://github.com/stubbedev/lys-shell), whose `config`,
@@ -88,20 +90,30 @@ that file lives per setup); the full list is in the
 The former `greeter` and `lock` sections still load: each key is moved to its
 place in `login` with a warning naming the new key.
 
-When `greeter.cursor-theme` / `greeter.cursor-size` are not set, the greeter auto-detects the
-cursor the last logged-in user actually sees. The primary source is a small file
-each running lys-shell shell writes at startup —
-`~/.local/state/lys-shell/greeter-cursor`, recording the session's live
-`XCURSOR_THEME` / `XCURSOR_SIZE` (size falling back to `HYPRCURSOR_SIZE`). That
-is exactly what the compositor exported, so the login screen keeps the last
-session's cursor even when it was set via env or `hyprcursor` rather than a
-config file. If no record exists, the greeter falls back to reading dotfiles:
-the Hyprland config (`env = XCURSOR_*` lines, `hyprctl setcursor`, following
-`source =` includes), niri's `cursor` block, sway's `seat … xcursor_theme`, GTK
+When `greeter.cursor-theme` / `greeter.cursor-size` are not set, the greeter shows the
+cursor the last logged-in user actually sees. The primary source is the record
+the user's session hands the display manager with `lys-login record-cursor`
+(lys-shell runs it at startup; under another session run it from the
+compositor's autostart). It sends the session's live `XCURSOR_THEME` /
+`XCURSOR_SIZE` (size falling back to `HYPRCURSOR_SIZE`) over
+`/run/lys-login/cursor.sock`; the daemon takes it from the user whose session
+it runs, and from nobody else, and keeps it world-readable in
+`/var/lib/lys-login/cursor/<uid>`. That is exactly what the compositor
+exported, so the login screen keeps the last session's cursor even when it was
+set via env or `hyprcursor` rather than a config file, wherever the session's
+`XDG_STATE_HOME` points and however closed the home is (homes are `0700` by
+default on NixOS, Debian and Fedora). The daemon puts the cursor into the
+greeter's lys-wm kiosk config, so lys-wm draws it, and the greeter inherits it.
+
+Without a record the greeter falls back to reading dotfiles: the Hyprland
+config (`env = XCURSOR_*` lines, `hyprctl setcursor`, following `source =`
+includes), niri's `cursor` block, sway's `seat … xcursor_theme`, GTK
 `settings.ini`, and `~/.icons/default/index.theme` — preferring the compositor
-of the remembered session. Both are best-effort: they only work when that user's
-home is readable by the greetd user (e.g. `chmod o+x` on `$HOME`); otherwise the
-`XCURSOR_THEME`/`XCURSOR_SIZE` environment and finally the defaults apply.
+of the remembered session. That is best-effort: it only works when that user's
+home is readable by the greeter's account (e.g. `chmod o+x` on `$HOME`), which
+is also the only source under greetd, which has no daemon to keep records;
+otherwise the `XCURSOR_THEME`/`XCURSOR_SIZE` environment and finally the
+defaults apply.
 
 > **Cursor theme must be reachable by the greeter.** The greeter runs as the
 > unprivileged `greeter` user (home `/var/empty`), so a theme installed only via

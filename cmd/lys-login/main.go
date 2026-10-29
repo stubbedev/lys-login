@@ -6,6 +6,7 @@
 //	lys-login daemon --vt N --service NAME --greeter-user NAME
 //	                 --compositor PATH [--runtime-dir DIR] [-- <greet args...>]
 //	lys-login apply-config [--config PATH] <STAGED.yaml>
+//	lys-login record-cursor
 //
 // greet is the greetd greeter: the credential prompt over a session
 // picker and the login users, run as the single client of a kiosk
@@ -17,7 +18,9 @@
 // a user logs in to (its workers are `lys-login worker`, started by it).
 // apply-config changes the login screen: run by the user logged in
 // through daemon it hands the change to the daemon, run as root it
-// writes it itself. unlock-keyring is the daemon's: a session worker runs it as the
+// writes it itself. record-cursor hands the cursor of the session it
+// runs in (XCURSOR_THEME, XCURSOR_SIZE) to daemon, which keeps it for
+// the next greeter. unlock-keyring is the daemon's: a session worker runs it as the
 // user who logged in, with the password on stdin, to unlock the login
 // keyring (lys-secrets, else gnome-keyring) once the session starts one.
 package main
@@ -34,19 +37,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-secrets/control"
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/shell/lockclient"
 	"golang.org/x/sys/unix"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/cursorrecord"
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
 	"github.com/stubbedev/lys-login/internal/greeterconfig"
 	"github.com/stubbedev/lys-login/internal/lock"
 )
 
-const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml>"
+const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml> | lys-login record-cursor"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -67,6 +72,8 @@ func main() {
 		os.Exit(unlockKeyring(args))
 	case "apply-config":
 		os.Exit(applyConfig(args))
+	case "record-cursor":
+		os.Exit(recordCursor(args))
 	default:
 		fmt.Fprintf(os.Stderr, "lys-login: unknown mode %q\n%s\n", os.Args[1], usage)
 		os.Exit(2)
@@ -176,10 +183,36 @@ func applyConfig(args []string) int {
 		}
 		dest, err = greeterconfig.Write(c, *configPath)
 	} else {
-		dest, err = dm.SendChange(dm.ApplySocket(dm.DefaultRuntimeDir), c)
+		dest, err = dm.ApplySocket.Send(dm.DefaultRuntimeDir, c)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login apply-config:", err)
+		return 1
+	}
+	fmt.Println("wrote", dest)
+	return 0
+}
+
+// recordCursor is `lys-login record-cursor`: run in a session the
+// display manager started, it hands the session's cursor to it, which
+// records it for the greeter. A session that names no cursor records
+// nothing.
+func recordCursor(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintf(os.Stderr, "lys-login record-cursor: unexpected argument %q\n", args[0])
+		return 2
+	}
+	c, ok, err := cursorrecord.FromEnv(xdg.OS)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login record-cursor:", err)
+		return 1
+	}
+	if !ok {
+		return 0
+	}
+	dest, err := dm.CursorSocket.Send(dm.DefaultRuntimeDir, c)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login record-cursor:", err)
 		return 1
 	}
 	fmt.Println("wrote", dest)
@@ -230,7 +263,7 @@ func daemon(args []string) int {
 	wo := workerFlags(fs)
 	greeterUser := fs.String("greeter-user", "lys-greeter", "account the greeter runs as")
 	compositor := fs.String("compositor", "lys-wm", "the greeter's compositor")
-	runtimeDir := fs.String("runtime-dir", dm.DefaultRuntimeDir, "directory for the greeter's and the apply socket")
+	runtimeDir := fs.String("runtime-dir", dm.DefaultRuntimeDir, "directory for the greeter's socket and the display manager's")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -248,7 +281,7 @@ func daemon(args []string) int {
 	err = dm.Run(ctx, dm.Options{
 		WorkerOptions: *wo, GreeterUser: *greeterUser,
 		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
-		GreeterConfig: greet.ConfigPath,
+		GreeterConfig: greet.ConfigPath, GreeterState: greet.StatePath, CursorDir: cursorrecord.Dir,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)

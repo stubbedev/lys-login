@@ -27,7 +27,7 @@ import (
 func Run(init Init) error {
 	// lys-ui draws the cursor client-side from the XCURSOR_* theme: set
 	// the resolved one before connecting.
-	ApplyCursor(ResolveCursor(init.Config.Login.Greeter, DetectCursor(cursorHome(init.Users, init.LastUser), init.LastSession)))
+	ApplyCursor(ResolveCursor(init.Config.Login.Greeter, detectLastCursor(init)))
 
 	// The stylesheet's font families and weights resolve through the
 	// system store, as in the shell (the clock's 700 weight).
@@ -105,20 +105,6 @@ func Run(init Init) error {
 		return nil
 	}
 	return err
-}
-
-// cursorHome is whose dotfiles seed cursor detection: the remembered
-// user's, else the only user's.
-func cursorHome(users []User, lastUser string) string {
-	for _, u := range users {
-		if u.Name == lastUser && lastUser != "" {
-			return u.Home
-		}
-	}
-	if len(users) == 1 {
-		return users[0].Home
-	}
-	return ""
 }
 
 // applyDebugOps is the dev-harness hook (LYS_SHELL_GREETER_DEBUG):

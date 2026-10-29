@@ -7,7 +7,9 @@
 # greeter comes back once the session ends. The user changes the login
 # screen's background from the session with `lys-login apply-config`,
 # which the daemon takes from them and nobody else, without polkit, and
-# the next greeter shows it.
+# the next greeter shows it. The session hands its cursor over with
+# `lys-login record-cursor` from a 0700 home, and the next greeter's
+# kiosk runs with that cursor.
 #
 # Build: nix build .#checks.<system>.login-vm -L
 {
@@ -19,6 +21,10 @@
 }: let
   user = "alice";
   password = "lys-login-vm";
+
+  # The cursor the session records for the next greeter.
+  cursorTheme = "lys-vm-cursor";
+  cursorSize = "48";
 
   # The login screen's background the user applies from the session.
   staged = pkgs.writeText "lys-login-vm-staged.yaml" ''
@@ -35,6 +41,7 @@
     echo "$(id -un) $XDG_SESSION_TYPE $XDG_SESSION_CLASS $XDG_SEAT $XDG_VTNR $XDG_SESSION_ID" > /tmp/lys-login/session
     loginctl show-session "$XDG_SESSION_ID" -p Class -p Type -p Seat -p VTNr -p Name > /tmp/lys-login/logind
     lys-login apply-config ${staged} > /tmp/lys-login/apply 2>&1; echo "exit $?" >> /tmp/lys-login/apply
+    XCURSOR_THEME=${cursorTheme} XCURSOR_SIZE=${cursorSize} lys-login record-cursor > /tmp/lys-login/cursor 2>&1; echo "exit $?" >> /tmp/lys-login/cursor
     for _ in $(seq 60); do
       ${pkgs.systemd}/bin/busctl --user get-property org.freedesktop.secrets \
         /org/freedesktop/secrets/collection/login org.freedesktop.Secret.Collection Locked \
@@ -139,6 +146,16 @@ in
       machine.fail("test -e /etc/lys-shell/runtime.yaml")
       machine.fail("test -e /etc/polkit-1/actions/dev.stubbe.lys.greeter.policy")
 
+      # Nor does anyone record a cursor, and the first greeter's kiosk
+      # names none: the home it would come from is closed to the greeter.
+      if machine.execute("su ${user} -s /bin/sh -c 'XCURSOR_THEME=x lys-login record-cursor'")[0] == 0:
+          raise Exception("a user without a session recorded a cursor")
+      uid = machine.succeed("id -u ${user}").strip()
+      machine.fail(f"test -e /var/lib/lys-login/cursor/{uid}")
+      if machine.succeed("stat -c %a /home/${user}").strip() != "700":
+          raise Exception("the user's home is not the default 0700")
+      machine.fail("grep -q XCURSOR_THEME /run/lys-login/kiosk.yaml")
+
       # A wrong password leaves the greeter up and starts nothing.
       machine.send_chars("${user}\n")
       time.sleep(1)
@@ -174,6 +191,13 @@ in
           raise Exception(f"apply-config from the session: {apply}")
       machine.succeed("grep -q 'ff0000' /etc/lys-shell/runtime.yaml")
 
+      # The session's user recorded the session's cursor through the
+      # daemon, where the greeter's account reads it.
+      cursor = machine.succeed("cat /tmp/lys-login/cursor")
+      if f"wrote /var/lib/lys-login/cursor/{uid}" not in cursor or "exit 0" not in cursor:
+          raise Exception(f"record-cursor from the session: {cursor}")
+      machine.succeed(f"su lys-greeter -s /bin/sh -c 'grep -q ${cursorTheme} /var/lib/lys-login/cursor/{uid}'")
+
       # When the session ends the greeter comes back at once, on its
       # first try, with the background the user applied.
       machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=30)
@@ -184,6 +208,13 @@ in
       else:
           raise Exception(f"the next greeter's background is {background()}, want the applied red")
       machine.screenshot("04-greeter-again")
+
+      # The next greeter's kiosk draws the recorded cursor, and the
+      # greeter runs with it.
+      greeter_env = machine.succeed("tr '\\0' '\\n' < /proc/$(pgrep -u lys-greeter -f 'lys-login greet' | head -n 1)/environ")
+      for want in ("XCURSOR_THEME=${cursorTheme}", "XCURSOR_SIZE=${cursorSize}"):
+          if want not in greeter_env.splitlines():
+              raise Exception(f"the next greeter runs without {want}:\n{greeter_env}")
       journal = machine.succeed("journalctl -u lys-login --no-pager")
       if "dm: greeter: the greeter ended" in journal:
           raise Exception("a greeter died and was restarted:\n" + journal[-4000:])
