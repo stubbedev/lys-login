@@ -365,3 +365,16 @@ func TestWithoutDisplayManagerNoFrameIsReported(t *testing.T) {
 		t.Error("a greeter with no hand-over to make reports its first frame")
 	}
 }
+
+func TestOptionsSessions(t *testing.T) {
+	empty := t.TempDir()
+	o := Options{SessionDirs: []string{empty}, XSessionDirs: []string{filepath.Join(empty, "missing")}}
+	if _, err := o.Sessions(); !errors.Is(err, ErrNoSessions) || !strings.Contains(err.Error(), empty) {
+		t.Errorf("no session files and no fallback: %v, want ErrNoSessions naming the dirs", err)
+	}
+	o.Command = []string{"niri", "--session"}
+	got, err := o.Sessions()
+	if err != nil || len(got) != 1 || got[0].ID != "custom" || !reflect.DeepEqual(got[0].Exec, o.Command) {
+		t.Errorf("fallback only: %+v, %v", got, err)
+	}
+}

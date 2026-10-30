@@ -1,6 +1,8 @@
 package greeter
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -141,4 +143,20 @@ func parseExec(exec string) []string {
 		out = append(out, tok)
 	}
 	return out
+}
+
+var ErrNoSessions = errors.New("no sessions to log into")
+
+func (o Options) Sessions() ([]Session, error) {
+	sessions := Discover(o.SessionDirs, Wayland)
+	sessions = append(sessions, Discover(o.XSessionDirs, X11)...)
+	SortSessions(sessions)
+	if len(o.Command) > 0 {
+		sessions = append(sessions, Session{ID: "custom", Name: CustomSessionName(), Exec: o.Command})
+	}
+	if len(sessions) == 0 {
+		return nil, fmt.Errorf("%w: no session files in the Wayland session dirs %q (--sessions) or the X11 session dirs %q (--xsessions), and no `-- <argv>` fallback session",
+			ErrNoSessions, o.SessionDirs, o.XSessionDirs)
+	}
+	return sessions, nil
 }

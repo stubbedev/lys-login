@@ -429,6 +429,12 @@ in {
     })
 
     (lib.mkIf cfg.greeter.enable {
+      assertions = [
+        {
+          assertion = cfg.greeter.session.dirs != [] || cfg.greeter.session.x11Dirs != [] || cfg.greeter.session.command != "";
+          message = "programs.lys-login.greeter offers no session to log into: session.dirs and session.x11Dirs are empty and session.command is unset. Keep the default dirs, list a directory of session files, or set session.command.";
+        }
+      ];
       # The greeter runs as the greetd user with no $HOME, so its theme config
       # lives system-wide. environment.etc files are world-readable (0444).
       environment.etc."lys-shell/config.yaml" = lib.mkIf (cfg.greeter.settings != {}) {

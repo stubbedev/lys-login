@@ -86,17 +86,9 @@ func greet(args []string) int {
 		log.Printf("greeter: config load failed; using defaults: %v", err)
 	}
 
-	// Wayland and X11 sessions, sorted by name, plus the explicit
-	// `-- <argv>` as a Custom entry (or the only one).
-	sessions := greeter.Discover(opts.SessionDirs, greeter.Wayland)
-	sessions = append(sessions, greeter.Discover(opts.XSessionDirs, greeter.X11)...)
-	greeter.SortSessions(sessions)
-	if len(opts.Command) > 0 {
-		sessions = append(sessions, greeter.Session{ID: "custom", Name: greeter.CustomSessionName(), Exec: opts.Command})
-	}
-	if len(sessions) == 0 {
-		fmt.Fprintf(os.Stderr, "no sessions found in %q or %q and no `-- <argv>` fallback given; nothing to log into\n",
-			opts.SessionDirs, opts.XSessionDirs)
+	sessions, err := opts.Sessions()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login greet:", err)
 		return 2
 	}
 
@@ -254,6 +246,10 @@ func daemon(args []string) int {
 	greet, err := greeter.ParseOptions(fs.Args())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter's arguments:", err)
+		return 2
+	}
+	if _, err := greet.Sessions(); err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter would offer nothing to log into:", err)
 		return 2
 	}
 	if wo.Self, err = self(); err != nil {

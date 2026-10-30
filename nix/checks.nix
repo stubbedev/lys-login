@@ -51,6 +51,43 @@
             ${lib.optionalString (touchesSplash (unit null)) ''echo "without splashPackage the unit names lys-splash" >&2; exit 1''}
             touch $out
           '';
+        greeter-sessions-assertion = let
+          failed = session:
+            map (a: a.message) (lib.filter (a: !a.assertion)
+              (pkgs.nixos {
+                imports = [self.nixosModules.default];
+                programs.lys-login.greeter = {
+                  enable = true;
+                  displayManager = "lys-login";
+                  compositorPackage = pkgs.writeShellScriptBin "lys-wm" "";
+                  inherit session;
+                };
+                boot.loader.grub.enable = false;
+                fileSystems."/" = {
+                  device = "nodev";
+                  fsType = "tmpfs";
+                };
+                system.stateVersion = lib.trivial.release;
+              }).config.assertions);
+          rejects = session: lib.any (lib.hasInfix "offers no session to log into") (failed session);
+        in
+          pkgs.runCommand "lys-login-greeter-sessions-assertion" {} ''
+            ${lib.optionalString (!rejects {
+              dirs = [];
+              x11Dirs = [];
+            }) ''echo "no session dirs and no session.command passed evaluation" >&2; exit 1''}
+            ${lib.optionalString (rejects {}) ''echo "the default session dirs were rejected" >&2; exit 1''}
+            ${lib.optionalString (rejects {
+              dirs = [];
+              x11Dirs = [];
+              command = "niri --session";
+            }) ''echo "session.command alone was rejected" >&2; exit 1''}
+            ${lib.optionalString (rejects {
+              dirs = [];
+              x11Dirs = ["/x"];
+            }) ''echo "x11Dirs alone was rejected" >&2; exit 1''}
+            touch $out
+          '';
         # The package wraps the binary with the libraries it dlopens, libpam
         # above all.
         package = pkgs.runCommand "lys-login-package" {} ''
