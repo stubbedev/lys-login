@@ -52,6 +52,7 @@ type Init struct {
 	LastUser    string
 	StatePath   string
 	SessionEnv  []string
+	OnPresented func()
 }
 
 // deps are the screen's collaborators; Run fills the production ones.

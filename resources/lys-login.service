@@ -1,12 +1,13 @@
 [Unit]
 Description=lys-login display manager
-Conflicts=getty@tty1.service
-After=systemd-user-sessions.service getty@tty1.service plymouth-quit-wait.service
+Conflicts=getty@tty1.service lys-splash-quit.service
+After=systemd-user-sessions.service getty@tty1.service plymouth-quit-wait.service lys-splash-start.service lys-splash-quit.service
 Wants=systemd-user-sessions.service
 
 [Service]
 Type=idle
-ExecStart=/usr/bin/lys-login daemon --vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
+ExecStartPre=-/usr/bin/lys-splash deactivate
+ExecStart=/usr/bin/lys-login daemon --vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm --splash /usr/bin/lys-splash -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
 Restart=always
 RestartSec=1
 KeyringMode=shared

@@ -340,3 +340,17 @@ func TestLookupIn(t *testing.T) {
 		}
 	}
 }
+
+func TestGreeterKnowsTheRuntimeDir(t *testing.T) {
+	o := testOptions()
+	o.GreeterUser, o.RuntimeDir, o.Compositor = "lys-greeter", "/run/lys-login", []string{"lys-wm"}
+	got := o.greeterWorkerArgs("/run/lys-login/greeter.sock", "/run/lys-login/kiosk.yaml")
+	want := []string{
+		"worker", "greeter", "--service", "lys-login", "--vt", "7", "--user", "lys-greeter",
+		"--env", auth.GreetdSockEnv + "=/run/lys-login/greeter.sock", "--env", RuntimeDirEnv + "=/run/lys-login", "--",
+		"lys-wm", "--config", "/run/lys-login/kiosk.yaml",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("greeter worker args = %q, want %q", got, want)
+	}
+}

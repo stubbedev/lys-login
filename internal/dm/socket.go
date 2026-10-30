@@ -9,7 +9,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -48,7 +50,12 @@ var (
 	// CursorSocket takes the cursor of the session that runs from
 	// `lys-login record-cursor`, for the greeter to show next.
 	CursorSocket = Socket[cursorrecord.Cursor]{name: "cursor.sock", maxRequest: 4096}
+	SplashSocket = Socket[Presented]{name: "splash.sock", maxRequest: 64}
 )
+
+type Presented struct{}
+
+const RuntimeDirEnv = "LYS_LOGIN_RUNTIME_DIR"
 
 // Path is the socket in runtimeDir.
 func (s Socket[T]) Path(runtimeDir string) string { return filepath.Join(runtimeDir, s.name) }
@@ -197,6 +204,49 @@ func applyChange(owner *sessionOwner, configPath string) handler[greeterconfig.C
 		}
 		log.Printf("dm: uid %d changed the login screen", uid)
 		return path, nil
+	}
+}
+
+func TakeScreenFromSplash(runtimeDir string) func() {
+	if runtimeDir == "" {
+		return nil
+	}
+	return func() {
+		if _, err := SplashSocket.Send(runtimeDir, Presented{}); err != nil {
+			log.Printf("greeter: take the screen from the splash: %v", err)
+		}
+	}
+}
+
+func handOverSplash(isGreeter func(uid uint32) bool, quit func() error) handler[Presented] {
+	var once sync.Once
+	return func(uid uint32, _ Presented) (string, error) {
+		if uid != 0 && !isGreeter(uid) {
+			return "", errors.New("only the greeter may take the screen from the splash")
+		}
+		once.Do(func() {
+			if err := quit(); err != nil {
+				log.Printf("dm: quit the splash: %v", err)
+			}
+		})
+		return "", nil
+	}
+}
+
+func quitSplash(splash string) func() error {
+	return func() error {
+		if splash == "" {
+			return nil
+		}
+		out, err := exec.Command(splash, "quit", "--retain-splash").CombinedOutput()
+		switch {
+		case err == nil, errors.Is(err, fs.ErrNotExist), errors.Is(err, exec.ErrNotFound):
+			return nil
+		case len(out) > 0:
+			return fmt.Errorf("%s quit --retain-splash: %w: %s", splash, err, strings.TrimSpace(string(out)))
+		default:
+			return fmt.Errorf("%s quit --retain-splash: %w", splash, err)
+		}
 	}
 }
 

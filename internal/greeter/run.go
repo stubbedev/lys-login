@@ -83,12 +83,7 @@ func Run(init Init) error {
 		loadAvatar: imagedecode.Open,
 	})
 	defer s.end()
-	win, err = a.NewWindow(app.WindowConfig{
-		Title:      "lys-greeter",
-		AppID:      "dev.stubbe.lys.greeter",
-		Root:       s.root,
-		Background: render.RGB(0, 0, 0),
-	})
+	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented))
 	if err != nil {
 		return err
 	}
@@ -105,6 +100,19 @@ func Run(init Init) error {
 		return nil
 	}
 	return err
+}
+
+func windowConfig(root widget.Widget, onPresented func()) app.WindowConfig {
+	cfg := app.WindowConfig{
+		Title:      "lys-greeter",
+		AppID:      "dev.stubbe.lys.greeter",
+		Root:       root,
+		Background: render.RGB(0, 0, 0),
+	}
+	if onPresented != nil {
+		cfg.OnPresented = func() { go onPresented() }
+	}
+	return cfg
 }
 
 // applyDebugOps is the dev-harness hook (LYS_SHELL_GREETER_DEBUG):

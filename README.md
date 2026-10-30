@@ -217,6 +217,14 @@ This adds the `lys-login` PAM service, the `lys-greeter` system user and a
 `display-manager.service` running `lys-login daemon` on `greeter.vt` (1),
 and leaves greetd and cage out.
 
+With [lys-splash](https://github.com/stubbedev/lys-splash) as the boot
+splash, set `greeter.splashPackage` to it and the greeter takes the screen
+from the splash without a blank frame, as GDM does from plymouth: the unit
+conflicts with `lys-splash-quit.service` and runs `lys-splash deactivate`
+before lys-wm starts, which keeps the splash's frame, and the daemon runs
+`lys-splash quit --retain-splash` once the greeter's first frame is
+presented.
+
 Sessions are discovered from the aggregate NixOS sessions directory, which
 contains the session files of every installed Wayland compositor. Options:
 
@@ -240,6 +248,8 @@ Each [release](https://github.com/stubbedev/lys-login/releases) carries a
 - `/usr/bin/lys-login`, which lys-shell runs for the lock screen;
 - `lys-login.service`, the display manager on VT 1 with the greeter in
   lys-wm (`Alias=display-manager.service`), installed but not enabled;
+  with lys-splash installed it takes the screen from the boot splash
+  without a blank frame;
 - the `lys-greeter` system user (sysusers.d) and its state directory
   `/var/lib/lys-greeter` (tmpfiles.d);
 - two PAM services written for the distribution: `lys-login`, which the

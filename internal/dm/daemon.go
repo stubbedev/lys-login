@@ -45,6 +45,7 @@ type Options struct {
 	GreeterState string
 	// CursorDir holds the cursor records the sessions hand over.
 	CursorDir string
+	Splash    string
 }
 
 // retryPause spaces greeters that fail to come up.
@@ -69,8 +70,14 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("dm: %w", err)
 	}
 	defer func() { _ = cursor.Close() }()
+	splash, err := SplashSocket.listen(o.RuntimeDir)
+	if err != nil {
+		return fmt.Errorf("dm: %w", err)
+	}
+	defer func() { _ = splash.Close() }()
 	go ApplySocket.serve(apply, applyChange(owner, o.GreeterConfig))
 	go CursorSocket.serve(cursor, recordCursor(owner, o.CursorDir))
+	go SplashSocket.serve(splash, handOverSplash(o.isGreeter, quitSplash(o.Splash)))
 	for ctx.Err() == nil {
 		if err := activateVT(o.VT); err != nil {
 			log.Printf("dm: %v", err)
@@ -185,12 +192,7 @@ func (o Options) greet(ctx context.Context) (*pendingLogin, error) {
 	if err := os.WriteFile(cfg, []byte(kioskConfig(greet, o.greeterCursor())), 0o644); err != nil { //nolint:gosec // the greeter user reads it
 		return nil, fmt.Errorf("write %s: %w", cfg, err)
 	}
-	args := []string{
-		"worker", "greeter", "--service", o.Service, "--vt", strconv.Itoa(o.VT), "--user", o.GreeterUser,
-		"--env", auth.GreetdSockEnv + "=" + sock, "--",
-	}
-	args = append(append(args, o.Compositor...), "--config", cfg)
-	gw := exec.Command(o.Self, args...) //nolint:gosec // lys-login itself
+	gw := exec.Command(o.Self, o.greeterWorkerArgs(sock, cfg)...) //nolint:gosec // lys-login itself
 	gw.Stdout, gw.Stderr = os.Stderr, os.Stderr
 	if err := gw.Start(); err != nil {
 		return nil, fmt.Errorf("start the greeter worker: %w", err)
@@ -224,6 +226,19 @@ func (o Options) greet(ctx context.Context) (*pendingLogin, error) {
 		err = errors.Join(errors.New("the greeter ended"), exitErr)
 	}
 	return login, err
+}
+
+func (o Options) greeterWorkerArgs(sock, kiosk string) []string {
+	args := []string{
+		"worker", "greeter", "--service", o.Service, "--vt", strconv.Itoa(o.VT), "--user", o.GreeterUser,
+		"--env", auth.GreetdSockEnv + "=" + sock, "--env", RuntimeDirEnv + "=" + o.RuntimeDir, "--",
+	}
+	return append(append(args, o.Compositor...), "--config", kiosk)
+}
+
+func (o Options) isGreeter(uid uint32) bool {
+	a, err := lookupAccount(o.GreeterUser)
+	return err == nil && a.uid == uid
 }
 
 // serveConns serves the greeter's connections, each on its own, as the

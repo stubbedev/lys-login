@@ -4,7 +4,8 @@
 //	                [--state PATH] [--env KEY=VAL]... [-- <session argv...>]
 //	lys-login lock
 //	lys-login daemon --vt N --service NAME --greeter-user NAME
-//	                 --compositor PATH [--runtime-dir DIR] [-- <greet args...>]
+//	                 --compositor PATH [--runtime-dir DIR] [--splash PATH]
+//	                 [-- <greet args...>]
 //	lys-login apply-config [--config PATH] <STAGED.yaml>
 //	lys-login record-cursor
 //
@@ -105,6 +106,7 @@ func greet(args []string) int {
 		LastUser:    greeter.LoadLast(greeter.LastUserPath(opts.StatePath)),
 		StatePath:   opts.StatePath,
 		SessionEnv:  opts.Env,
+		OnPresented: dm.TakeScreenFromSplash(os.Getenv(dm.RuntimeDirEnv)),
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login greet:", err)
@@ -225,6 +227,7 @@ func daemon(args []string) int {
 	greeterUser := fs.String("greeter-user", "lys-greeter", "account the greeter runs as")
 	compositor := fs.String("compositor", "lys-wm", "the greeter's compositor")
 	runtimeDir := fs.String("runtime-dir", dm.DefaultRuntimeDir, "directory for the greeter's socket and the display manager's")
+	splash := fs.String("splash", "", "lys-splash, quit with --retain-splash once the greeter's first frame is presented")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -243,6 +246,7 @@ func daemon(args []string) int {
 		WorkerOptions: *wo, GreeterUser: *greeterUser,
 		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
 		GreeterConfig: greet.ConfigPath, GreeterState: greet.StatePath, CursorDir: cursorrecord.Dir,
+		Splash: *splash,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)

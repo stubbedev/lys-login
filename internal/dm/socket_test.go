@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stubbedev/lys-lib/sockdir"
@@ -172,5 +173,75 @@ func TestCursorRefusesAThemeThatIsNoDirectoryName(t *testing.T) {
 	}
 	if _, err := cursorrecord.Read(records, me); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("a refused cursor was recorded: %v", err)
+	}
+}
+
+func TestSplashHandOverIsTheGreeters(t *testing.T) {
+	me := me(t)
+	var quits atomic.Int32
+	isGreeter := func(uid uint32) bool { return uid == me+1 }
+	dir := serveAt(t, SplashSocket, handOverSplash(isGreeter, func() error { quits.Add(1); return nil }))
+	if _, err := SplashSocket.Send(dir, Presented{}); err == nil || !strings.Contains(err.Error(), "only the greeter") {
+		t.Errorf("another user: %v, want a refusal", err)
+	}
+	if n := quits.Load(); n != 0 {
+		t.Fatalf("a refused hand-over quit the splash %d times", n)
+	}
+
+	dir = serveAt(t, SplashSocket, handOverSplash(func(uid uint32) bool { return uid == me }, func() error { quits.Add(1); return nil }))
+	for range 2 {
+		if _, err := SplashSocket.Send(dir, Presented{}); err != nil {
+			t.Fatalf("the greeter: %v", err)
+		}
+	}
+	if n := quits.Load(); n != 1 {
+		t.Errorf("the splash was quit %d times, want once", n)
+	}
+}
+
+func TestTakeScreenFromSplashReachesTheDaemon(t *testing.T) {
+	me := me(t)
+	quit := make(chan struct{}, 1)
+	dir := serveAt(t, SplashSocket, handOverSplash(func(uid uint32) bool { return uid == me }, func() error { quit <- struct{}{}; return nil }))
+	TakeScreenFromSplash(dir)()
+	select {
+	case <-quit:
+	default:
+		t.Fatal("the greeter's first frame did not quit the splash")
+	}
+	if TakeScreenFromSplash("") != nil {
+		t.Error("without a display manager the greeter has a hand-over to make")
+	}
+	TakeScreenFromSplash(sockdir.Dir(t))()
+}
+
+func TestQuitSplashRetainsItsFrame(t *testing.T) {
+	dir := t.TempDir()
+	got := filepath.Join(dir, "args")
+	splash := filepath.Join(dir, "lys-splash")
+	if err := os.WriteFile(splash, []byte("#!/bin/sh\necho \"$@\" > "+got+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := quitSplash(splash)(); err != nil {
+		t.Fatal(err)
+	}
+	if args, err := os.ReadFile(got); err != nil || string(args) != "quit --retain-splash\n" {
+		t.Errorf("lys-splash ran with %q, %v; want quit --retain-splash", args, err)
+	}
+}
+
+func TestQuitSplashWithoutSplash(t *testing.T) {
+	if err := quitSplash("")(); err != nil {
+		t.Errorf("no splash configured: %v", err)
+	}
+	if err := quitSplash(filepath.Join(t.TempDir(), "lys-splash"))(); err != nil {
+		t.Errorf("lys-splash not installed: %v", err)
+	}
+	failing := filepath.Join(t.TempDir(), "lys-splash")
+	if err := os.WriteFile(failing, []byte("#!/bin/sh\necho no daemon >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := quitSplash(failing)(); err == nil || !strings.Contains(err.Error(), "no daemon") {
+		t.Errorf("a failing lys-splash: %v, want its output", err)
 	}
 }

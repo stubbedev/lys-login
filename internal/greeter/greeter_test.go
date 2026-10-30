@@ -349,3 +349,19 @@ func TestStylesheetInstallsTheWidgetTheme(t *testing.T) {
 		t.Error("the greeter left lys-ui's theme off the configured palette")
 	}
 }
+
+func TestFirstPresentedFrameTakesTheScreenFromTheSplash(t *testing.T) {
+	taken := make(chan struct{})
+	cfg := windowConfig(nil, func() { close(taken) })
+	if cfg.OnPresented == nil {
+		t.Fatal("the greeter's window does not report its first presented frame")
+	}
+	cfg.OnPresented()
+	<-taken
+}
+
+func TestWithoutDisplayManagerNoFrameIsReported(t *testing.T) {
+	if windowConfig(nil, nil).OnPresented != nil {
+		t.Error("a greeter with no hand-over to make reports its first frame")
+	}
+}

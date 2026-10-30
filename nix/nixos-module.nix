@@ -163,6 +163,19 @@ in {
         description = "lys-wm, the kiosk compositor the `lys-login` display manager shows the greeter in.";
       };
 
+      splashPackage = lib.mkOption {
+        type = lib.types.nullOr lib.types.package;
+        default = null;
+        example = lib.literalExpression "lys-splash.packages.\${system}.default";
+        description = ''
+          lys-splash, when it is the boot splash: the `lys-login` display
+          manager takes the screen from it without a blank frame. Its unit
+          conflicts with `lys-splash-quit.service`, deactivates the splash
+          before lys-wm starts, and quits it with `--retain-splash` once the
+          greeter's first frame is presented.
+        '';
+      };
+
       vt = lib.mkOption {
         type = lib.types.ints.positive;
         default = 1;
@@ -347,10 +360,17 @@ in {
           "systemd-user-sessions.service"
           "plymouth-quit-wait.service"
           "getty@tty${toString cfg.greeter.vt}.service"
+        ]
+        ++ lib.optionals (cfg.greeter.splashPackage != null) [
+          "lys-splash-start.service"
+          "lys-splash-quit.service"
         ];
-        conflicts = ["getty@tty${toString cfg.greeter.vt}.service"];
+        conflicts =
+          ["getty@tty${toString cfg.greeter.vt}.service"]
+          ++ lib.optional (cfg.greeter.splashPackage != null) "lys-splash-quit.service";
         restartIfChanged = false;
         serviceConfig = {
+          ExecStartPre = lib.mkIf (cfg.greeter.splashPackage != null) "-${lib.getExe' cfg.greeter.splashPackage "lys-splash"} deactivate";
           ExecStart = lib.escapeShellArgs (
             [
               (lib.getExe' cfg.package "lys-login")
@@ -363,6 +383,12 @@ in {
               "lys-greeter"
               "--compositor"
               (lib.getExe' cfg.greeter.compositorPackage "lys-wm")
+            ]
+            ++ lib.optionals (cfg.greeter.splashPackage != null) [
+              "--splash"
+              (lib.getExe' cfg.greeter.splashPackage "lys-splash")
+            ]
+            ++ [
               "--"
               "--config"
               "/etc/lys-shell/config.yaml"
