@@ -63,6 +63,8 @@ func main() {
 		os.Exit(daemon(args))
 	case "worker":
 		os.Exit(worker(args))
+	case "vault-unlock":
+		os.Exit(vaultUnlock(args))
 	case "apply-config":
 		os.Exit(applyConfig(args))
 	case "record-cursor":
@@ -129,7 +131,13 @@ func lockSession(args []string) int {
 		defer svc.Close()
 		cfg = svc.Config()
 	}
-	switch err := lock.Run(cfg, os.Stdout); {
+	var vaultHelper []string
+	if exe, err := self(); err != nil {
+		log.Printf("lock: vault: %v; not unlocking it with the session", err)
+	} else {
+		vaultHelper = []string{exe, "vault-unlock"}
+	}
+	switch err := lock.Run(cfg, os.Stdout, vaultHelper); {
 	case err == nil:
 		return 0
 	case errors.Is(err, lock.ErrHeld):
@@ -142,6 +150,18 @@ func lockSession(args []string) int {
 		fmt.Fprintln(os.Stderr, "lys-login lock:", err)
 		return 1
 	}
+}
+
+func vaultUnlock(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintf(os.Stderr, "lys-login vault-unlock: unexpected argument %q\n", args[0])
+		return 2
+	}
+	if err := lock.UnlockVault(os.Stdin); err != nil {
+		log.Printf("lock: vault: %v", err)
+		return 1
+	}
+	return 0
 }
 
 // applyConfig is `lys-login apply-config [--config PATH] <STAGED.yaml>`:

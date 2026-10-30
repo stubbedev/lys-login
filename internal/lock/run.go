@@ -37,8 +37,8 @@ var (
 // Unlock. It writes lockclient.LockedLine to stdout when the compositor confirms
 // the lock. One lys-login per session holds the lock: a second Run
 // returns ErrHeld.
-func Run(cfg *config.Config, stdout io.Writer) error {
-	vu := newVaultUnlock(cfg.Bitwarden.UnlockWithSession)
+func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
+	vu := newVaultUnlock(cfg.Bitwarden.UnlockWithSession, vaultHelper)
 	defer vu.wait()
 	release, err := holdSession(xdg.OS)
 	if err != nil {
