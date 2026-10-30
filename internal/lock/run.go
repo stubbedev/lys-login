@@ -38,6 +38,8 @@ var (
 // the lock. One lys-login per session holds the lock: a second Run
 // returns ErrHeld.
 func Run(cfg *config.Config, stdout io.Writer) error {
+	vu := newVaultUnlock(cfg.Bitwarden.UnlockWithSession)
+	defer vu.wait()
 	release, err := holdSession(xdg.OS)
 	if err != nil {
 		return err
@@ -65,7 +67,7 @@ func Run(cfg *config.Config, stdout io.Writer) error {
 			return func() { t.Stop() }
 		},
 		Auth: func(service string, onEvent func(auth.Event)) authHandle {
-			return auth.Spawn(auth.NewPAM(service), auth.CurrentUsername(), onEvent)
+			return auth.Spawn(auth.NewPAM(service, vu.start), auth.CurrentUsername(), onEvent)
 		},
 		Decode:   imagedecode.OpenOffHeap,
 		Outputs:  func() []image.Point { return outputsize.Devices(sess.Outputs()) },

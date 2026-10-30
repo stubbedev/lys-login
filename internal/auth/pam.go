@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"slices"
 )
 
 // PAM return codes the backend uses (security/_pam_types.h).
@@ -72,14 +73,17 @@ type PAM struct {
 	// Service is the PAM service name (/etc/pam.d/<service>).
 	Service string
 	lib     pamLib
-	// unlockKeyring hands the verified password to the session keyring;
-	// a field so tests observe it without a daemon.
-	unlockKeyring func(password []byte)
+	// onVerified receive the verified password in turn, each borrowing
+	// it until it returns; a field so tests observe them without a
+	// daemon.
+	onVerified []func(password []byte)
 }
 
-// NewPAM returns the backend for service over the system libpam.
-func NewPAM(service string) *PAM {
-	return &PAM{Service: service, lib: systemPAM{}, unlockKeyring: UnlockLoginKeyring}
+// NewPAM returns the backend for service over the system libpam. The
+// verified password goes to each of verified in turn, then unlocks the
+// session keyring; each borrows it only until it returns.
+func NewPAM(service string, verified ...func(password []byte)) *PAM {
+	return &PAM{Service: service, lib: systemPAM{}, onVerified: append(slices.Clip(verified), UnlockLoginKeyring)}
 }
 
 // Run implements Conversation. The transaction opens for username (the
@@ -110,8 +114,10 @@ func (p *PAM) Run(username string, ask Ask) error {
 	if err := l.Close(); err != nil {
 		log.Printf("auth: PAM %s: %v", p.Service, err)
 	}
-	if secret != nil && p.unlockKeyring != nil {
-		p.unlockKeyring(secret)
+	if secret != nil {
+		for _, fn := range p.onVerified {
+			fn(secret)
+		}
 	}
 	return nil
 }

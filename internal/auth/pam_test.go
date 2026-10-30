@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -128,7 +130,7 @@ func answering(answer string, seen *[]Prompt) Ask {
 }
 
 func newTestPAM(f *fakePAM, unlocked *[]string) *PAM {
-	return &PAM{Service: "lys-shell", lib: f, unlockKeyring: func(pw []byte) { *unlocked = append(*unlocked, string(pw)) }}
+	return &PAM{Service: "lys-shell", lib: f, onVerified: []func([]byte){func(pw []byte) { *unlocked = append(*unlocked, string(pw)) }}}
 }
 
 // TestPAMConversationHandling pins the conversation: an echo-off
@@ -189,6 +191,32 @@ func TestPAMWrongPasswordFailsWithoutKeyring(t *testing.T) {
 	}
 	if got := strings.Join(f.calls, ","); got != "authenticate,end" || f.endStatus != fakeAuthErr {
 		t.Errorf("calls = %s, end status %d: a failure ends with its status", got, f.endStatus)
+	}
+}
+
+func TestPAMVerifiedHooksRunOnceEachOnlyOnSuccess(t *testing.T) {
+	for _, tc := range []struct {
+		answer string
+		want   []string
+	}{{"right", []string{"first:right", "second:right"}}, {"wrong", nil}} {
+		var got []string
+		hook := func(name string) func([]byte) {
+			return func(pw []byte) { got = append(got, name+":"+string(pw)) }
+		}
+		f := &fakePAM{password: "right", batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password: "}}}}
+		p := &PAM{Service: "lys-shell", lib: f, onVerified: []func([]byte){hook("first"), hook("second")}}
+		var seen []Prompt
+		_ = p.Run("alice", answering(tc.answer, &seen))
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("answer %q: hooks saw %q, want %q", tc.answer, got, tc.want)
+		}
+	}
+}
+
+func TestNewPAMRunsHooksBeforeTheKeyring(t *testing.T) {
+	p := NewPAM("lys-shell", func([]byte) {})
+	if len(p.onVerified) != 2 || reflect.ValueOf(p.onVerified[1]).Pointer() != reflect.ValueOf(UnlockLoginKeyring).Pointer() {
+		t.Errorf("NewPAM hooks = %d, want the extra hook then the keyring unlock", len(p.onVerified))
 	}
 }
 
