@@ -196,7 +196,9 @@ in {
         ];
         default = "auto";
         description = ''
-          Render path for the greeter stack.
+          Render path for the greeter stack under greetd. The `lys-login`
+          display manager takes only `auto`: lys-wm picks its GPU or renders
+          in software on its own.
 
           `auto` sets nothing: wlroots (cage) tries its GLES2 renderer and GTK
           tries its GL renderer, each falling back to software on failure — so
@@ -213,8 +215,9 @@ in {
         default = [];
         example = lib.literalExpression ''[ "''${pkgs.nixgl.nixGLIntel}/bin/nixGLIntel" ]'';
         description = ''
-          Command prefix wrapping the whole greeter launch (cage + greeter).
-          Unused on NixOS, where drivers come from {file}`/run/opengl-driver`.
+          Command prefix wrapping the whole greeter launch (cage + greeter)
+          under greetd; the `lys-login` display manager takes none. Unused on
+          NixOS, where drivers come from {file}`/run/opengl-driver`.
           Its purpose is nixGL on non-NixOS hosts: set this to a nixGL wrapper so
           cage — and the greeter it spawns — find the host's GPU driver and run
           accelerated. Leave empty (with `renderer = "software"`) to skip GL
@@ -334,6 +337,14 @@ in {
         {
           assertion = cfg.greeter.compositorPackage != null;
           message = ''programs.lys-login.greeter.displayManager = "lys-login" needs programs.lys-login.greeter.compositorPackage (lys-wm).'';
+        }
+        {
+          assertion = cfg.greeter.renderer == "auto";
+          message = ''programs.lys-login.greeter.renderer = "${cfg.greeter.renderer}" sets cage's and the greeter's render path under greetd; the "lys-login" display manager does not read it, and lys-wm falls back to software rendering on its own. Leave renderer at "auto".'';
+        }
+        {
+          assertion = cfg.greeter.graphicsWrapper == [];
+          message = ''programs.lys-login.greeter.graphicsWrapper wraps the greetd launch of cage; the "lys-login" display manager does not run it. Leave graphicsWrapper empty.'';
         }
       ];
       services.displayManager.enable = true;

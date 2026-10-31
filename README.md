@@ -234,8 +234,8 @@ contains the session files of every installed Wayland compositor. Options:
 | `greeter.session.x11Dirs` | NixOS xsessions dir | Directories scanned for X11 session files (launched via `startx`; `[]` disables). |
 | `greeter.session.command` | `""` | Optional explicit fallback session, offered as a "Custom" entry. |
 | `greeter.session.environment` | `[]` | Extra `KEY=value` entries for the started session. |
-| `greeter.renderer` | `"auto"` | `auto` tries GPU and falls back to software; `software` forces the driver-free pixman + cairo path. |
-| `greeter.graphicsWrapper` | `[]` | Command prefix (e.g. a nixGL wrapper) around the whole launch — for non-NixOS-style driver setups. |
+| `greeter.renderer` | `"auto"` | Under greetd: `auto` tries GPU and falls back to software; `software` forces the driver-free pixman + cairo path. The `lys-login` display manager takes only `auto`, as lys-wm falls back to software itself. |
+| `greeter.graphicsWrapper` | `[]` | Under greetd: command prefix (e.g. a nixGL wrapper) around the whole launch — for non-NixOS-style driver setups. The `lys-login` display manager takes none. |
 
 The last session/username are stored in `/var/lib/lys-greeter/`, owned by the
 greetd user.

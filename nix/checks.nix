@@ -9,6 +9,25 @@
     ...
   }: let
     pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+    fakeLysWm = pkgs.writeShellScriptBin "lys-wm" "";
+    daemonSystem = greeter:
+      (pkgs.nixos {
+        imports = [self.nixosModules.default];
+        programs.lys-login.greeter =
+          {
+            enable = true;
+            displayManager = "lys-login";
+            compositorPackage = fakeLysWm;
+          }
+          // greeter;
+        boot.loader.grub.enable = false;
+        fileSystems."/" = {
+          device = "nodev";
+          fsType = "tmpfs";
+        };
+        system.stateVersion = lib.trivial.release;
+      }).config;
+    failedAssertions = greeter: map (a: a.message) (lib.filter (a: !a.assertion) (daemonSystem greeter).assertions);
   in {
     checks =
       lib.optionalAttrs pkgs.stdenv.hostPlatform.isx86_64 {
@@ -22,22 +41,7 @@
       // {
         splash-unit = let
           splash = pkgs.writeShellScriptBin "lys-splash" "";
-          unit = splashPackage:
-            (pkgs.nixos {
-              imports = [self.nixosModules.default];
-              programs.lys-login.greeter = {
-                enable = true;
-                displayManager = "lys-login";
-                compositorPackage = pkgs.writeShellScriptBin "lys-wm" "";
-                inherit splashPackage;
-              };
-              boot.loader.grub.enable = false;
-              fileSystems."/" = {
-                device = "nodev";
-                fsType = "tmpfs";
-              };
-              system.stateVersion = lib.trivial.release;
-            }).config.systemd.services.lys-login;
+          unit = splashPackage: (daemonSystem {inherit splashPackage;}).systemd.services.lys-login;
           handsOver = u:
             lib.elem "lys-splash-quit.service" u.conflicts
             && lib.all (s: lib.elem s u.after) ["lys-splash-start.service" "lys-splash-quit.service"]
@@ -52,24 +56,7 @@
             touch $out
           '';
         greeter-sessions-assertion = let
-          failed = session:
-            map (a: a.message) (lib.filter (a: !a.assertion)
-              (pkgs.nixos {
-                imports = [self.nixosModules.default];
-                programs.lys-login.greeter = {
-                  enable = true;
-                  displayManager = "lys-login";
-                  compositorPackage = pkgs.writeShellScriptBin "lys-wm" "";
-                  inherit session;
-                };
-                boot.loader.grub.enable = false;
-                fileSystems."/" = {
-                  device = "nodev";
-                  fsType = "tmpfs";
-                };
-                system.stateVersion = lib.trivial.release;
-              }).config.assertions);
-          rejects = session: lib.any (lib.hasInfix "offers no session to log into") (failed session);
+          rejects = session: lib.any (lib.hasInfix "offers no session to log into") (failedAssertions {inherit session;});
         in
           pkgs.runCommand "lys-login-greeter-sessions-assertion" {} ''
             ${lib.optionalString (!rejects {
@@ -86,6 +73,15 @@
               dirs = [];
               x11Dirs = ["/x"];
             }) ''echo "x11Dirs alone was rejected" >&2; exit 1''}
+            touch $out
+          '';
+        daemon-render-assertion = let
+          rejects = greeter: needle: lib.any (lib.hasInfix needle) (failedAssertions greeter);
+        in
+          pkgs.runCommand "lys-login-daemon-render-assertion" {} ''
+            ${lib.optionalString (!rejects {renderer = "software";} "greeter.renderer") ''echo "renderer = software passed evaluation under the lys-login display manager" >&2; exit 1''}
+            ${lib.optionalString (!rejects {graphicsWrapper = ["nixGL"];} "greeter.graphicsWrapper") ''echo "a graphicsWrapper passed evaluation under the lys-login display manager" >&2; exit 1''}
+            ${lib.optionalString (rejects {} "greeter.renderer" || rejects {} "greeter.graphicsWrapper") ''echo "the default renderer and graphicsWrapper were rejected" >&2; exit 1''}
             touch $out
           '';
         # The package wraps the binary with the libraries it dlopens, libpam
