@@ -10,16 +10,10 @@
   }: let
     pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
     fakeLysWm = pkgs.writeShellScriptBin "lys-wm" "";
-    daemonSystem = greeter:
+    greeterSystem = greeter:
       (pkgs.nixos {
         imports = [self.nixosModules.default];
-        programs.lys-login.greeter =
-          {
-            enable = true;
-            displayManager = "lys-login";
-            compositorPackage = fakeLysWm;
-          }
-          // greeter;
+        programs.lys-login.greeter = {enable = true;} // greeter;
         boot.loader.grub.enable = false;
         fileSystems."/" = {
           device = "nodev";
@@ -27,6 +21,12 @@
         };
         system.stateVersion = lib.trivial.release;
       }).config;
+    daemonSystem = greeter:
+      greeterSystem ({
+          displayManager = "lys-login";
+          compositorPackage = fakeLysWm;
+        }
+        // greeter);
     failedAssertions = greeter: map (a: a.message) (lib.filter (a: !a.assertion) (daemonSystem greeter).assertions);
   in {
     checks =
@@ -82,6 +82,13 @@
             ${lib.optionalString (!rejects {renderer = "software";} "greeter.renderer") ''echo "renderer = software passed evaluation under the lys-login display manager" >&2; exit 1''}
             ${lib.optionalString (!rejects {graphicsWrapper = ["nixGL"];} "greeter.graphicsWrapper") ''echo "a graphicsWrapper passed evaluation under the lys-login display manager" >&2; exit 1''}
             ${lib.optionalString (rejects {} "greeter.renderer" || rejects {} "greeter.graphicsWrapper") ''echo "the default renderer and graphicsWrapper were rejected" >&2; exit 1''}
+            touch $out
+          '';
+        default-display-manager = let
+          system = greeterSystem {};
+        in
+          pkgs.runCommand "lys-login-default-display-manager" {} ''
+            ${lib.optionalString (!(system.systemd.services ? lys-login) || system.services.greetd.enable) ''echo "greeter.enable alone does not run the lys-login display manager" >&2; exit 1''}
             touch $out
           '';
         # The package wraps the binary with the libraries it dlopens, libpam
