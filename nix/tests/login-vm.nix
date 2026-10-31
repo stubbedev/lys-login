@@ -122,6 +122,21 @@ in
 
           return {pixel(width // 10, height // 2), pixel(0, height // 2)}
 
+      def await_background(want, what, deadline=30.0, step=0.5):
+          """Polls the screen until the greeter's background is want: the
+          greeter presents its first frame seconds after its session
+          registers, until then lys-wm's own base colour shows through.
+          On the deadline it keeps the last screen and the journal."""
+          end = time.monotonic() + deadline
+          seen = background()
+          while seen != want:
+              if time.monotonic() >= end:
+                  machine.screenshot(f"timeout-{what}")
+                  print(machine.execute("journalctl -b --no-pager -n 200")[1])
+                  raise Exception(f"the {what}'s background is {seen} after {deadline}s, want {want}")
+              time.sleep(step)
+              seen = background()
+
       start_all()
       machine.wait_for_unit("lys-login.service")
 
@@ -134,10 +149,8 @@ in
           if machine.execute(f"pgrep -x {absent}")[0] == 0:
               raise Exception(f"{absent} runs")
       machine.wait_until_succeeds("loginctl list-sessions --no-legend | grep -q lys-greeter", timeout=30)
-      time.sleep(3)
+      await_background({(0, 0, 0)}, "first greeter")
       machine.screenshot("01-greeter")
-      if background() != {(0, 0, 0)}:
-          raise Exception(f"the first greeter's background is {background()}, want the default black")
 
       # Without a session nobody but root changes the login screen, and
       # no polkit action stands in for the daemon.
@@ -201,12 +214,7 @@ in
       # When the session ends the greeter comes back at once, on its
       # first try, with the background the user applied.
       machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=30)
-      for _ in range(30):
-          if background() == {(255, 0, 0)}:
-              break
-          time.sleep(1)
-      else:
-          raise Exception(f"the next greeter's background is {background()}, want the applied red")
+      await_background({(255, 0, 0)}, "next greeter")
       machine.screenshot("04-greeter-again")
 
       # The next greeter's kiosk draws the recorded cursor, and the
