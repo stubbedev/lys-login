@@ -339,7 +339,7 @@ func (s *screen) onEvent(ev auth.Event) {
 	case auth.EventPrompt:
 		s.onPrompt(ev.Prompt)
 	case auth.EventSuccess:
-		log.Printf("greeter: authentication succeeded; greetd is starting the session")
+		log.Printf("greeter: authentication succeeded; the session is starting")
 		s.rememberLogin()
 		if !s.init.HandOver {
 			s.d.quit()

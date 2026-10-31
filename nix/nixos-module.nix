@@ -8,7 +8,7 @@ self: {
   yamlFormat = pkgs.formats.yaml {};
 
   # Directory the greeter remembers the last-selected session in. Must be
-  # writable by the greetd user (`greeter`); the tmpfiles rule below creates it.
+  # writable by the greeter's user; the tmpfiles rules below create it.
   greeterStateDir = "/var/lib/lys-greeter";
 
   # Forces both render layers onto their software paths: wlroots' pixman
@@ -137,28 +137,29 @@ in {
     greeter = {
       enable = lib.mkEnableOption ''
         the lys-login greeter: a login screen that shares the desktop/lock
-        theme and lets the user pick a Wayland session. Enables `services.greetd`
-        with a kiosk compositor (cage) hosting the greeter; on login it starts
-        the selected session (discovered from `greeter.session.dirs`)'';
+        theme and lets the user pick a Wayland session, shown by
+        `greeter.displayManager`; on login it starts the selected session
+        (discovered from `greeter.session.dirs`)'';
 
       displayManager = lib.mkOption {
         type = lib.types.enum [
           "greetd"
           "lys-login"
         ];
-        default = "greetd";
+        default = "lys-login";
         description = ''
-          What runs the greeter. `greetd` runs it under greetd in a cage kiosk.
-          `lys-login` is lys-login's own display manager: a root daemon on
-          `vt` that shows the greeter in a lys-wm kiosk (`compositorPackage`)
+          What runs the greeter. `lys-login` is lys-login's own display
+          manager: a root daemon on `vt` that shows the greeter in a lys-wm kiosk (`compositorPackage`)
           and starts the session a user logs in to through PAM (the
-          `lys-login` service), with neither greetd nor cage.
+          `lys-login` service), with neither greetd nor cage. `greetd` runs
+          it under greetd in a cage kiosk.
         '';
       };
 
       compositorPackage = lib.mkOption {
-        type = lib.types.nullOr lib.types.package;
-        default = null;
+        type = lib.types.package;
+        default = self.inputs.lys-wm.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        defaultText = lib.literalExpression "lys-login.inputs.lys-wm.packages.\${system}.default";
         example = lib.literalExpression "config.programs.lys-wm.package";
         description = "lys-wm, the kiosk compositor the `lys-login` display manager shows the greeter in.";
       };
@@ -335,10 +336,6 @@ in {
     (lib.mkIf (cfg.greeter.enable && cfg.greeter.displayManager == "lys-login") {
       assertions = [
         {
-          assertion = cfg.greeter.compositorPackage != null;
-          message = ''programs.lys-login.greeter.displayManager = "lys-login" needs programs.lys-login.greeter.compositorPackage (lys-wm).'';
-        }
-        {
           assertion = cfg.greeter.renderer == "auto";
           message = ''programs.lys-login.greeter.renderer = "${cfg.greeter.renderer}" sets cage's and the greeter's render path under greetd; the "lys-login" display manager does not read it, and lys-wm falls back to software rendering on its own. Leave renderer at "auto".'';
         }
@@ -446,7 +443,7 @@ in {
           message = "programs.lys-login.greeter offers no session to log into: session.dirs and session.x11Dirs are empty and session.command is unset. Keep the default dirs, list a directory of session files, or set session.command.";
         }
       ];
-      # The greeter runs as the greetd user with no $HOME, so its theme config
+      # The greeter runs as a system user with no usable $HOME, so its theme config
       # lives system-wide. environment.etc files are world-readable (0444).
       environment.etc."lys-shell/config.yaml" = lib.mkIf (cfg.greeter.settings != {}) {
         source = yamlFormat.generate "lys-greeter-config.yaml" cfg.greeter.settings;

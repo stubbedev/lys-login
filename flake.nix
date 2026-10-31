@@ -26,8 +26,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
     };
-    # The kiosk compositor the display manager shows the greeter in, for
-    # the login VM check.
+    # The kiosk compositor the display manager shows the greeter in: the
+    # NixOS module's default greeter.compositorPackage, and the login VM
+    # check's.
     lys-wm = {
       url = "github:stubbedev/lys-wm";
       inputs.nixpkgs.follows = "nixpkgs";

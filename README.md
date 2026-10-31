@@ -3,8 +3,8 @@
 lys-login is the lys desktop's login screen: one screen in two modes, the
 greeter and the lock screen, plus a display manager of its own.
 
-- `lys-login greet`: the greeter, under greetd in a cage kiosk or under
-  `lys-login daemon`.
+- `lys-login greet`: the greeter, under `lys-login daemon` or under greetd
+  in a cage kiosk.
 - `lys-login lock`: the session lock on `ext-session-lock-v1`, which
   lys-shell starts for its lock triggers (logind's Lock signal, idle,
   `lys-shell lock`, lock-on-start).
@@ -39,9 +39,10 @@ other failure. `cmd/lys-login/lock_test.go` pins it against the real binary.
 
 ## The greeter
 
-`lys-login greet` is a [greetd](https://sr.ht/~kennylevinsen/greetd/) greeter — a
-display-manager login screen that can replace sddm/gdm for Wayland sessions. It
-is the same login screen as the lock screen, in its greeter mode: both read the
+`lys-login greet` is a display-manager login screen that can replace sddm/gdm
+for Wayland sessions. It speaks the
+[greetd](https://sr.ht/~kennylevinsen/greetd/) protocol, to `lys-login daemon`
+or to greetd itself. It is the same login screen as the lock screen, in its greeter mode: both read the
 `login` config section, so they share the theme, background, blur, clock and
 the failed-attempt handling; `login.greeter` holds what only the greeter has
 (user list, power buttons, cursor). It is editable under **Login & Lock Screen**
@@ -113,8 +114,9 @@ is also the only source under greetd, which has no daemon to keep records;
 otherwise the `XCURSOR_THEME`/`XCURSOR_SIZE` environment and finally the
 defaults apply.
 
-> **Cursor theme must be reachable by the greeter.** The greeter runs as the
-> unprivileged `greeter` user (home `/var/empty`), so a theme installed only via
+> **Cursor theme must be reachable by the greeter.** The greeter runs as an
+> unprivileged user (`lys-greeter`, or greetd's `greeter` with home
+> `/var/empty`), so a theme installed only via
 > home-manager (in your `0700` home) is invisible to it — and with *no* theme
 > resolvable it shows the large built-in fallback cursor, which ignores the size.
 > On NixOS the module inherits the system cursor automatically: set it the usual
@@ -148,7 +150,7 @@ clobbered. It needs no polkit:
 
 There are two ways to run it.
 
-**Under greetd** (the default): greetd starts a kiosk compositor
+**Under greetd**: greetd starts a kiosk compositor
 ([cage](https://github.com/cage-kiosk/cage)) whose single client is the
 greeter. On successful login greetd replaces the greeter with your chosen
 session.
@@ -157,12 +159,13 @@ session.
 greetd → cage -s → lys-login greet → (login) → your compositor
 ```
 
-**As its own display manager** (`lys-login daemon`): a root daemon on a VT
-shows the greeter in a lys-wm kiosk (a generated lys-wm config with no
-binds, the greeter as its one program) and starts the session itself. PAM
-is the only dependency: no greetd, no cage. Every login runs in a worker
-process of its own that holds the PAM transaction and leads the logind
-session pam_systemd registers; the greeter runs as the unprivileged
+**As its own display manager** (`lys-login daemon`, the default on NixOS):
+a root daemon on a VT shows the greeter in a lys-wm kiosk (a generated
+lys-wm config with no binds, the greeter as its one program) and starts
+the session itself. PAM is the only dependency: no greetd, no cage. Every
+login runs in a worker process of its own that holds the PAM transaction
+and leads the logind session pam_systemd registers; the greeter runs as the
+unprivileged
 `lys-greeter` user and talks to the daemon in the greetd protocol over a
 socket only it can reach, so it is the same greeter in both setups.
 
@@ -186,7 +189,9 @@ keyring it gives up and logs why.
 
 ### NixOS
 
-Enable it through the system module:
+Enable it through the system module. It runs as its own display manager,
+`lys-login daemon`, showing the greeter in the lys-wm of lys-login's flake
+input. `enable` alone is a working setup:
 
 ```nix
 programs.lys-login.greeter = {
@@ -202,20 +207,15 @@ programs.lys-login.greeter = {
 };
 ```
 
-To run it as its own display manager instead of under greetd:
-
-```nix
-programs.lys-wm.enable = true;
-programs.lys-login.greeter = {
-  enable = true;
-  displayManager = "lys-login";
-  compositorPackage = config.programs.lys-wm.package;
-};
-```
-
 This adds the `lys-login` PAM service, the `lys-greeter` system user and a
 `display-manager.service` running `lys-login daemon` on `greeter.vt` (1),
 and leaves greetd and cage out.
+
+To show the greeter in the lys-wm your desktop runs, set
+`greeter.compositorPackage = config.programs.lys-wm.package`.
+
+To run it under greetd in a cage kiosk instead, set
+`greeter.displayManager = "greetd"`.
 
 With [lys-splash](https://github.com/stubbedev/lys-splash) as the boot
 splash, set `greeter.splashPackage` to it and the greeter takes the screen
@@ -230,6 +230,8 @@ contains the session files of every installed Wayland compositor. Options:
 
 | Option | Default | What it does |
 | --- | --- | --- |
+| `greeter.displayManager` | `"lys-login"` | `lys-login`: `lys-login daemon` on `greeter.vt`; `greetd`: greetd with a cage kiosk. |
+| `greeter.compositorPackage` | lys-login's lys-wm input | The lys-wm the daemon shows the greeter in. |
 | `greeter.session.dirs` | NixOS sessions dir | Directories scanned for Wayland `*.desktop` session files. |
 | `greeter.session.x11Dirs` | NixOS xsessions dir | Directories scanned for X11 session files (launched via `startx`; `[]` disables). |
 | `greeter.session.command` | `""` | Optional explicit fallback session, offered as a "Custom" entry. |
@@ -238,7 +240,7 @@ contains the session files of every installed Wayland compositor. Options:
 | `greeter.graphicsWrapper` | `[]` | Under greetd: command prefix (e.g. a nixGL wrapper) around the whole launch — for non-NixOS-style driver setups. The `lys-login` display manager takes none. |
 
 The last session/username are stored in `/var/lib/lys-greeter/`, owned by the
-greetd user.
+greeter's user (`lys-greeter`, or greetd's `greeter`).
 
 ### Debian, Ubuntu and Fedora
 

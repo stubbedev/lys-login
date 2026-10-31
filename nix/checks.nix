@@ -10,16 +10,10 @@
   }: let
     pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
     fakeLysWm = pkgs.writeShellScriptBin "lys-wm" "";
-    daemonSystem = greeter:
+    greeterSystem = greeter:
       (pkgs.nixos {
         imports = [self.nixosModules.default];
-        programs.lys-login.greeter =
-          {
-            enable = true;
-            displayManager = "lys-login";
-            compositorPackage = fakeLysWm;
-          }
-          // greeter;
+        programs.lys-login.greeter = {enable = true;} // greeter;
         boot.loader.grub.enable = false;
         fileSystems."/" = {
           device = "nodev";
@@ -27,7 +21,13 @@
         };
         system.stateVersion = lib.trivial.release;
       }).config;
-    failedAssertions = greeter: map (a: a.message) (lib.filter (a: !a.assertion) (daemonSystem greeter).assertions);
+    daemonSystem = greeter:
+      greeterSystem ({
+          displayManager = "lys-login";
+          compositorPackage = fakeLysWm;
+        }
+        // greeter);
+    failedAssertions = system: map (a: a.message) (lib.filter (a: !a.assertion) system.assertions);
   in {
     checks =
       lib.optionalAttrs pkgs.stdenv.hostPlatform.isx86_64 {
@@ -56,7 +56,7 @@
             touch $out
           '';
         greeter-sessions-assertion = let
-          rejects = session: lib.any (lib.hasInfix "offers no session to log into") (failedAssertions {inherit session;});
+          rejects = session: lib.any (lib.hasInfix "offers no session to log into") (failedAssertions (daemonSystem {inherit session;}));
         in
           pkgs.runCommand "lys-login-greeter-sessions-assertion" {} ''
             ${lib.optionalString (!rejects {
@@ -76,12 +76,29 @@
             touch $out
           '';
         daemon-render-assertion = let
-          rejects = greeter: needle: lib.any (lib.hasInfix needle) (failedAssertions greeter);
+          rejects = greeter: needle: lib.any (lib.hasInfix needle) (failedAssertions (daemonSystem greeter));
         in
           pkgs.runCommand "lys-login-daemon-render-assertion" {} ''
             ${lib.optionalString (!rejects {renderer = "software";} "greeter.renderer") ''echo "renderer = software passed evaluation under the lys-login display manager" >&2; exit 1''}
             ${lib.optionalString (!rejects {graphicsWrapper = ["nixGL"];} "greeter.graphicsWrapper") ''echo "a graphicsWrapper passed evaluation under the lys-login display manager" >&2; exit 1''}
             ${lib.optionalString (rejects {} "greeter.renderer" || rejects {} "greeter.graphicsWrapper") ''echo "the default renderer and graphicsWrapper were rejected" >&2; exit 1''}
+            touch $out
+          '';
+        default-display-manager = let
+          system = greeterSystem {};
+          greetd = greeterSystem {displayManager = "greetd";};
+          runsDaemonIn = compositor: sys:
+            lib.hasInfix
+            (builtins.unsafeDiscardStringContext " daemon --vt 1 --service lys-login --greeter-user lys-greeter --compositor ${lib.getExe' compositor "lys-wm"} ")
+            (builtins.unsafeDiscardStringContext sys.systemd.services.lys-login.serviceConfig.ExecStart);
+          defaultCompositor = inputs.lys-wm.packages.${pkgs.stdenv.hostPlatform.system}.default;
+        in
+          pkgs.runCommand "lys-login-default-display-manager" {} ''
+            ${lib.optionalString (failedAssertions system != []) ''echo "greeter.enable alone fails an assertion" >&2; exit 1''}
+            ${lib.optionalString (!(system.systemd.services ? lys-login) || !(runsDaemonIn defaultCompositor system)) ''echo "greeter.enable alone does not run the lys-login daemon in the flake's lys-wm" >&2; exit 1''}
+            ${lib.optionalString system.services.greetd.enable ''echo "greeter.enable alone enabled greetd" >&2; exit 1''}
+            ${lib.optionalString (!(runsDaemonIn fakeLysWm (daemonSystem {}))) ''echo "compositorPackage does not reach the daemon" >&2; exit 1''}
+            ${lib.optionalString (!greetd.services.greetd.enable || greetd.systemd.services ? lys-login) ''echo "displayManager = greetd does not run greetd instead of the daemon" >&2; exit 1''}
             touch $out
           '';
         # The package wraps the binary with the libraries it dlopens, libpam
