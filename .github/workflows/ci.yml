@@ -19,7 +19,13 @@ concurrency:
 jobs:
     check:
         name: Check (vet + lint + test + race + build)
-        runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - { runner: ubuntu-latest, system: x86_64-linux }
+                    - { runner: ubuntu-24.04-arm, system: aarch64-linux }
+        runs-on: ${{ matrix.runner }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -36,7 +42,7 @@ jobs:
               run: nix develop --accept-flake-config -c just check
 
             - name: Package check
-              run: nix build -L --accept-flake-config .#checks.x86_64-linux.package
+              run: nix build -L --accept-flake-config .#checks.${{ matrix.system }}.package
 
     vm:
         name: VM (${{ matrix.check }})

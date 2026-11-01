@@ -1,13 +1,15 @@
 # Fedora
 
 Each [release](https://github.com/stubbedev/lys-login/releases) carries an x86_64
-`.rpm`. Install it with lys-wm, which the display manager shows the greeter in, and
+and an aarch64 `.rpm`. Install it with lys-wm, which the display manager shows the greeter in, and
 optionally [lys-secrets](https://github.com/stubbedev/lys-secrets/releases), from
 their own releases:
 
 ```sh
 sudo dnf install ./lys-login-<version>-*.x86_64.rpm ./lys-wm-<version>-*.x86_64.rpm
 ```
+
+On aarch64 the files end in `.aarch64.rpm`.
 
 The package needs `pam` and `systemd`, and recommends lys-wm, lys-secrets,
 `vulkan-loader` and `mesa-vulkan-drivers`.

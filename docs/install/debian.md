@@ -1,13 +1,15 @@
 # Debian and Ubuntu
 
 Each [release](https://github.com/stubbedev/lys-login/releases) carries an amd64
-`.deb`. Install it with lys-wm, which the display manager shows the greeter in, and
+and an arm64 `.deb`. Install it with lys-wm, which the display manager shows the greeter in, and
 optionally [lys-secrets](https://github.com/stubbedev/lys-secrets/releases), from
 their own releases:
 
 ```sh
 sudo apt install ./lys-login_<version>_amd64.deb ./lys-wm_<version>_amd64.deb
 ```
+
+On arm64 the files end in `_arm64.deb`.
 
 The package needs `libpam0g`, `libpam-systemd` and `systemd`, and recommends
 lys-wm, lys-secrets, `libvulkan1` and `mesa-vulkan-drivers`.

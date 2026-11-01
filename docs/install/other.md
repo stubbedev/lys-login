@@ -5,7 +5,7 @@ the release archive, or only the greeter, under greetd.
 
 ## The display manager from the archive
 
-The release's `lys-login-<version>-x86_64-linux.tar.gz` holds the files the packages
+The release's `lys-login-<version>-<arch>-linux.tar.gz` (`x86_64` or `aarch64`) holds the files the packages
 install, with both distributions' PAM services under `pam/`. The binary asks for
 the standard program interpreter, and the unit names `/usr/bin/lys-login` and
 `/usr/bin/lys-wm`; lys-wm has an archive of its own in

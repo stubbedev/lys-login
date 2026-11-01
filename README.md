@@ -37,7 +37,7 @@ programs.lys-login.greeter.enable = true;
 ```
 
 Each [release](https://github.com/stubbedev/lys-login/releases) carries a `.deb`
-and an `.rpm` (x86_64), and an archive for other systems. Install the package with
+and an `.rpm` for x86_64 and aarch64, and an archive for other systems. Install the package with
 lys-wm, then switch display managers:
 
 ```sh

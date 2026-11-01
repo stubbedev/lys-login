@@ -22,7 +22,7 @@ greeter and the lock screen, plus a display manager of its own.
 | Fedora | `.rpm` from the release | [Fedora](/install/fedora) |
 | Anything else | Release archive, or the greeter under greetd | [Other systems](/install/other) |
 
-Releases carry x86_64 packages. The flake also builds for aarch64-linux.
+Releases carry x86_64 and aarch64 packages, and the flake builds for both.
 
 ## What you need
 
