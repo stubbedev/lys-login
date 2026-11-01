@@ -24,8 +24,8 @@ github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef h1:Ch6Q+AZUxDBCVqd
 github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef/go.mod h1:nXTWP6+gD5+LUJ8krVhhoeHjvHTutPxMYl5SvkcnJNE=
 github.com/stubbedev/lys-lib v0.1.1-0.20261031093954-0d4d7a513ae2 h1:GK83g2UA3urf2exyl5aaErPJadz90L/fhdQ9L5jlbwY=
 github.com/stubbedev/lys-lib v0.1.1-0.20261031093954-0d4d7a513ae2/go.mod h1:l6zaxsNo6lXlQ0IAZk+mjKbSGi5a78yN+luKKnqiQ5I=
-github.com/stubbedev/lys-secrets v0.0.0-20261030165028-e618292d353f h1:VgdBV2MdMqVy0QASJoYm2ikVRc0iarzJodi+VCIFTmk=
-github.com/stubbedev/lys-secrets v0.0.0-20261030165028-e618292d353f/go.mod h1:gDPJbU1M3O2lEOgN3Gs1aFS2SptIwurMqi18Ztr8OHc=
+github.com/stubbedev/lys-secrets v0.2.0 h1:i8Vot+2AG07RWgBpB0qpOcLAyG+eLus7AyyM2Ui0M7g=
+github.com/stubbedev/lys-secrets v0.2.0/go.mod h1:gDPJbU1M3O2lEOgN3Gs1aFS2SptIwurMqi18Ztr8OHc=
 github.com/stubbedev/lys-shell v0.1.1-0.20261030174749-6821f5187ae7 h1:PfLEEtkhzZ+wex7cwQC7i7UEFFd3I9QXZ15050qpZTI=
 github.com/stubbedev/lys-shell v0.1.1-0.20261030174749-6821f5187ae7/go.mod h1:oDj0xncvFVXVhhgsISru15kq3JMjVrvENdd4v12PDtY=
 github.com/stubbedev/lys-ui v0.0.0-20261101070056-d6176e991a6b h1:KTc70cMVHh94osX9HiU4GmdUDVEP0zkHCfi18yxl6ZY=
@@ -34,8 +34,8 @@ github.com/stubbedev/memory-go v0.3.0 h1:Hkm+aw0vs9qhwXLL9p98U3IbQFRxPLyGvlrf2GZ
 github.com/stubbedev/memory-go v0.3.0/go.mod h1:G7ZRpWZ/VbEDhOj22Ncx7jBqqiflWFKEnntKl2UcLEg=
 github.com/unxed/xkb-go v0.1.9 h1:t2lhW6bcPxzX/1DBf9jIRoo13KhMm9+XUPJT4o5a/Kw=
 github.com/unxed/xkb-go v0.1.9/go.mod h1:p0uH0w1PGo5GU/qxcyj65edin5qHssAhvJTjCZ8nxNU=
-go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
-go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
+go.yaml.in/yaml/v3 v3.0.6 h1:zcDfvjXEqTQmpjniUBLc91xYJMB2c4QOFxEF/LCEckM=
+go.yaml.in/yaml/v3 v3.0.6/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
 golang.org/x/image v0.47.0 h1:za/8gVz++PPZqmZJBNSISICN5Rrj5zixP/8K++fgmqo=
 golang.org/x/image v0.47.0/go.mod h1:IkN5o4A7vq55vXN8FWjjnhg9Rs2GOtffqsSi9mWAKYE=
 golang.org/x/mod v0.42.0 h1:ICeL3t2L30ljSPHHxDnR4fqVcBt/zR2zJAb9juavmQg=
