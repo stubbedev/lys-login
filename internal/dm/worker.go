@@ -48,14 +48,28 @@ type WorkerOptions struct {
 	Self string
 }
 
+// greeterSessionType is the type of the session the greeter's compositor
+// runs in.
+const greeterSessionType = "wayland"
+
 // sessionEnv is the environment pam_systemd registers a session with.
-func (o WorkerOptions) sessionEnv(class string) []string {
+func (o WorkerOptions) sessionEnv(class, sessionType string) []string {
 	return []string{
-		"XDG_SESSION_TYPE=wayland",
+		auth.SessionTypeEnv + "=" + sessionType,
 		"XDG_SESSION_CLASS=" + class,
 		"XDG_SEAT=" + Seat,
 		"XDG_VTNR=" + strconv.Itoa(o.VT),
 	}
+}
+
+// loginEnv is sessionEnv for a login whose start request carries
+// startEnv, which names the type of the session the user picked.
+func (o WorkerOptions) loginEnv(startEnv []string) ([]string, error) {
+	sessionType := lookupIn(startEnv)(auth.SessionTypeEnv)
+	if sessionType == "" {
+		return nil, fmt.Errorf("the start request names no %s: %q", auth.SessionTypeEnv, startEnv)
+	}
+	return o.sessionEnv("user", sessionType), nil
 }
 
 // account is who a process runs as.
@@ -185,7 +199,7 @@ func RunGreeter(o WorkerOptions, greeterUser string, compositor, extraEnv []stri
 			log.Printf("dm: greeter: %v", err)
 		}
 	}()
-	pamEnv, err := login.OpenSession(o.sessionEnv("greeter"))
+	pamEnv, err := login.OpenSession(o.sessionEnv("greeter", greeterSessionType))
 	if err != nil {
 		return fmt.Errorf("greeter session: %w", err)
 	}
@@ -354,7 +368,11 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}
-	pamEnv, err := login.OpenSession(o.sessionEnv("user"))
+	sessionEnv, err := o.loginEnv(req.Env)
+	if err != nil {
+		return ch.send(event{Kind: evFailed, Text: err.Error()})
+	}
+	pamEnv, err := login.OpenSession(sessionEnv)
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}

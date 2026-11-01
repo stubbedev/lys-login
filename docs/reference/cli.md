@@ -12,7 +12,7 @@ lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... [--stat
 | `--sessions DIR` | `/usr/local/share/wayland-sessions`, `/usr/share/wayland-sessions` | A Wayland session directory. Repeatable; replaces the defaults. |
 | `--xsessions DIR` | `/usr/local/share/xsessions`, `/usr/share/xsessions` | An X11 session directory, launched through `startx`. Repeatable; replaces the defaults. |
 | `--state PATH` | `$XDG_STATE_HOME/lys-greeter/last-session`, else under `$HOME/.local/state`, else `/var/lib/lys-greeter/last-session` | The file holding the last session id, with the username in a `last-user` file beside it. |
-| `--env KEY=VAL` | | Extra environment for the started session. Repeatable. |
+| `--env KEY=VAL` | | Extra environment for the started session, after `XDG_SESSION_TYPE`, which the greeter sets from the session's kind (`wayland` for a `-- <argv>` session). Repeatable. |
 | `--hand-over` | off | Set by `lys-login daemon`: after a login the greeter stays up showing only its background until the daemon stops its compositor. Under greetd leave it off, and the greeter exits so greetd starts the session. |
 | `-- <argv...>` | | An explicit fallback session, offered as "Custom". |
 

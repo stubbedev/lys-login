@@ -22,11 +22,22 @@ const (
 	X11
 )
 
+// sessionType is the XDG_SESSION_TYPE of a kind's sessions.
+func (k SessionKind) sessionType() string {
+	if k == X11 {
+		return "x11"
+	}
+	return "wayland"
+}
+
 // Session is one selectable session (session.rs Session).
 type Session struct {
 	// ID is the .desktop stem, suffixed -x11 for X11 sessions; the
 	// remembered choice.
 	ID string
+	// Kind is the discovery directory it came from, and with it the type
+	// logind registers it as.
+	Kind SessionKind
 	// Name is Name= (else the id), suffixed " (X11)" for X11.
 	Name string
 	// Exec is the argv from Exec=, field codes dropped (and the startx
@@ -79,6 +90,7 @@ func SortSessions(sessions []Session) {
 }
 
 func applyKind(s Session, kind SessionKind) Session {
+	s.Kind = kind
 	if kind == X11 {
 		s.Name += " (X11)"
 		s.Exec = append([]string{"startx", "/usr/bin/env"}, s.Exec...)
@@ -152,7 +164,7 @@ func (o Options) Sessions() ([]Session, error) {
 	sessions = append(sessions, Discover(o.XSessionDirs, X11)...)
 	SortSessions(sessions)
 	if len(o.Command) > 0 {
-		sessions = append(sessions, Session{ID: "custom", Name: CustomSessionName(), Exec: o.Command})
+		sessions = append(sessions, Session{ID: "custom", Kind: Wayland, Name: CustomSessionName(), Exec: o.Command})
 	}
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("%w: no session files in the Wayland session dirs %q (--sessions) or the X11 session dirs %q (--xsessions), and no `-- <argv>` fallback session",

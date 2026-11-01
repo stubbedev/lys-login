@@ -288,6 +288,16 @@ func (s *screen) selectedSession() Session {
 	return s.init.Sessions[s.selected]
 }
 
+// startedSession is what a login starts: the session the picker shows,
+// registered as its kind, with SessionEnv after that so --env can
+// override the type of a custom session.
+func (s *screen) startedSession() auth.Session {
+	picked := s.selectedSession()
+	env := make([]string, 0, 1+len(s.init.SessionEnv))
+	env = append(env, auth.SessionTypeEnv+"="+picked.Kind.sessionType())
+	return auth.Session{Cmd: picked.Exec, Env: append(env, s.init.SessionEnv...)}
+}
+
 // submit is Enter in the password entry: answer a prompt on screen, or
 // start a login with the entered username.
 func (s *screen) submit(value string) {
@@ -315,7 +325,7 @@ func (s *screen) submit(value string) {
 }
 
 func (s *screen) startConversation(username, password string) {
-	conv, err := s.d.connect(auth.Start{Cmd: func() []string { return s.selectedSession().Exec }, Env: s.init.SessionEnv, Before: s.handOver})
+	conv, err := s.d.connect(auth.Start{Session: s.startedSession, Before: s.handOver})
 	if err != nil {
 		log.Printf("greeter: cannot connect to greetd: %v", err)
 		s.prompt.SetMessage(t("greeter-greetd-unavailable", i18n.Str("error", err.Error())))

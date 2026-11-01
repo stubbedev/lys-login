@@ -64,7 +64,7 @@ func runGreetd(t *testing.T, username string, ask Ask, cmd func() []string, serv
 		defer close(done)
 		serve(f)
 	}()
-	g := NewGreetd(client, Start{Cmd: cmd, Env: []string{"XDG_SESSION_TYPE=wayland"}})
+	g := NewGreetd(client, Start{Session: func() Session { return Session{Cmd: cmd(), Env: []string{"XDG_SESSION_TYPE=wayland"}} }})
 	err := g.Run(username, ask)
 	_ = g.Close()
 	select {
@@ -248,7 +248,7 @@ func TestGreetdFromEnv(t *testing.T) {
 	}
 	defer func() { _ = l.Close() }()
 	t.Setenv(GreetdSockEnv, path)
-	g, err := NewGreetdFromEnv(Start{Cmd: func() []string { return nil }})
+	g, err := NewGreetdFromEnv(Start{Session: func() Session { return Session{} }})
 	if err != nil {
 		t.Fatalf("NewGreetdFromEnv: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestGreetdRunsBeforeAfterAuthenticationAndBeforeStartSession(t *testing.T) 
 		order <- "start_session"
 		f.reply(`{"type":"success"}`)
 	}()
-	g := NewGreetd(client, Start{Cmd: func() []string { return []string{"lys-wm"} }, Before: func() { order <- "before" }})
+	g := NewGreetd(client, Start{Session: func() Session { return Session{Cmd: []string{"lys-wm"}} }, Before: func() { order <- "before" }})
 	err := g.Run("alice", func(Prompt) (string, bool) { return "pw", true })
 	_ = g.Close()
 	<-done

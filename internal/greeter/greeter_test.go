@@ -111,7 +111,7 @@ func TestParseDesktop(t *testing.T) {
 		t.Errorf("action group leaked: %v", s.Exec)
 	}
 	x := applyKind(Session{ID: "plasma-x11", Name: "Plasma", Exec: []string{"startplasma-x11"}}, X11)
-	if x.Name != "Plasma (X11)" || !reflect.DeepEqual(x.Exec, []string{"startx", "/usr/bin/env", "startplasma-x11"}) {
+	if x.Kind != X11 || x.Name != "Plasma (X11)" || !reflect.DeepEqual(x.Exec, []string{"startx", "/usr/bin/env", "startplasma-x11"}) {
 		t.Errorf("x11 kind: %+v", x)
 	}
 }

@@ -37,6 +37,11 @@
           inherit self;
           inherit (inputs) lys-wm lys-secrets;
         };
+        # An X11 session reaches logind as x11; see nix/tests/x11-session-vm.nix.
+        x11-session-vm = pkgs.callPackage ./tests/x11-session-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm;
+        };
       }
       // {
         splash-unit = let

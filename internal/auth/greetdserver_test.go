@@ -39,7 +39,7 @@ func TestGreetdServerAndClientAgree(t *testing.T) {
 			return WriteGreetdSuccess(server)
 		}()
 	}()
-	g := NewGreetd(client, Start{Cmd: func() []string { return []string{"lys-wm", "--systemd"} }, Env: []string{"A=1"}})
+	g := NewGreetd(client, Start{Session: func() Session { return Session{Cmd: []string{"lys-wm", "--systemd"}, Env: []string{"A=1"}} }})
 	var seen []Prompt
 	if err := g.Run("alice", answering("pw", &seen)); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestGreetdServerErrorsReachTheClient(t *testing.T) {
 		cancelled <- req
 		_ = WriteGreetdSuccess(server)
 	}()
-	err := NewGreetd(client, Start{Cmd: func() []string { return nil }}).Run("alice", answering("pw", &[]Prompt{}))
+	err := NewGreetd(client, Start{Session: func() Session { return Session{} }}).Run("alice", answering("pw", &[]Prompt{}))
 	if err == nil || err.Error() != "Authentication failure" {
 		t.Errorf("Run = %v, want the server's description alone", err)
 	}

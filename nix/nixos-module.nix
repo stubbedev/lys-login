@@ -265,8 +265,8 @@ in {
         environment = lib.mkOption {
           type = lib.types.listOf lib.types.str;
           default = [];
-          example = ["XDG_SESSION_TYPE=wayland"];
-          description = "Extra `KEY=value` environment entries for the session.";
+          example = ["LANG=C.UTF-8"];
+          description = "Extra `KEY=value` environment entries for every session. `XDG_SESSION_TYPE` is set from the session's kind already; setting it here overrides that for X11 sessions too.";
         };
       };
 

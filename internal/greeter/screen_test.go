@@ -65,10 +65,11 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 		Sessions: []Session{
 			{ID: "niri", Name: "Niri", Exec: []string{"niri-session"}},
 			{ID: "sway", Name: "Sway", Exec: []string{"sway"}},
+			{ID: "plasma-x11", Kind: X11, Name: "Plasma (X11)", Exec: []string{"startx", "/usr/bin/env", "startplasma-x11"}},
 		},
 		Users:      []User{{Name: "ada", DisplayName: "Ada", Home: "/home/ada"}, {Name: "bob", DisplayName: "Bob", Home: "/home/bob"}},
 		StatePath:  state,
-		SessionEnv: []string{"XDG_SESSION_TYPE=wayland"},
+		SessionEnv: []string{"LANG=C"},
 	}
 	init.Config.Login.Greeter.ShowUserList = true
 	init.Config.Login.Greeter.ShowPowerButtons = true
@@ -154,13 +155,13 @@ func TestGreeterLoginSucceeds(t *testing.T) {
 	if h.username != "ada" || r.s.prompt.Username.Enabled() || r.s.prompt.Entry.Enabled() {
 		t.Fatalf("a submit starts a conversation for the trimmed user with the form locked: %+v", h)
 	}
-	if !slices.Equal(r.starts[0].Env, []string{"XDG_SESSION_TYPE=wayland"}) {
-		t.Errorf("session env = %v", r.starts[0].Env)
+	if got := r.starts[0].Session().Env; !slices.Equal(got, []string{"XDG_SESSION_TYPE=wayland", "LANG=C"}) {
+		t.Errorf("session env = %v", got)
 	}
 	// The command is read when greetd starts the session: a change of
 	// mind mid-login is what runs.
 	r.s.drop.OnSelect(1)
-	if got := r.starts[0].Cmd(); !slices.Equal(got, []string{"sway"}) {
+	if got := r.starts[0].Session().Cmd; !slices.Equal(got, []string{"sway"}) {
 		t.Errorf("session command = %v, want the picked sway", got)
 	}
 	h.emit(prompt(auth.PromptSecret, "Password:"))
@@ -388,5 +389,22 @@ func TestGreeterShowsTheCardAgainWhenTheSessionDoesNotStart(t *testing.T) {
 	r.conv(t).emit(auth.Event{Kind: auth.EventFailure, Reason: "no session"})
 	if !r.s.prompt.Reveal.Revealed() || !r.s.power.Visible() {
 		t.Error("a session that failed to start left the login card hidden")
+	}
+}
+
+// An X11 session is registered as one, or the desktop inside startx
+// believes logind and looks for a Wayland compositor. Picked mid-login,
+// its command and its type move together.
+func TestAnX11SessionStartsWithItsOwnType(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.prompt.Username.SetText("ada")
+	r.s.submit("hunter2")
+	r.s.drop.OnSelect(2)
+	got := r.starts[0].Session()
+	if !slices.Equal(got.Cmd, []string{"startx", "/usr/bin/env", "startplasma-x11"}) {
+		t.Errorf("cmd = %v", got.Cmd)
+	}
+	if !slices.Equal(got.Env, []string{"XDG_SESSION_TYPE=x11", "LANG=C"}) {
+		t.Errorf("env = %v", got.Env)
 	}
 }

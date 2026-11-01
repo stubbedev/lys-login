@@ -26,11 +26,21 @@ type Greetd struct {
 	start Start
 }
 
-// Start is the session a successful login starts; Before runs between the authentication and start_session.
+// SessionTypeEnv is the variable pam_systemd registers a session's type
+// with, and sessions read to tell what they run on.
+const SessionTypeEnv = "XDG_SESSION_TYPE"
+
+// Session is the command and the environment a login starts.
+type Session struct {
+	Cmd, Env []string
+}
+
+// Start is what a successful login does: Session, read at start_session,
+// says what it starts, and Before runs between the authentication and
+// start_session.
 type Start struct {
-	Cmd    func() []string
-	Env    []string
-	Before func()
+	Session func() Session
+	Before  func()
 }
 
 // NewGreetdFromEnv connects to the socket in $GREETD_SOCK.
@@ -257,7 +267,8 @@ func (g *Greetd) Run(username string, ask Ask) error {
 	if g.start.Before != nil {
 		g.start.Before()
 	}
-	if err := g.send(startSession(g.start.Cmd(), g.start.Env)); err != nil {
+	session := g.start.Session()
+	if err := g.send(startSession(session.Cmd, session.Env)); err != nil {
 		return err
 	}
 	resp, err := g.recv()

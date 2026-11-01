@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -42,5 +43,35 @@ func TestStopGroupStopsTheCompositorBeforeItsClients(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("the compositor's client outlived the stopped group")
 		}
+	}
+}
+
+func TestALoginRegistersTheTypeOfTheSessionItStarts(t *testing.T) {
+	o := WorkerOptions{VT: 7}
+	for _, sessionType := range []string{"wayland", "x11"} {
+		got, err := o.loginEnv([]string{"LANG=C", "XDG_SESSION_TYPE=" + sessionType})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"XDG_SESSION_TYPE=" + sessionType, "XDG_SESSION_CLASS=user", "XDG_SEAT=seat0", "XDG_VTNR=7"}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: %q, want %q", sessionType, got, want)
+		}
+	}
+}
+
+func TestTheLastSessionTypeInAStartRequestWins(t *testing.T) {
+	got, err := WorkerOptions{VT: 1}.loginEnv([]string{"XDG_SESSION_TYPE=wayland", "XDG_SESSION_TYPE=x11"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(got, "XDG_SESSION_TYPE=x11") {
+		t.Errorf("%q takes the first type, not the --env override after it", got)
+	}
+}
+
+func TestAStartRequestWithoutASessionTypeIsRefused(t *testing.T) {
+	if _, err := (WorkerOptions{VT: 1}).loginEnv([]string{"LANG=C"}); err == nil || !strings.Contains(err.Error(), "XDG_SESSION_TYPE") {
+		t.Fatalf("err = %v", err)
 	}
 }

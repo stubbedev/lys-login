@@ -17,7 +17,9 @@ talks to it.
 
 It needs a session stack with `pam_systemd`, which registers the greeter and each
 login with logind on the seat and VT the daemon hands it. The workers put
-`XDG_SESSION_TYPE=wayland`, `XDG_SESSION_CLASS` (`greeter` or `user`),
+`XDG_SESSION_TYPE` (`wayland` for the greeter and Wayland sessions, `x11` for
+X11 sessions, `wayland` for a custom session unless `--env` says otherwise),
+`XDG_SESSION_CLASS` (`greeter` or `user`),
 `XDG_SEAT=seat0` and `XDG_VTNR` in the PAM environment for it.
 
 - **Debian and Ubuntu:** the usual display-manager stack over `common-auth`,
