@@ -75,8 +75,10 @@ Arch and Fedora but not on Debian or NixOS.
 
 Neither screen needs a PAM module to open your keyring. After a successful
 authentication the password goes to the login collection of lys-secrets, else to
-a running gnome-keyring. A failure there is logged and never blocks the login or
-the unlock. [How it fits together](/reference/architecture#the-keyring) has the
+gnome-keyring, either started on the session's D-Bus when it is not running yet.
+A failure there is logged and never blocks the login or the unlock. Under the
+display manager it is a warning in `journalctl -u lys-login -p warning`. KWallet
+is the exception: it opens only through `pam_kwallet` in the PAM stack. [How it fits together](/reference/architecture#the-keyring) has the
 display manager's side of this.
 
 ## Test a service

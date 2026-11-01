@@ -244,7 +244,8 @@ const keyringWait = time.Minute
 // unlockKeyringAs hands password to the login keyring of a's session,
 // whose environment is env, once one runs there, and reports what the
 // keyring said, or why none took it, on the returned channel. The
-// session never waits for it.
+// session never waits for it. The thread also activates the keyring on
+// the session's bus, whose authentication goes by its credentials.
 //
 // The keyring takes the password from its own user alone, so it is
 // handed over from an OS thread of this process that takes a's
@@ -262,6 +263,17 @@ func unlockKeyringAs(a account, env []string, password []byte) <-chan error {
 		done <- err
 	}()
 	return done
+}
+
+func reportKeyring(ch *channel, name string, unlocked <-chan error) {
+	err := <-unlocked
+	if err == nil {
+		return
+	}
+	text := fmt.Sprintf("dm: the login keyring of %s stays locked: %v", name, err)
+	if sendErr := ch.send(event{Kind: evKeyringLocked, Text: text}); sendErr != nil {
+		log.Printf("%s; and the daemon could not be told: %v", text, sendErr)
+	}
 }
 
 // handOverAs is unlockKeyringAs on its locked thread.
@@ -388,11 +400,7 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	if secret != nil {
 		unlocked := unlockKeyringAs(a, env, secret)
 		secret = nil
-		go func() {
-			if err := <-unlocked; err != nil {
-				log.Printf("dm: the login keyring of %s stays locked: %v", a.name, err)
-			}
-		}()
+		go reportKeyring(ch, a.name, unlocked)
 	}
 	waitErr := cmd.Wait()
 	text := "exited"

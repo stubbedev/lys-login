@@ -60,6 +60,7 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("dm: create %s: %w", o.RuntimeDir, err)
 	}
 	owner := newSessionOwner()
+	warnings := newWarningLogger(os.Stderr, os.Getenv(journalStreamEnv))
 	apply, err := ApplySocket.listen(o.RuntimeDir)
 	if err != nil {
 		return fmt.Errorf("dm: %w", err)
@@ -100,7 +101,7 @@ func Run(ctx context.Context, o Options) error {
 			}
 			continue
 		}
-		err = login.run(owner.set)
+		err = login.run(owner.set, warnings)
 		owner.clear()
 		if err != nil {
 			log.Printf("dm: session: %v", err)
@@ -448,8 +449,9 @@ func relay(conn net.Conn, w *worker) (loginState, error) {
 }
 
 // run starts the authenticated session and waits for it to end,
-// telling started the uid it runs as once it does.
-func (l *pendingLogin) run(started func(uid uint32)) error {
+// telling started the uid it runs as once it does. What the worker
+// reports about the session's keyring goes to warnings.
+func (l *pendingLogin) run(started func(uid uint32), warnings *log.Logger) error {
 	defer l.w.wait()
 	if err := l.w.ch.send(request{Op: opStart, Cmd: l.cmd, Env: l.env}); err != nil {
 		return err
@@ -468,6 +470,8 @@ func (l *pendingLogin) run(started func(uid uint32)) error {
 			log.Printf("dm: session of uid %d started: %s", ev.UID, strings.Join(l.cmd, " "))
 		case evFailed:
 			return fmt.Errorf("the session did not start: %s", ev.Text)
+		case evKeyringLocked:
+			warnings.Print(ev.Text)
 		case evEnded:
 			return nil
 		}

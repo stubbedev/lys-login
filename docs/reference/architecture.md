@@ -56,9 +56,40 @@ Once the session starts, its worker hands the login password to the session's ke
 from a thread that first takes your uid and groups, as `pam_gnome_keyring` does from
 gdm's worker. It goes to the control socket of lys-secrets, else of gnome-keyring.
 
-The worker tries for up to a minute, so that a keyring started with the graphical
-session or by D-Bus activation still gets it; the login never waits for this, and
-without a keyring it gives up and logs why. The password is then cleared.
+When neither control socket answers, the worker starts a keyring on the session's bus, at
+`$DBUS_SESSION_BUS_ADDRESS`, else `$XDG_RUNTIME_DIR/bus`, retrying until that bus appears. It
+asks D-Bus to activate `dev.stubbe.lys.Vault1`, which is lys-secrets, then
+`org.freedesktop.secrets` and `org.gnome.keyring`, stopping at the first that starts or
+already runs. A gnome-keyring behind a systemd socket unit needs no activation: connecting
+to its socket starts it.
+
+The worker tries for up to a minute, so that a keyring started with the graphical session
+still gets it; the login never waits for this. The password is then cleared. It never crosses
+D-Bus, and never appears in an argument list or the environment.
+
+If the keyring refuses the password, or none took it, the worker tells the daemon over its
+channel, and the daemon logs one line. A worker runs in the user's session scope, so its own
+output is filed under that scope; the daemon's is what `journalctl -u lys-login` shows. Under
+systemd the line carries journald's `<4>` priority prefix, so `journalctl -u lys-login -p warning`
+finds it; on another init, where stderr is not the journal, it is a plain `warning:` line. It
+says what was found, for example the program serving `org.freedesktop.secrets`:
+
+| Found | Outcome |
+| --- | --- |
+| lys-secrets, gnome-keyring | Unlocked, or the refusal is logged. |
+| Another Secret Service provider, such as KeePassXC or KWallet's | No warning if its default collection is already unlocked; otherwise a warning naming it. |
+| KWallet without the Secret Service API | No warning if its wallet is open; otherwise a warning naming it. |
+| No provider | A warning with what activation said. |
+| No session bus | A warning with the address tried. |
+
+Non-systemd sessions whose bus only the session's own process tree knows, such as one started
+by `dbus-run-session`, have no address the worker can find. A keyring the session starts itself
+still gets the password within the minute.
+
+KWallet takes no password from outside: `kwalletd` and `ksecretd` read a password hash only at
+startup, from `pam_kwallet`, and offer no call to open a wallet with one. Put `pam_kwallet` in
+the service's PAM stack, as a KDE login does; the worker runs that stack, and then finds the
+wallet open.
 
 ## Sockets and files
 

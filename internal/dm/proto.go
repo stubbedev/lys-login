@@ -54,8 +54,8 @@ type event struct {
 	Kind string `json:"kind"`
 	// Prompt is a PAM message to show (prompt).
 	Prompt *auth.Prompt `json:"prompt,omitempty"`
-	// Text is why the login failed (failed), or how the session ended
-	// (ended).
+	// Text is why the login failed (failed), how the session ended
+	// (ended), or why its keyring stays locked (keyring-locked).
 	Text string `json:"text,omitempty"`
 	// UID is the account the session runs as (started).
 	UID uint32 `json:"uid"`
@@ -68,6 +68,7 @@ const (
 	evFailed        = "failed"
 	evStarted       = "started"
 	evEnded         = "ended"
+	evKeyringLocked = "keyring-locked"
 )
 
 // channel is one side of a worker's socket pair.
