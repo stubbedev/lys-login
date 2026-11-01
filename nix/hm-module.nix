@@ -12,7 +12,7 @@ self: {
   # your (non-NixOS) greetd at this one path — or, for GPU acceleration, wrap it
   # with nixGL: `nixGLIntel lys-greeter-session --config /etc/lys-shell/config.yaml
   # --state /var/lib/lys-greeter/last-session`. `renderer = "software"` bakes
-  # the driver-free pixman/cairo path so it runs without nixGL at all.
+  # the driver-free pixman and CPU path so it runs without nixGL at all.
   # cage's own cursor (shown until the greeter maps) follows XCURSOR_*; mirror
   # the greeter's cursor config so both cursors match.
   # The former `greeter.*` cursor keys are read too, as the greeter still
@@ -27,7 +27,7 @@ self: {
   greeterSession = pkgs.writeShellScriptBin "lys-greeter-session" ''
     exec env ${greeterCursorEnv} ${
       lib.optionalString (cfg.greeter.renderer == "software")
-      "WLR_RENDERER=pixman WLR_DRM_NO_MODIFIERS=1 GSK_RENDERER=cairo GDK_DISABLE=gl "
+      "WLR_RENDERER=pixman WLR_DRM_NO_MODIFIERS=1 LYS_UI_RENDERER=cpu "
     }${lib.getExe cfg.greeter.cagePackage} -s -- \
       ${lib.getExe cfg.package} greet "$@"
   '';
@@ -87,9 +87,9 @@ in {
         default = "auto";
         description = ''
           Render path baked into the {command}`lys-greeter-session` wrapper.
-          `auto` sets nothing (cage's GLES2 and GTK's GL renderer each fall back
-          to software on their own); `software` forces the driver-free pixman +
-          cairo path, so the wrapper runs without nixGL on a non-NixOS host. Use
+          `auto` sets nothing (cage's GLES2 and the greeter's Vulkan each fall back
+          to software on their own); `software` forces the driver-free pixman and
+          CPU path, so the wrapper runs without nixGL on a non-NixOS host. Use
           `auto` together with a nixGL wrapper when you want GPU acceleration.
         '';
       };

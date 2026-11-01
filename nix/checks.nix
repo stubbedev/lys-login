@@ -75,6 +75,19 @@
             }) ''echo "x11Dirs alone was rejected" >&2; exit 1''}
             touch $out
           '';
+        greetd-software-render = let
+          command = renderer:
+            (greeterSystem {
+              displayManager = "greetd";
+              inherit renderer;
+            }).services.greetd.settings.default_session.command;
+          has = needle: renderer: lib.hasInfix needle (builtins.unsafeDiscardStringContext (command renderer));
+        in
+          pkgs.runCommand "lys-login-greetd-software-render" {} ''
+            ${lib.optionalString (!(has "LYS_UI_RENDERER=cpu" "software") || !(has "WLR_RENDERER=pixman" "software")) ''echo "renderer = software leaves cage or the greeter on the GPU" >&2; exit 1''}
+            ${lib.optionalString (has "LYS_UI_RENDERER" "auto" || has "WLR_RENDERER" "auto") ''echo "renderer = auto forces a software path" >&2; exit 1''}
+            touch $out
+          '';
         daemon-render-assertion = let
           rejects = greeter: needle: lib.any (lib.hasInfix needle) (failedAssertions (daemonSystem greeter));
         in

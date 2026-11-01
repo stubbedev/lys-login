@@ -12,20 +12,19 @@ self: {
   greeterStateDir = "/var/lib/lys-greeter";
 
   # Forces both render layers onto their software paths: wlroots' pixman
-  # renderer (DRM dumb buffers, no EGL/GBM) for cage, and GTK's cairo GSK
-  # renderer (no GL context) for the greeter client. This needs no GPU vendor
+  # renderer (DRM dumb buffers, no EGL/GBM) for cage, and lys-ui's CPU renderer
+  # (shared memory, no Vulkan) for the greeter client. This needs no GPU vendor
   # driver at all, so it always renders — on a VM, a driverless box, or a
   # non-NixOS install without nixGL. `renderer = "auto"` omits these and lets
   # each layer try acceleration and fall back to software on its own.
   softwareRenderEnv = [
     "WLR_RENDERER=pixman"
     "WLR_DRM_NO_MODIFIERS=1"
-    "GSK_RENDERER=cairo"
-    "GDK_DISABLE=gl"
+    "LYS_UI_RENDERER=cpu"
   ];
 
   # cage draws its own cursor until the greeter window maps (and wlroots scales
-  # it per output). Give both cage and the GTK greeter the same cursor as the
+  # it per output). Give both cage and the greeter the same cursor as the
   # rest of the system.
   #
   # The greeter runs as the unprivileged `greeter` user (home /var/empty) and
@@ -201,11 +200,11 @@ in {
           display manager takes only `auto`: lys-wm picks its GPU or renders
           in software on its own.
 
-          `auto` sets nothing: wlroots (cage) tries its GLES2 renderer and GTK
-          tries its GL renderer, each falling back to software on failure — so
+          `auto` sets nothing: wlroots (cage) tries its GLES2 renderer and the
+          greeter tries Vulkan, each falling back to software on failure — so
           you get acceleration where a GPU driver is present and software
           otherwise. `software` forces both onto their software paths (wlroots
-          pixman + GTK cairo), which needs no GPU driver at all. Use `software`
+          pixman + the CPU in lys-ui), which needs no GPU driver at all. Use `software`
           on VMs, headless-ish boxes, or any host where GL init is unreliable and
           you would rather guarantee the login screen renders.
         '';

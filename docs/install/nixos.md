@@ -106,7 +106,7 @@ All under `programs.lys-login`.
 | `greeter.session.command` | `""` | An explicit fallback session, offered as "Custom", and the only entry when the directories yield none. |
 | `greeter.session.environment` | `[]` | Extra `KEY=value` entries for the started session. |
 | `greeter.cagePackage` | `pkgs.cage` | Under greetd: the kiosk compositor. |
-| `greeter.renderer` | `"auto"` | Under greetd: `software` puts cage on its pixman renderer. The display manager takes only `auto`, as lys-wm falls back to software itself. |
+| `greeter.renderer` | `"auto"` | Under greetd: `software` puts cage on its pixman renderer and the greeter on the CPU. The display manager takes only `auto`, as lys-wm falls back to software itself. |
 | `greeter.graphicsWrapper` | `[]` | Under greetd: a command prefix around the whole launch, such as a nixGL wrapper. The display manager takes none. |
 
 The module refuses to evaluate when no session can be offered, or when `renderer`

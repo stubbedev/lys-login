@@ -80,7 +80,7 @@ binary for the lock screen.
 
 The login screen needs no GPU: it draws on the CPU when Vulkan is not available.
 `LYS_UI_RENDERER=cpu` forces that. For cage, set `WLR_RENDERER=pixman` and
-`WLR_DRM_NO_MODIFIERS=1`, which the home-manager wrapper does with
+`WLR_DRM_NO_MODIFIERS=1`. The home-manager wrapper sets all three with
 `greeter.renderer = "software"`. This suits VMs and hosts where GPU setup is
 unreliable.
 
