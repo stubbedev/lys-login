@@ -81,6 +81,10 @@ func greet(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	if err := greeter.ApplyCacheDir(opts.StatePath); err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login greet:", err)
+		return 1
+	}
 	cfg, err := config.LoadGreeter(opts.ConfigPath, config.StderrDiagnostics)
 	if err != nil {
 		log.Printf("greeter: config load failed; using defaults: %v", err)

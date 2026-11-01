@@ -5,6 +5,7 @@
 package greeter
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,18 @@ type Options struct {
 	// Env holds extra KEY=value entries for the session.
 	Env      []string
 	HandOver bool
+}
+
+// ApplyCacheDir keeps the greeter's caches beside its state, the one
+// place its user can write on every setup: greetd's greeter account often
+// has an unwritable home such as /var/empty, and the system font scan
+// fails without a cache directory.
+func ApplyCacheDir(statePath string) error {
+	dir := filepath.Join(filepath.Dir(statePath), "cache")
+	if err := os.Setenv("XDG_CACHE_HOME", dir); err != nil {
+		return fmt.Errorf("greeter: cache dir %q: %w", dir, err)
+	}
+	return nil
 }
 
 // UsageError is a malformed command line; the greeter exits 2 with it.

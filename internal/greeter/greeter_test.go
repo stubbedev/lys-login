@@ -66,6 +66,21 @@ func TestParseOptions(t *testing.T) {
 	}
 }
 
+func TestCachesLiveBesideTheStateAndNotInTheHome(t *testing.T) {
+	t.Setenv("HOME", "/var/empty")
+	t.Setenv("XDG_CACHE_HOME", "/inherited/cache")
+	if err := ApplyCacheDir("/var/lib/lys-greeter/last-session"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "/var/lib/lys-greeter/cache"; got != want {
+		t.Errorf("cache dir = %q, want %q", got, want)
+	}
+}
+
 func TestLastRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "last-session")
 	if LoadLast(path) != "" {
