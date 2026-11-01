@@ -257,11 +257,36 @@ func TestGreeterLoginSucceeds(t *testing.T) {
 	if r.quit != 1 {
 		t.Error("success did not hand over to greetd")
 	}
+}
+
+func TestGreeterRemembersTheLoginBeforeTheSessionStarts(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.prompt.Username.SetText(" ada ")
+	r.s.drop.OnSelect(1)
+	r.s.submit("hunter2")
+	if got := LoadLast(LastUserPath(r.s.init.StatePath)); got != "" {
+		t.Fatalf("user %q remembered before the login succeeded", got)
+	}
+	close(r.timeout)
+	r.starts[0].Before()
 	if got := LoadLast(r.s.init.StatePath); got != "sway" {
-		t.Errorf("remembered session = %q", got)
+		t.Errorf("remembered session = %q; the display manager may end the greeter as soon as the session starts", got)
 	}
 	if got := LoadLast(LastUserPath(r.s.init.StatePath)); got != "ada" {
-		t.Errorf("remembered user = %q", got)
+		t.Errorf("remembered user = %q; the display manager may end the greeter as soon as the session starts", got)
+	}
+}
+
+func TestGreeterRemembersNothingOfAFailedLogin(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.prompt.Username.SetText("ada")
+	r.s.submit("wrong")
+	r.conv(t).emit(auth.Event{Kind: auth.EventFailure, Reason: "no"})
+	if got := LoadLast(LastUserPath(r.s.init.StatePath)); got != "" {
+		t.Errorf("a failed login remembered user %q", got)
+	}
+	if got := LoadLast(r.s.init.StatePath); got != "" {
+		t.Errorf("a failed login remembered session %q", got)
 	}
 }
 
@@ -459,9 +484,6 @@ func TestGreeterHandingOverStaysUpAfterTheLogin(t *testing.T) {
 	r.conv(t).emit(auth.Event{Kind: auth.EventSuccess})
 	if r.quit != 0 {
 		t.Error("the greeter quit and its compositor would draw a frame without it")
-	}
-	if got := LoadLast(LastUserPath(r.s.init.StatePath)); got != "ada" {
-		t.Errorf("remembered user = %q", got)
 	}
 }
 

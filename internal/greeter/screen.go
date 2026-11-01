@@ -387,7 +387,6 @@ func (s *screen) onEvent(ev auth.Event) {
 		s.onPrompt(ev.Prompt)
 	case auth.EventSuccess:
 		log.Printf("greeter: authentication succeeded; the session is starting")
-		s.rememberLogin()
 		if !s.init.HandOver {
 			s.d.quit()
 		}
@@ -459,9 +458,15 @@ func (s *screen) refreshClock() {
 // setCapsLock shows or hides the warning.
 func (s *screen) setCapsLock(on bool) { s.prompt.SetCapsLock(on) }
 
+// handOver runs between the authentication and start_session. The login
+// is remembered here because the display manager may end the greeter as
+// soon as the session starts, before the success event reaches the loop.
 func (s *screen) handOver() {
 	shown := make(chan struct{})
-	s.d.invoke(func() { s.leave(func() { close(shown) }) })
+	s.d.invoke(func() {
+		s.rememberLogin()
+		s.leave(func() { close(shown) })
+	})
 	select {
 	case <-shown:
 	case <-s.d.after(handOverWait):
