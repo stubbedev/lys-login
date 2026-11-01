@@ -138,7 +138,6 @@ type Screen struct {
 	message   string
 	blanked   bool
 	clockStop func()
-	capsStop  func()
 	caps      bool
 	blankStop func()
 	blankGen  uint64
@@ -244,9 +243,18 @@ func (s *Screen) buildFace(*app.Output) app.LockSurface {
 		Root:       surface.Root,
 		Background: blackout,
 		Focus:      f.prompt.Entry,
-		// Any key press is activity: unblank and re-arm the timer.
-		OnKey:    func(*widget.Router, uint32, app.Mods) { s.Activity() },
-		OnClosed: func() { s.dropFace(f) },
+		OnKey:      func(*widget.Router, uint32, app.Mods) { s.keyPressed() },
+		OnClosed:   func() { s.dropFace(f) },
+	}
+}
+
+// keyPressed is a press on any face: activity, which unblanks and re-arms
+// the timer, and maybe Caps Lock. The compositor sends the new modifiers after
+// the key, so the warning follows on the loop's next pass.
+func (s *Screen) keyPressed() {
+	s.Activity()
+	if s.d.CapsLock != nil {
+		s.d.Loop.Invoke(s.refreshCaps)
 	}
 }
 
@@ -489,13 +497,8 @@ func (s *Screen) startClock() {
 	s.clockStop = s.d.Loop.Every(time.Second, s.refreshClock)
 	if s.d.CapsLock != nil {
 		s.refreshCaps()
-		s.capsStop = s.d.Loop.Every(capsPoll, s.refreshCaps)
 	}
 }
-
-// capsPoll is how often the caps lock warning follows the keyboard, as
-// the greeter's does.
-const capsPoll = 250 * time.Millisecond
 
 func (s *Screen) refreshCaps() {
 	s.caps = s.d.CapsLock()
@@ -522,10 +525,6 @@ func (s *Screen) stopTimers() {
 	if s.clockStop != nil {
 		s.clockStop()
 		s.clockStop = nil
-	}
-	if s.capsStop != nil {
-		s.capsStop()
-		s.capsStop = nil
 	}
 	if s.blankStop != nil {
 		s.blankStop()

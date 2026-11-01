@@ -98,7 +98,9 @@ func Run(init Init) error {
 	win.Fullscreen()
 	s.start()
 	a.Every(time.Second, s.refreshClock)
-	a.Every(250*time.Millisecond, func() { s.setCapsLock(sess.Mods()&app.ModCapsLock != 0) })
+	a.OnKey(func(*widget.Router, uint32, app.Mods) {
+		a.Invoke(func() { s.setCapsLock(sess.Mods()&app.ModCapsLock != 0) })
+	})
 	s.applyDebugOps(os.Getenv("LYS_SHELL_GREETER_DEBUG"), func(d time.Duration, fn func()) {
 		time.AfterFunc(d, func() { a.Invoke(fn) })
 	})
