@@ -10,6 +10,7 @@ import (
 	"log"
 	"math"
 	"net"
+	"os"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -34,44 +35,70 @@ const (
 
 // UnlockLoginKeyring hands the just-verified password to the keyring
 // serving this session, so its login collection unlocks here: lys-secrets
-// through its control socket when it runs, else a running gnome-keyring
-// daemon. Under greetd autologin no password is typed at boot and the
-// keyring starts locked: the lock screen is the first place the password
-// appears. Best effort — failures are logged, never blocking or denying
-// the unlock the user already earned.
+// through its control socket when it runs, else gnome-keyring, started
+// on the session bus when it is only activatable. Under greetd autologin
+// no password is typed at boot and the keyring starts locked: the lock
+// screen is the first place the password appears. Best effort, and
+// bounded by unlockKeyringWait: failures are logged, never denying the
+// unlock the user already earned.
 func UnlockLoginKeyring(password []byte) {
-	secrets, gnome, err := keyringSockets(xdg.OS)
-	if err == nil {
-		err = unlockLoginKeyring(secrets, gnome, password)
-	}
-	if err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), unlockKeyringWait)
+	defer cancel()
+	if err := awaitKeyring(ctx, xdg.OS, password, waitForActivation); err != nil {
 		log.Printf("keyring: could not unlock the login keyring: %v", err)
 	}
 }
 
-// keyringPoll spaces AwaitLoginKeyring's attempts.
+// keyringPoll spaces the attempts of a wait for a keyring.
 const keyringPoll = 250 * time.Millisecond
 
 // AwaitLoginKeyring is UnlockLoginKeyring for a session with
-// environment env that is still starting: it tries until lys-secrets or
-// gnome-keyring answers, and returns what that keyring said, or why
+// environment env that is still starting: it activates a keyring on the
+// session's bus and tries until lys-secrets or gnome-keyring answers,
+// and returns what that keyring said, or what it found instead when
 // none answered before ctx ended.
 func AwaitLoginKeyring(ctx context.Context, env xdg.Env, password []byte) error {
+	return awaitKeyring(ctx, env, password, waitForSession)
+}
+
+const unlockKeyringWait = 3 * time.Second
+
+type keyringPatience int
+
+const (
+	waitForSession keyringPatience = iota
+	waitForActivation
+)
+
+func awaitKeyring(ctx context.Context, env xdg.Env, password []byte, patience keyringPatience) error {
 	secrets, gnome, err := keyringSockets(env)
 	if err != nil {
 		return err
 	}
+	absent := unlockLoginKeyring(secrets, gnome, password)
+	if !errors.Is(absent, errNoKeyring) {
+		return absent
+	}
+	address, err := sessionBusAddress(env)
+	if err != nil {
+		return err
+	}
+	bus := keyringBus{address: address}
+	defer bus.close()
 	tick := time.NewTicker(keyringPoll)
 	defer tick.Stop()
 	for {
-		err := unlockLoginKeyring(secrets, gnome, password)
-		if !errors.Is(err, errNoKeyring) {
-			return err
+		if !bus.activate(ctx) && patience == waitForActivation {
+			return bus.giveUp(ctx, absent)
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("%w: %w", err, context.Cause(ctx))
+			return bus.giveUp(ctx, absent)
 		case <-tick.C:
+		}
+		absent = unlockLoginKeyring(secrets, gnome, password)
+		if !errors.Is(absent, errNoKeyring) {
+			return absent
 		}
 	}
 }
@@ -117,8 +144,9 @@ func keyringSockets(env xdg.Env) (secrets, gnome string, err error) {
 	return secrets, filepath.Join(gnomeDir, "control"), nil
 }
 
-// errKeyringAbsent is no gnome-keyring daemon behind its socket.
-var errKeyringAbsent = errors.New("gnome-keyring is not running")
+// errKeyringAbsent is no gnome-keyring daemon answering at its socket:
+// none yet, or one its systemd socket unit is still starting.
+var errKeyringAbsent = errors.New("gnome-keyring is not answering")
 
 // keyringUnlock speaks GKD_CONTROL_OP_UNLOCK directly, what
 // pam_gnome_keyring.so does — not `gnome-keyring-daemon --unlock`,
@@ -128,7 +156,7 @@ var errKeyringAbsent = errors.New("gnome-keyring is not running")
 // [packet_len][op][arg_len][arg], answered by [8][result].
 func keyringUnlock(path string, password []byte) error {
 	conn, err := net.DialTimeout("unix", path, keyringTimeout)
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, os.ErrDeadlineExceeded) {
 		return fmt.Errorf("%w: %w", errKeyringAbsent, err)
 	}
 	if err != nil {
@@ -154,7 +182,9 @@ func keyringUnlock(path string, password []byte) error {
 	}
 
 	var resp [keyringHeaderSize]byte
-	if _, err := io.ReadFull(conn, resp[:]); err != nil {
+	if _, err := io.ReadFull(conn, resp[:]); errors.Is(err, os.ErrDeadlineExceeded) {
+		return fmt.Errorf("%w: read: %w", errKeyringAbsent, err)
+	} else if err != nil {
 		return fmt.Errorf("read: %w", err)
 	}
 	if n := binary.BigEndian.Uint32(resp[0:4]); n != keyringHeaderSize {
