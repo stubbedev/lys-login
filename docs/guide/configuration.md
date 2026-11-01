@@ -61,7 +61,6 @@ keys are taken, relative to `login`:
 ```text
 background-mode  background-image  background-color  blur
 show-clock  clock-format  date-format
-max-attempts  show-failed-attempts
 greeter.show-user-list  greeter.show-power-buttons
 greeter.cursor-theme  greeter.cursor-size
 ```
