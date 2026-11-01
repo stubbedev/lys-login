@@ -21,7 +21,7 @@ import (
 // entryChars is the entries' width-chars.
 const entryChars = 24
 
-// The PasswordEntry peek icons (GtkPasswordEntry show-peek-icon): the
+// The password entry's peek icons: the
 // eye reveals masked text, the crossed eye masks it again.
 const (
 	peekReveal  = "ld-eye-symbolic"
@@ -124,8 +124,8 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	return p
 }
 
-// label is a GtkLabel in the column: it fills the row, its text
-// centered (GTK's default xalign 0.5).
+// label is a label in the column: it fills the row, its text
+// centered.
 func label(font render.Font, px float64, classes ...string) *widget.Label {
 	l := widget.NewLabel(font, px, "", 0)
 	l.AddClass(classes...)
@@ -158,7 +158,7 @@ func (p *Prompt) SetMessage(text string) {
 	p.Error.SetVisible(text != "")
 }
 
-// Window is a lock or greeter surface's root (the GTK window node the
+// Window is a lock or greeter surface's root (the node the
 // .lock-window rules select), styled by sheet, holding the layers
 // bottom to top.
 func Window(sheet *widget.Stylesheet, layers ...widget.Widget) widget.Widget {

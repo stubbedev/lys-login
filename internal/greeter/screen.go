@@ -37,7 +37,7 @@ const handOverWait = 2 * time.Second
 // carries the load.
 const maxListedUsers = 8
 
-// The greeter's fixed metrics: GTK widget properties, not styling.
+// The greeter's fixed metrics: widget properties, not styling.
 const (
 	avatarPx    = 64 // the avatar's size
 	powerIconPx = 16
