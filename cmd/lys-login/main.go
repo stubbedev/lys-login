@@ -1,7 +1,7 @@
 // Command lys-login is the login screen: one screen in two modes.
 //
 //	lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]...
-//	                [--state PATH] [--env KEY=VAL]... [-- <session argv...>]
+//	                [--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]
 //	lys-login lock
 //	lys-login daemon --vt N --service NAME --greeter-user NAME
 //	                 --compositor PATH [--runtime-dir DIR] [--splash PATH]
@@ -101,6 +101,7 @@ func greet(args []string) int {
 		StatePath:   opts.StatePath,
 		SessionEnv:  opts.Env,
 		OnPresented: dm.TakeScreenFromSplash(os.Getenv(dm.RuntimeDirEnv)),
+		HandOver:    opts.HandOver,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login greet:", err)

@@ -22,17 +22,19 @@ const GreetdSockEnv = "GREETD_SOCK"
 // whole login: create the session, answer every auth message, and on
 // success start the session; greetd then replaces the greeter.
 type Greetd struct {
-	conn io.ReadWriter
-	// cmd resolves the session argv, read only at start_session so the
-	// session picker can change mid-login without racing the backend.
-	cmd func() []string
-	// env holds extra KEY=value entries for the session.
-	env []string
+	conn  io.ReadWriter
+	start Start
 }
 
-// NewGreetdFromEnv connects to the socket in $GREETD_SOCK. cmd is
-// called once, at start_session.
-func NewGreetdFromEnv(cmd func() []string, env []string) (*Greetd, error) {
+// Start is the session a successful login starts; Before runs between the authentication and start_session.
+type Start struct {
+	Cmd    func() []string
+	Env    []string
+	Before func()
+}
+
+// NewGreetdFromEnv connects to the socket in $GREETD_SOCK.
+func NewGreetdFromEnv(start Start) (*Greetd, error) {
 	path := os.Getenv(GreetdSockEnv)
 	if path == "" {
 		return nil, fmt.Errorf("%s is not set; not running under greetd", GreetdSockEnv)
@@ -41,12 +43,12 @@ func NewGreetdFromEnv(cmd func() []string, env []string) (*Greetd, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewGreetd(conn, cmd, env), nil
+	return NewGreetd(conn, start), nil
 }
 
 // NewGreetd runs the protocol over an established connection.
-func NewGreetd(conn io.ReadWriter, cmd func() []string, env []string) *Greetd {
-	return &Greetd{conn: conn, cmd: cmd, env: env}
+func NewGreetd(conn io.ReadWriter, start Start) *Greetd {
+	return &Greetd{conn: conn, start: start}
 }
 
 // Close closes the connection when it is closable.
@@ -252,7 +254,10 @@ func (g *Greetd) Run(username string, ask Ask) error {
 	}
 
 	// Authenticated: hand off to the session; greetd replaces us.
-	if err := g.send(startSession(g.cmd(), g.env)); err != nil {
+	if g.start.Before != nil {
+		g.start.Before()
+	}
+	if err := g.send(startSession(g.start.Cmd(), g.start.Env)); err != nil {
 		return err
 	}
 	resp, err := g.recv()

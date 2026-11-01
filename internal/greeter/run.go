@@ -1,6 +1,7 @@
 package greeter
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"log"
@@ -53,8 +54,8 @@ func Run(init Init) error {
 
 	var win *app.Window
 	s := newScreen(init, font, Stylesheet(init.Config), deps{
-		connect: func(cmd func() []string, env []string) (auth.Conversation, error) {
-			return auth.NewGreetdFromEnv(cmd, env)
+		connect: func(start auth.Start) (auth.Conversation, error) {
+			return auth.NewGreetdFromEnv(start)
 		},
 		spawn: func(conv auth.Conversation, username string, onEvent func(auth.Event)) authHandle {
 			return auth.Spawn(conv, username, onEvent)
@@ -69,7 +70,14 @@ func Run(init Init) error {
 			}
 		},
 		quit: a.Quit,
-		now:  time.Now,
+		whenPresented: func(fn func()) error {
+			if win == nil {
+				return errors.New("greeter: no window to present")
+			}
+			return win.WhenPresented(fn)
+		},
+		after: time.After,
+		now:   time.Now,
 		power: func(verb string) {
 			// logind allows both for the active local session without
 			// extra polkit rules.

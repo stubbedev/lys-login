@@ -311,7 +311,7 @@ nixGLIntel lys-greeter-session --config /etc/lys-shell/config.yaml --state /var/
 ### CLI reference
 
 ```
-lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... [--state PATH] [--env KEY=VAL]... [-- <session argv...>]
+lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... [--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]
 ```
 
 | Flag | Default | What it does |
@@ -321,6 +321,7 @@ lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... [--stat
 | `--xsessions DIR` | `/usr/{local/,}share/xsessions` | X11 session `.desktop` dir (repeatable; launched via `startx`). |
 | `--state PATH` | `$XDG_STATE_HOME/lys-greeter/last-session` | File the last session id is remembered in (username in a `last-user` sibling). |
 | `--env KEY=VAL` | — | Extra environment for the started session (repeatable). |
+| `--hand-over` | off | Set by `lys-login daemon`: once the login succeeds the greeter stays up showing only its background, and the display manager stops its compositor, which leaves that frame on screen for the session. Under greetd, leave it off: the greeter exits so greetd starts the session. |
 | `-- <argv...>` | — | Optional explicit fallback session ("Custom"). |
 
 ## Development

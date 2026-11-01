@@ -34,7 +34,8 @@ type Options struct {
 	// Command is the explicit fallback session from `-- <argv>`.
 	Command []string
 	// Env holds extra KEY=value entries for the session.
-	Env []string
+	Env      []string
+	HandOver bool
 }
 
 // UsageError is a malformed command line; the greeter exits 2 with it.
@@ -42,7 +43,7 @@ type UsageError struct{ detail string }
 
 func (e UsageError) Error() string {
 	return e.detail + "\nusage: lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... " +
-		"[--state PATH] [--env KEY=VAL]... [-- <session argv...>]"
+		"[--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]"
 }
 
 // ParseOptions parses the arguments after the program name. Everything
@@ -76,6 +77,8 @@ func ParseOptions(args []string) (Options, error) {
 		case "--state":
 			v, err = value(&i, "--state", "a path")
 			o.StatePath = v
+		case "--hand-over":
+			o.HandOver = true
 		case "--env":
 			v, err = value(&i, "--env", "KEY=VAL")
 			if err == nil && !strings.Contains(v, "=") {

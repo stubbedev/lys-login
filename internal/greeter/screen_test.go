@@ -34,8 +34,9 @@ func (h *fakeHandle) Cancel()         { h.cancelled = true }
 type rig struct {
 	s          *screen
 	convs      []*fakeHandle
-	cmds       []func() []string
-	envs       [][]string
+	starts     []auth.Start
+	presented  []func()
+	timeout    chan time.Time
 	connectErr error
 	focused    widget.Widget
 	quit       int
@@ -51,7 +52,7 @@ type rig struct {
 
 func newRig(t *testing.T, edit func(*Init)) *rig {
 	t.Helper()
-	return buildRig(t, edit, &rig{outputs: []image.Point{{1920, 1080}}})
+	return buildRig(t, edit, &rig{outputs: []image.Point{{1920, 1080}}, timeout: make(chan time.Time)})
 }
 
 // buildRig builds r's screen over its fakes, with Init edited by edit.
@@ -75,12 +76,11 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 		edit(&init)
 	}
 	r.s = newScreen(init, face, Stylesheet(init.Config), deps{
-		connect: func(cmd func() []string, env []string) (auth.Conversation, error) {
+		connect: func(start auth.Start) (auth.Conversation, error) {
 			if r.connectErr != nil {
 				return nil, r.connectErr
 			}
-			r.cmds = append(r.cmds, cmd)
-			r.envs = append(r.envs, env)
+			r.starts = append(r.starts, start)
 			return nil, nil
 		},
 		spawn: func(_ auth.Conversation, username string, onEvent func(auth.Event)) authHandle {
@@ -91,8 +91,13 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 		invoke: func(fn func()) { fn() },
 		focus:  func(w widget.Widget) { r.focused = w },
 		quit:   func() { r.quit++ },
-		now:    func() time.Time { return time.Date(2026, 3, 5, 9, 7, 0, 0, time.UTC) },
-		power:  func(verb string) { r.power = append(r.power, verb) },
+		whenPresented: func(fn func()) error {
+			r.presented = append(r.presented, fn)
+			return nil
+		},
+		after: func(time.Duration) <-chan time.Time { return r.timeout },
+		now:   func() time.Time { return time.Date(2026, 3, 5, 9, 7, 0, 0, time.UTC) },
+		power: func(verb string) { r.power = append(r.power, verb) },
 		loadImage: func(*memory.Shared, string) (imagedecode.Decoded, error) {
 			if r.background == nil {
 				return imagedecode.Decoded{}, errors.New("none")
@@ -149,13 +154,13 @@ func TestGreeterLoginSucceeds(t *testing.T) {
 	if h.username != "ada" || r.s.prompt.Username.Enabled() || r.s.prompt.Entry.Enabled() {
 		t.Fatalf("a submit starts a conversation for the trimmed user with the form locked: %+v", h)
 	}
-	if !slices.Equal(r.envs[0], []string{"XDG_SESSION_TYPE=wayland"}) {
-		t.Errorf("session env = %v", r.envs[0])
+	if !slices.Equal(r.starts[0].Env, []string{"XDG_SESSION_TYPE=wayland"}) {
+		t.Errorf("session env = %v", r.starts[0].Env)
 	}
 	// The command is read when greetd starts the session: a change of
 	// mind mid-login is what runs.
 	r.s.drop.OnSelect(1)
-	if got := r.cmds[0](); !slices.Equal(got, []string{"sway"}) {
+	if got := r.starts[0].Cmd(); !slices.Equal(got, []string{"sway"}) {
 		t.Errorf("session command = %v, want the picked sway", got)
 	}
 	h.emit(prompt(auth.PromptSecret, "Password:"))
@@ -319,5 +324,69 @@ func TestGreeterSessionPickerAndCaps(t *testing.T) {
 func TestCustomSessionName(t *testing.T) {
 	if CustomSessionName() != "Custom" {
 		t.Errorf("custom = %q", CustomSessionName())
+	}
+}
+
+func TestGreeterLeavesOnlyItsBackgroundBeforeTheSessionStarts(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.start()
+	r.s.prompt.Reveal.Finish()
+	left := 0
+	r.s.leave(func() { left++ })
+	if r.s.prompt.Reveal.Revealed() || r.s.power.Visible() {
+		t.Fatal("the card and the power buttons stay up as the session starts")
+	}
+	if len(r.presented) != 0 {
+		t.Fatal("asked for the frame before the card finished fading out")
+	}
+	r.s.prompt.Reveal.Finish()
+	if len(r.presented) != 1 || left != 0 {
+		t.Fatalf("%d presentation waits, left %d; want one wait for the frame without the card", len(r.presented), left)
+	}
+	r.presented[0]()
+	if left != 1 {
+		t.Errorf("left %d times once that frame was presented, want 1", left)
+	}
+}
+
+func TestGreeterHandOverWaitsForThePresentedFrameOrTheTimeout(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.start()
+	r.s.prompt.Reveal.SetDuration(0)
+	r.s.d.whenPresented = func(fn func()) error { fn(); return nil }
+	r.s.handOver()
+
+	r = newRig(t, nil)
+	r.s.start()
+	r.s.prompt.Reveal.SetDuration(0)
+	close(r.timeout)
+	r.s.handOver()
+	if len(r.presented) != 1 {
+		t.Errorf("%d presentation waits, want the one the timeout cut short", len(r.presented))
+	}
+}
+
+func TestGreeterHandingOverStaysUpAfterTheLogin(t *testing.T) {
+	r := newRig(t, func(i *Init) { i.HandOver = true })
+	r.s.prompt.Username.SetText("ada")
+	r.s.submit("hunter2")
+	r.conv(t).emit(auth.Event{Kind: auth.EventSuccess})
+	if r.quit != 0 {
+		t.Error("the greeter quit and its compositor would draw a frame without it")
+	}
+	if got := LoadLast(LastUserPath(r.s.init.StatePath)); got != "ada" {
+		t.Errorf("remembered user = %q", got)
+	}
+}
+
+func TestGreeterShowsTheCardAgainWhenTheSessionDoesNotStart(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.start()
+	r.s.prompt.Username.SetText("ada")
+	r.s.submit("hunter2")
+	r.s.leave(func() {})
+	r.conv(t).emit(auth.Event{Kind: auth.EventFailure, Reason: "no session"})
+	if !r.s.prompt.Reveal.Revealed() || !r.s.power.Visible() {
+		t.Error("a session that failed to start left the login card hidden")
 	}
 }

@@ -188,8 +188,7 @@ func (o Options) greet(ctx context.Context) (*pendingLogin, error) {
 	}
 	defer func() { _ = ln.Close() }()
 	cfg := filepath.Join(o.RuntimeDir, "kiosk.yaml")
-	greet := append([]string{o.Self, "greet"}, o.GreeterArgs...)
-	if err := os.WriteFile(cfg, []byte(kioskConfig(greet, o.greeterCursor())), 0o644); err != nil { //nolint:gosec // the greeter user reads it
+	if err := os.WriteFile(cfg, []byte(kioskConfig(o.greeterCommand(), o.greeterCursor())), 0o644); err != nil { //nolint:gosec // the greeter user reads it
 		return nil, fmt.Errorf("write %s: %w", cfg, err)
 	}
 	gw := exec.Command(o.Self, o.greeterWorkerArgs(sock, cfg)...) //nolint:gosec // lys-login itself
@@ -226,6 +225,10 @@ func (o Options) greet(ctx context.Context) (*pendingLogin, error) {
 		err = errors.Join(errors.New("the greeter ended"), exitErr)
 	}
 	return login, err
+}
+
+func (o Options) greeterCommand() []string {
+	return append([]string{o.Self, "greet", "--hand-over"}, o.GreeterArgs...)
 }
 
 func (o Options) greeterWorkerArgs(sock, kiosk string) []string {

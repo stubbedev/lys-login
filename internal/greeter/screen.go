@@ -31,6 +31,8 @@ func CustomSessionName() string { return t("greeter-custom-session") }
 // (CredentialOpts: Fade, 300ms) rather than [animations].
 const revealFade = 300 * time.Millisecond
 
+const handOverWait = 2 * time.Second
+
 // maxListedUsers caps the avatar row; beyond it the username entry
 // carries the load.
 const maxListedUsers = 8
@@ -53,19 +55,22 @@ type Init struct {
 	StatePath   string
 	SessionEnv  []string
 	OnPresented func()
+	HandOver    bool
 }
 
 // deps are the screen's collaborators; Run fills the production ones.
 type deps struct {
 	// connect opens the greetd conversation for this attempt; cmd
 	// resolves the selected session at start_session.
-	connect func(cmd func() []string, env []string) (auth.Conversation, error)
-	spawn   func(conv auth.Conversation, username string, onEvent func(auth.Event)) authHandle
-	invoke  func(func())
-	focus   func(widget.Widget)
-	quit    func()
-	now     func() time.Time
-	power   func(verb string)
+	connect       func(start auth.Start) (auth.Conversation, error)
+	spawn         func(conv auth.Conversation, username string, onEvent func(auth.Event)) authHandle
+	invoke        func(func())
+	focus         func(widget.Widget)
+	quit          func()
+	whenPresented func(fn func()) error
+	after         func(d time.Duration) <-chan time.Time
+	now           func() time.Time
+	power         func(verb string)
 	// loadImage decodes the background (no blur in the greeter), its
 	// pixels in mem where it can.
 	loadImage func(mem *memory.Shared, path string) (imagedecode.Decoded, error)
@@ -91,6 +96,7 @@ type screen struct {
 	prompt *loginscreen.Prompt
 	root   widget.Widget
 	drop   *widget.Dropdown
+	power  *widget.Box
 	users  []*userButton
 
 	// bg is the background at the outputs' size, freed when the
@@ -150,7 +156,8 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 	}
 	rows := loginscreen.GreeterRows{Users: users, Session: s.drop}
 	if g.Greeter.ShowPowerButtons {
-		rows.Power = s.powerRow()
+		s.power = s.powerRow()
+		rows.Power = s.power
 	}
 	s.bg = s.loadBackground()
 	surface := loginscreen.Build(loginscreen.Spec{
@@ -252,7 +259,7 @@ func (s *screen) avatar(u User, font render.Font) *widget.Avatar {
 
 // powerRow is build_power_box: shutdown and reboot in the .lock-power
 // row at the bottom center.
-func (s *screen) powerRow() widget.Widget {
+func (s *screen) powerRow() *widget.Box {
 	th := widget.Current()
 	row := widget.NewBox(widget.Row, th.Spacing, 0)
 	row.SetMargin(render.Insets{Bottom: 4 * th.Padding})
@@ -308,7 +315,7 @@ func (s *screen) submit(value string) {
 }
 
 func (s *screen) startConversation(username, password string) {
-	conv, err := s.d.connect(func() []string { return s.selectedSession().Exec }, s.init.SessionEnv)
+	conv, err := s.d.connect(auth.Start{Cmd: func() []string { return s.selectedSession().Exec }, Env: s.init.SessionEnv, Before: s.handOver})
 	if err != nil {
 		log.Printf("greeter: cannot connect to greetd: %v", err)
 		s.prompt.SetMessage(t("greeter-greetd-unavailable", i18n.Str("error", err.Error())))
@@ -334,7 +341,9 @@ func (s *screen) onEvent(ev auth.Event) {
 	case auth.EventSuccess:
 		log.Printf("greeter: authentication succeeded; greetd is starting the session")
 		s.rememberLogin()
-		s.d.quit()
+		if !s.init.HandOver {
+			s.d.quit()
+		}
 	case auth.EventFailure:
 		log.Printf("greeter: authentication failed: %s", ev.Reason)
 		s.auth = nil
@@ -342,6 +351,7 @@ func (s *screen) onEvent(ev auth.Event) {
 		s.awaiting = false
 		s.pending = nil
 		s.prompt.SetMessage(ev.Reason)
+		s.show()
 		// Keep the username, clear the password; the next submit starts
 		// a fresh conversation (greetd cancelled this one).
 		s.setForm(true)
@@ -401,3 +411,44 @@ func (s *screen) refreshClock() {
 
 // setCapsLock shows or hides the warning.
 func (s *screen) setCapsLock(on bool) { s.prompt.SetCapsLock(on) }
+
+func (s *screen) handOver() {
+	shown := make(chan struct{})
+	s.d.invoke(func() { s.leave(func() { close(shown) }) })
+	select {
+	case <-shown:
+	case <-s.d.after(handOverWait):
+		log.Printf("greeter: the frame without the login card was not presented within %v; starting the session over whatever is on screen", handOverWait)
+	}
+}
+
+func (s *screen) leave(done func()) {
+	if s.power != nil {
+		s.power.SetVisible(false)
+	}
+	present := func() {
+		if err := s.d.whenPresented(done); err != nil {
+			log.Printf("greeter: %v", err)
+			done()
+		}
+	}
+	if !s.prompt.Reveal.Revealed() {
+		present()
+		return
+	}
+	s.prompt.Reveal.SetOnTransitionDone(func(revealed bool) {
+		if !revealed {
+			s.prompt.Reveal.SetOnTransitionDone(nil)
+			present()
+		}
+	})
+	s.prompt.Reveal.SetRevealed(false)
+}
+
+func (s *screen) show() {
+	s.prompt.Reveal.SetOnTransitionDone(nil)
+	if s.power != nil {
+		s.power.SetVisible(true)
+	}
+	s.prompt.Reveal.SetRevealed(true)
+}

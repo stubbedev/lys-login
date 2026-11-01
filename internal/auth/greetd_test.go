@@ -64,7 +64,7 @@ func runGreetd(t *testing.T, username string, ask Ask, cmd func() []string, serv
 		defer close(done)
 		serve(f)
 	}()
-	g := NewGreetd(client, cmd, []string{"XDG_SESSION_TYPE=wayland"})
+	g := NewGreetd(client, Start{Cmd: cmd, Env: []string{"XDG_SESSION_TYPE=wayland"}})
 	err := g.Run(username, ask)
 	_ = g.Close()
 	select {
@@ -238,7 +238,7 @@ func TestGreetdRejectsUnknownVariants(t *testing.T) {
 
 func TestGreetdFromEnv(t *testing.T) {
 	t.Setenv(GreetdSockEnv, "")
-	if _, err := NewGreetdFromEnv(nil, nil); err == nil || !strings.Contains(err.Error(), "not running under greetd") {
+	if _, err := NewGreetdFromEnv(Start{}); err == nil || !strings.Contains(err.Error(), "not running under greetd") {
 		t.Errorf("unset GREETD_SOCK = %v", err)
 	}
 	path := filepath.Join(sockdir.Dir(t), "greetd.sock")
@@ -248,13 +248,47 @@ func TestGreetdFromEnv(t *testing.T) {
 	}
 	defer func() { _ = l.Close() }()
 	t.Setenv(GreetdSockEnv, path)
-	g, err := NewGreetdFromEnv(func() []string { return nil }, nil)
+	g, err := NewGreetdFromEnv(Start{Cmd: func() []string { return nil }})
 	if err != nil {
 		t.Fatalf("NewGreetdFromEnv: %v", err)
 	}
 	_ = g.Close()
 	_ = os.Remove(path)
-	if _, err := NewGreetdFromEnv(nil, nil); err == nil {
+	if _, err := NewGreetdFromEnv(Start{}); err == nil {
 		t.Error("a missing socket connected")
+	}
+}
+
+func TestGreetdRunsBeforeAfterAuthenticationAndBeforeStartSession(t *testing.T) {
+	client, server := net.Pipe()
+	f := &fakeGreetd{t: t, conn: server}
+	order := make(chan string, 4)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.read()
+		f.reply(`{"type":"auth_message","auth_message_type":"secret","auth_message":"Password:"}`)
+		f.read()
+		order <- "authenticated"
+		f.reply(`{"type":"success"}`)
+		f.read()
+		order <- "start_session"
+		f.reply(`{"type":"success"}`)
+	}()
+	g := NewGreetd(client, Start{Cmd: func() []string { return []string{"lys-wm"} }, Before: func() { order <- "before" }})
+	err := g.Run("alice", func(Prompt) (string, bool) { return "pw", true })
+	_ = g.Close()
+	<-done
+	_ = server.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(order)
+	var got []string
+	for o := range order {
+		got = append(got, o)
+	}
+	if strings.Join(got, ",") != "authenticated,before,start_session" {
+		t.Errorf("order %v, want Before between the authentication and start_session", got)
 	}
 }

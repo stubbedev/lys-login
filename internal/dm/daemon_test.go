@@ -72,7 +72,7 @@ func serve(t *testing.T) (net.Conn, <-chan *pendingLogin, <-chan error) {
 // hands the daemon the session to start, which then runs.
 func TestGreeterLogsInThroughTheDaemon(t *testing.T) {
 	client, logins, errs := serve(t)
-	g := auth.NewGreetd(client, func() []string { return []string{"Hyprland"} }, []string{"LANG=C"})
+	g := auth.NewGreetd(client, auth.Start{Cmd: func() []string { return []string{"Hyprland"} }, Env: []string{"LANG=C"}})
 	var prompts []auth.Prompt
 	err := g.Run("alice", func(p auth.Prompt) (string, bool) {
 		prompts = append(prompts, p)
@@ -115,7 +115,7 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 		server, client := net.Pipe()
 		t.Cleanup(func() { _ = client.Close() })
 		conns <- server
-		err := auth.NewGreetd(client, func() []string { return []string{"Hyprland"} }, nil).Run("alice", func(auth.Prompt) (string, bool) { return password, true })
+		err := auth.NewGreetd(client, auth.Start{Cmd: func() []string { return []string{"Hyprland"} }}).Run("alice", func(auth.Prompt) (string, bool) { return password, true })
 		if err != nil {
 			_ = client.Close()
 		}
@@ -297,7 +297,7 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 	server, client := net.Pipe()
 	t.Cleanup(func() { _ = client.Close() })
 	conns <- server
-	if err := auth.NewGreetd(client, func() []string { return []string{"Hyprland"} }, nil).Run("alice", func(auth.Prompt) (string, bool) { return "pw", true }); err != nil {
+	if err := auth.NewGreetd(client, auth.Start{Cmd: func() []string { return []string{"Hyprland"} }}).Run("alice", func(auth.Prompt) (string, bool) { return "pw", true }); err != nil {
 		t.Fatalf("login beside an idle connection: %v", err)
 	}
 	login := <-logins
@@ -352,5 +352,13 @@ func TestGreeterKnowsTheRuntimeDir(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("greeter worker args = %q, want %q", got, want)
+	}
+}
+
+func TestTheGreeterHandsOverToTheDisplayManager(t *testing.T) {
+	o := Options{Self: "/bin/lys-login", GreeterArgs: []string{"--state", "/var/lib/s", "--", "fallback-session"}}
+	want := []string{"/bin/lys-login", "greet", "--hand-over", "--state", "/var/lib/s", "--", "fallback-session"}
+	if got := o.greeterCommand(); !slices.Equal(got, want) {
+		t.Errorf("greeter command %q, want %q", got, want)
 	}
 }
