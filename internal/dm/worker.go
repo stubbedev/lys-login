@@ -206,13 +206,15 @@ func RunGreeter(o WorkerOptions, greeterUser string, compositor, extraEnv []stri
 	}
 }
 
-// stopGroup ends cmd's process group: SIGTERM, then SIGKILL after the
-// grace.
+// stopGroup ends the compositor cmd first, so it never draws a frame
+// without the greeter, then the rest of its process group; SIGKILL
+// after the grace.
 func stopGroup(cmd *exec.Cmd, exited <-chan error) error {
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	_ = cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case err := <-exited:
 		log.Printf("dm: the greeter's compositor stopped: %v", err)
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 		return nil
 	case <-time.After(stopGrace):
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
