@@ -21,6 +21,7 @@
 }: let
   user = "alice";
   password = "lys-login-vm";
+  greeterVm = import ./greeter-vm.nix {inherit pkgs;};
 
   # The cursor the session records for the next greeter.
   cursorTheme = "lys-vm-cursor";
@@ -61,6 +62,7 @@ in
         self.nixosModules.default
         lys-wm.nixosModules.default
         lys-secrets.nixosModules.default
+        greeterVm.module
       ];
 
       programs.lys-wm.enable = true;
@@ -78,19 +80,6 @@ in
         };
       };
 
-      virtualisation.graphics = true;
-      virtualisation.cores = 4;
-      virtualisation.memorySize = 2048;
-      virtualisation.qemu.options = [
-        "-vga none"
-        "-device virtio-gpu-pci"
-      ];
-      environment.sessionVariables.LIBGL_ALWAYS_SOFTWARE = "1";
-      hardware.graphics.enable = true;
-      hardware.graphics.extraPackages = [pkgs.mesa];
-      fonts.packages = [pkgs.inter];
-      systemd.tmpfiles.rules = ["d /tmp/lys-login 0777 root root -"];
-
       users.users.${user} = {
         isNormalUser = true;
         inherit password;
@@ -101,6 +90,8 @@ in
       import os
       import re
       import time
+
+      ${greeterVm.script "-t lys-login"}
 
       def background():
           """The set of colours of two pixels of the greeter's background:
@@ -137,17 +128,6 @@ in
               time.sleep(step)
               seen = background()
 
-      def await_ready(field, occurrence):
-          """Waits for the greeter to say what is typed now reaches the
-          form: its first frame is shown and the compositor gave it the
-          keyboard, with the named field focused. Keys sent earlier are
-          dropped by the compositor, and pixels cannot tell: the kernel's
-          console and an empty kiosk are on screen until the form is."""
-          machine.wait_until_succeeds(
-              f"[ \"$(journalctl -t lys-login -o cat --no-pager | grep -c 'greeter: ready: .* the {field} field')\" -ge {occurrence} ]",
-              timeout=180,
-          )
-
       def login_attempts(user):
           return machine.succeed("journalctl -t lys-login -o cat --no-pager").count(f"dm: login of {user}:")
 
@@ -163,7 +143,7 @@ in
           if machine.execute(f"pgrep -x {absent}")[0] == 0:
               raise Exception(f"{absent} runs")
       machine.wait_until_succeeds("loginctl list-sessions --no-legend | grep -q lys-greeter", timeout=30)
-      await_ready("username", 1)
+      await_ready(machine, "username", 1)
       await_background({(0, 0, 0)}, "first greeter")
       machine.screenshot("01-greeter")
 
@@ -229,7 +209,7 @@ in
       # When the session ends the greeter comes back at once, on its
       # first try, with the background the user applied.
       machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=30)
-      await_ready("password", 1)
+      await_ready(machine, "password", 1)
       await_background({(255, 0, 0)}, "next greeter")
       machine.screenshot("04-greeter-again")
 

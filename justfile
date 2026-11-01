@@ -55,6 +55,12 @@ fmt:
 login-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.login-vm
 
+# The login keyring with the real gnome-keyring and no PAM module for it, in a
+# NixOS VM (needs KVM): the daemon starts and unlocks it, a password it no
+# longer opens with warns, and so does no keyring at all.
+keyring-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.keyring-vm
+
 # The .deb or the .rpm built, installed and logged in through in a
 # Debian or Fedora cloud VM, as nix/distro-vm.nix describes (needs KVM,
 # and the network in the guest): `just distro-vm debian`.

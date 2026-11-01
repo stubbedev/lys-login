@@ -37,6 +37,11 @@
           inherit self;
           inherit (inputs) lys-wm lys-secrets;
         };
+        # The login keyring with the real gnome-keyring; see nix/tests/keyring-vm.nix.
+        keyring-vm = pkgs.callPackage ./tests/keyring-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm;
+        };
         # An X11 session reaches logind as x11; see nix/tests/x11-session-vm.nix.
         x11-session-vm = pkgs.callPackage ./tests/x11-session-vm.nix {
           inherit self;

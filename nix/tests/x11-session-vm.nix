@@ -10,6 +10,7 @@
 }: let
   user = "ada";
   password = "correct horse";
+  greeterVm = import ./greeter-vm.nix {inherit pkgs;};
   xsessions = pkgs.writeTextDir "share/xsessions/stand-in.desktop" ''
     [Desktop Entry]
     Name=Stand-in
@@ -28,6 +29,7 @@ in
       imports = [
         self.nixosModules.default
         lys-wm.nixosModules.default
+        greeterVm.module
       ];
 
       programs.lys-wm.enable = true;
@@ -42,18 +44,6 @@ in
       };
 
       environment.systemPackages = [startx];
-      virtualisation.graphics = true;
-      virtualisation.cores = 4;
-      virtualisation.memorySize = 2048;
-      virtualisation.qemu.options = [
-        "-vga none"
-        "-device virtio-gpu-pci"
-      ];
-      environment.sessionVariables.LIBGL_ALWAYS_SOFTWARE = "1";
-      hardware.graphics.enable = true;
-      hardware.graphics.extraPackages = [pkgs.mesa];
-      fonts.packages = [pkgs.inter];
-      systemd.tmpfiles.rules = ["d /tmp/lys-login 0777 root root -"];
 
       users.users.${user} = {
         isNormalUser = true;
@@ -62,7 +52,7 @@ in
     };
 
     testScript = ''
-      import time
+      ${greeterVm.script "-t lys-login"}
 
       start_all()
       machine.wait_for_unit("lys-login.service")
@@ -72,11 +62,9 @@ in
       greeter = [machine.succeed(f"loginctl show-session {s} -p Class -p Type") for s in sessions]
       if not any("Class=greeter" in g and "Type=wayland" in g for g in greeter):
           raise Exception(f"no wayland greeter session among {greeter}")
-      time.sleep(15)
+      await_ready(machine, "username", 1)
 
-      machine.send_chars("${user}\n")
-      time.sleep(1)
-      machine.send_chars("${password}\n")
+      machine.send_chars("${user}\n${password}\n")
       try:
           machine.wait_until_succeeds("test -s /tmp/lys-login/logind", timeout=60)
       except Exception:

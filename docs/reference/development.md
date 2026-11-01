@@ -12,6 +12,7 @@ start.
 | `just lint` | Formatting and `golangci-lint run` against `.golangci.yml` |
 | `just fmt` | Format every Go source in place |
 | `just login-vm` | The display manager in a NixOS VM (needs KVM) |
+| `just keyring-vm` | The login keyring with the real gnome-keyring in a NixOS VM (needs KVM) |
 | `just distro-vm <debian\|fedora>` | The `.deb` or `.rpm` built, installed and logged in through in a cloud VM (needs KVM and network in the guest) |
 | `just bump-lys` | lys-shell, lys-secrets, lys-ui and lys-lib to their heads, then the vendor hash |
 | `just vendor-hash` | Recompute `nix/package.nix`'s `vendorHash` after a go.mod change |
