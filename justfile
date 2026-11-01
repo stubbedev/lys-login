@@ -61,6 +61,11 @@ login-vm:
 keyring-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.keyring-vm
 
+# An X11 session through the display manager in a NixOS VM (needs KVM): logind
+# holds it as Type=x11, and the greeter before it stays wayland.
+x11-session-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.x11-session-vm
+
 # The .deb or the .rpm built, installed and logged in through in a
 # Debian or Fedora cloud VM, as nix/distro-vm.nix describes (needs KVM,
 # and the network in the guest): `just distro-vm debian`.
