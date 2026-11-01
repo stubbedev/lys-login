@@ -1,10 +1,14 @@
 package greeter
 
 import (
+	"bytes"
 	"errors"
 	"image"
+	"log"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +43,7 @@ type rig struct {
 	timeout    chan time.Time
 	connectErr error
 	focused    widget.Widget
+	keyboard   bool
 	quit       int
 	power      []string
 	// background is what the background image decodes to; nil fails
@@ -89,9 +94,11 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			r.convs = append(r.convs, h)
 			return h
 		},
-		invoke: func(fn func()) { fn() },
-		focus:  func(w widget.Widget) { r.focused = w },
-		quit:   func() { r.quit++ },
+		invoke:       func(fn func()) { fn() },
+		focus:        func(w widget.Widget) { r.focused = w },
+		focused:      func() widget.Widget { return r.focused },
+		keyboardHeld: func() bool { return r.keyboard },
+		quit:         func() { r.quit++ },
 		whenPresented: func(fn func()) error {
 			r.presented = append(r.presented, fn)
 			return nil
@@ -144,6 +151,84 @@ func TestGreeterStartsRevealedAndFocused(t *testing.T) {
 	}
 	if r.s.selectedSession().ID != "sway" {
 		t.Errorf("selected session = %q, want the remembered sway", r.s.selectedSession().ID)
+	}
+}
+
+// readyLines runs fn and returns the readiness lines it logged.
+func readyLines(t *testing.T, fn func()) []string {
+	t.Helper()
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	fn()
+	var lines []string
+	for line := range strings.Lines(buf.String()) {
+		if strings.Contains(line, "greeter: ready:") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func TestGreeterAnnouncesReadyOnceFormShownAndKeyboardHeld(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		edit  func(*Init)
+		field string
+	}{
+		{"nobody remembered", nil, "the username field"},
+		{"a remembered user", func(i *Init) { i.LastUser = "ada" }, "the password field"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, tc.edit)
+			r.s.start()
+			r.keyboard = true
+			lines := readyLines(t, func() {
+				r.s.markPresented()
+				r.s.announceReady()
+				r.s.markPresented()
+			})
+			if len(lines) != 1 || !strings.Contains(lines[0], tc.field) {
+				t.Errorf("logged %q, want one line naming %s", lines, tc.field)
+			}
+		})
+	}
+}
+
+func TestGreeterAnnouncesReadyWhicheverComesLast(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.start()
+	lines := readyLines(t, func() {
+		r.s.markPresented()
+		r.keyboard = true
+		r.s.announceReady()
+	})
+	if len(lines) != 1 {
+		t.Errorf("a keyboard arriving after the first frame logged %q, want one line", lines)
+	}
+}
+
+func TestGreeterIsNotReadyWithoutTheFrameTheKeyboardOrTheField(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*rig)
+	}{
+		{"no frame on screen", func(r *rig) { r.s.start(); r.keyboard = true; r.s.announceReady() }},
+		{"no keyboard from the compositor", func(r *rig) { r.s.start(); r.s.markPresented() }},
+		{"no field focused", func(r *rig) { r.keyboard = true; r.s.markPresented() }},
+		{"focus off the form", func(r *rig) {
+			r.s.start()
+			r.keyboard = true
+			r.focused = r.s.drop
+			r.s.markPresented()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, nil)
+			if lines := readyLines(t, func() { tc.setup(r) }); len(lines) != 0 {
+				t.Errorf("logged %q before the form takes keys", lines)
+			}
+		})
 	}
 }
 

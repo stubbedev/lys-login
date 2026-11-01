@@ -137,6 +137,20 @@ in
               time.sleep(step)
               seen = background()
 
+      def await_ready(field, occurrence):
+          """Waits for the greeter to say what is typed now reaches the
+          form: its first frame is shown and the compositor gave it the
+          keyboard, with the named field focused. Keys sent earlier are
+          dropped by the compositor, and pixels cannot tell: the kernel's
+          console and an empty kiosk are on screen until the form is."""
+          machine.wait_until_succeeds(
+              f"[ \"$(journalctl -t lys-login -o cat --no-pager | grep -c 'greeter: ready: .* the {field} field')\" -ge {occurrence} ]",
+              timeout=180,
+          )
+
+      def login_attempts(user):
+          return machine.succeed("journalctl -t lys-login -o cat --no-pager").count(f"dm: login of {user}:")
+
       start_all()
       machine.wait_for_unit("lys-login.service")
 
@@ -149,6 +163,7 @@ in
           if machine.execute(f"pgrep -x {absent}")[0] == 0:
               raise Exception(f"{absent} runs")
       machine.wait_until_succeeds("loginctl list-sessions --no-legend | grep -q lys-greeter", timeout=30)
+      await_ready("username", 1)
       await_background({(0, 0, 0)}, "first greeter")
       machine.screenshot("01-greeter")
 
@@ -170,11 +185,11 @@ in
       machine.fail("grep -q XCURSOR_THEME /run/lys-login/kiosk.yaml")
 
       # A wrong password leaves the greeter up and starts nothing.
-      machine.send_chars("${user}\n")
-      time.sleep(1)
-      machine.send_chars("wrong-password\n")
-      time.sleep(4)
+      machine.send_chars("${user}\nwrong-password\n")
+      machine.wait_until_succeeds("journalctl -t lys-login -o cat --no-pager | grep -q 'greeter: authentication failed'", timeout=30)
       machine.screenshot("02-wrong-password")
+      if login_attempts("${user}") != 1:
+          raise Exception("the first login was not of ${user}:\n" + machine.succeed("journalctl -t lys-login -o cat --no-pager | grep 'dm: login of'"))
       if machine.execute("test -e /tmp/lys-login/session")[0] == 0:
           raise Exception("a wrong password started a session")
       if not greeter_up():
@@ -214,6 +229,7 @@ in
       # When the session ends the greeter comes back at once, on its
       # first try, with the background the user applied.
       machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=30)
+      await_ready("password", 1)
       await_background({(255, 0, 0)}, "next greeter")
       machine.screenshot("04-greeter-again")
 

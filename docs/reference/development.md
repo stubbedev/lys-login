@@ -19,6 +19,11 @@ start.
 
 `nix flake check` checks the package and the module and runs the login VM.
 
+The greeter logs `greeter: ready: ...` once its first frame is on screen and
+the compositor gives it the keyboard with a field of the form focused. A
+compositor drops keys while no surface holds its keyboard, so a VM check waits
+for that line before typing, and no pixel can stand in for it.
+
 ## CI and releases
 
 `.github/workflows/ci.yml` runs `just check` and the package check, and builds the

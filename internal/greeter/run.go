@@ -53,6 +53,7 @@ func Run(init Init) error {
 	font := app.FontFallback(base)
 
 	var win *app.Window
+	var held widget.Widget
 	s := newScreen(init, font, Stylesheet(init.Config), deps{
 		connect: func(start auth.Start) (auth.Conversation, error) {
 			return auth.NewGreetdFromEnv(start)
@@ -67,9 +68,13 @@ func Run(init Init) error {
 			}
 			if err := win.SetFocus(w); err != nil {
 				log.Printf("greeter: cannot focus %T: %v", w, err)
+				return
 			}
+			held = w
 		},
-		quit: a.Quit,
+		focused:      func() widget.Widget { return held },
+		keyboardHeld: func() bool { return sess.KeyboardFocus() != nil },
+		quit:         a.Quit,
 		whenPresented: func(fn func()) error {
 			if win == nil {
 				return errors.New("greeter: no window to present")
@@ -97,7 +102,13 @@ func Run(init Init) error {
 	}
 	win.Fullscreen()
 	s.start()
-	a.Every(time.Second, s.refreshClock)
+	if err := win.WhenPresented(s.markPresented); err != nil {
+		return fmt.Errorf("greeter: wait for the first frame: %w", err)
+	}
+	a.Every(time.Second, func() {
+		s.refreshClock()
+		s.announceReady()
+	})
 	a.OnKey(func(*widget.Router, uint32, app.Mods) {
 		a.Invoke(func() { s.setCapsLock(sess.Mods()&app.ModCapsLock != 0) })
 	})

@@ -62,10 +62,16 @@ type Init struct {
 type deps struct {
 	// connect opens the greetd conversation for this attempt; cmd
 	// resolves the selected session at start_session.
-	connect       func(start auth.Start) (auth.Conversation, error)
-	spawn         func(conv auth.Conversation, username string, onEvent func(auth.Event)) authHandle
-	invoke        func(func())
-	focus         func(widget.Widget)
+	connect func(start auth.Start) (auth.Conversation, error)
+	spawn   func(conv auth.Conversation, username string, onEvent func(auth.Event)) authHandle
+	invoke  func(func())
+	focus   func(widget.Widget)
+	// focused is the widget the last focus landed on, nil before one
+	// does.
+	focused func() widget.Widget
+	// keyboardHeld reports whether the compositor gives this client
+	// the seat's keyboard.
+	keyboardHeld  func() bool
 	quit          func()
 	whenPresented func(fn func()) error
 	after         func(d time.Duration) <-chan time.Time
@@ -111,6 +117,9 @@ type screen struct {
 	authGen  uint64
 	awaiting bool
 	pending  *string
+
+	presented bool
+	announced bool
 }
 
 // userButton is one avatar in the user list.
@@ -182,6 +191,34 @@ func (s *screen) start() {
 		return
 	}
 	s.d.focus(s.prompt.Username)
+}
+
+// markPresented notes that the compositor showed the form's first frame.
+func (s *screen) markPresented() {
+	s.presented = true
+	s.announceReady()
+}
+
+// announceReady logs, once, the moment what is typed reaches the form:
+// its first frame is on screen, the compositor gives this client the
+// keyboard, and a field of the form holds the focus. A compositor drops
+// keys while no surface holds its keyboard, so nothing typed before this
+// line is guaranteed to arrive, and everything after it is.
+func (s *screen) announceReady() {
+	if s.announced || !s.presented || !s.d.keyboardHeld() {
+		return
+	}
+	var field string
+	switch s.d.focused() {
+	case s.prompt.Username:
+		field = "username"
+	case s.prompt.Entry:
+		field = "password"
+	default:
+		return
+	}
+	s.announced = true
+	log.Printf("greeter: ready: the form is on screen and the %s field holds the keyboard", field)
 }
 
 // loadBackground is the greeter's background at the outputs' size,
