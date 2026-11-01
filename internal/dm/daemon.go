@@ -78,8 +78,17 @@ func Run(ctx context.Context, o Options) error {
 	go ApplySocket.serve(apply, applyChange(owner, o.GreeterConfig))
 	go CursorSocket.serve(cursor, recordCursor(owner, o.CursorDir))
 	go SplashSocket.serve(splash, handOverSplash(o.isGreeter, quitSplash(o.Splash)))
+	cards := newHeldCards()
+	defer func() {
+		if err := cards.Close(); err != nil {
+			log.Printf("dm: %v", err)
+		}
+	}()
 	for ctx.Err() == nil {
 		if err := activateVT(o.VT); err != nil {
+			log.Printf("dm: %v", err)
+		}
+		if err := cards.holdAll(); err != nil {
 			log.Printf("dm: %v", err)
 		}
 		login, err := o.greet(ctx)
