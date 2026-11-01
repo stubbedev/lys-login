@@ -4,12 +4,12 @@ go 1.27.3
 
 require (
 	github.com/ebitengine/purego v0.11.2
-	github.com/stubbedev/lys-lib v0.1.1-0.20261031093954-0d4d7a513ae2
-	github.com/stubbedev/lys-secrets v0.0.0-20261030165028-e618292d353f
-	github.com/stubbedev/lys-shell v0.1.1-0.20261030174749-6821f5187ae7
-	github.com/stubbedev/lys-ui v0.0.0-20261101070056-d6176e991a6b
-	github.com/stubbedev/memory-go v0.3.0
-	go.yaml.in/yaml/v3 v3.0.5
+	github.com/stubbedev/lys-lib v0.1.1-0.20261101124604-ea83b142dd20
+	github.com/stubbedev/lys-secrets v0.2.1-0.20261101124821-71f6a67787e7
+	github.com/stubbedev/lys-shell v0.1.1-0.20261101130513-272f13c13c72
+	github.com/stubbedev/lys-ui v0.0.0-20261101125124-247256277028
+	github.com/stubbedev/memory-go v0.4.0
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0
 )
 
@@ -30,5 +30,5 @@ require (
 	modernc.org/libc v1.79.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.61.0 // indirect
+	modernc.org/sqlite v1.61.1 // indirect
 )

@@ -76,6 +76,20 @@ func (*fakeVault) NetworkLogin(string, string) (vault.NetworkLogin, bool) {
 	return vault.NetworkLogin{}, false
 }
 
+func (*fakeVault) CreateLogin(context.Context, vault.NewLogin) (vault.ItemID, error) {
+	return "", vault.ErrLocked
+}
+
+func (*fakeVault) FindLogin(string, vault.FolderScope) (vault.Item, bool, error) {
+	return vault.Item{}, false, vault.ErrLocked
+}
+func (*fakeVault) Sends() ([]vault.Send, error) { return nil, vault.ErrLocked }
+
+func (*fakeVault) CreateTextSend(context.Context, vault.NewTextSend) (vault.CreatedSend, error) {
+	return vault.CreatedSend{}, vault.ErrLocked
+}
+func (*fakeVault) DeleteSend(context.Context, vault.SendID) error { return vault.ErrLocked }
+
 func serveVault(t *testing.T, f *fakeVault) {
 	t.Helper()
 	bus := dbustest.Session(t)
