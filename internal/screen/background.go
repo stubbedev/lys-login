@@ -130,7 +130,7 @@ func coverScale(src image.Point, outputs []image.Point) float64 {
 // scaledSize is src scaled by scale, rounded up so the binding axis
 // lands on the output's size exactly and the other still covers it.
 func scaledSize(src image.Point, scale float64) image.Point {
-	axis := func(n int) int { return max(1, int(math.Ceil(float64(n)*scale-1e-6))) }
+	axis := func(n int) int { return max(1, int(math.Ceil(float64(float64(n)*scale)-1e-6))) }
 	return image.Pt(axis(src.X), axis(src.Y))
 }
 
@@ -153,7 +153,7 @@ func areaResample(dst *image.RGBA, src image.Image) {
 	flush := func() {
 		out := dst.Pix[at*dst.Stride : at*dst.Stride+4*dw]
 		for i, v := range cur {
-			out[i] = uint8(min(v*norm+0.5, 255))
+			out[i] = uint8(min(float32(v*norm)+0.5, 255))
 		}
 	}
 	for y, line := range lines {
@@ -207,11 +207,11 @@ func areaSpans(n, m int) []areaSpan {
 func spread(row []float32, s areaSpan, p []uint8) {
 	o := 4 * s.to
 	for c := range 4 {
-		row[o+c] += s.first * float32(p[c])
+		row[o+c] += float32(s.first * float32(p[c]))
 	}
 	if s.second > 0 {
 		for c := range 4 {
-			row[o+4+c] += s.second * float32(p[c])
+			row[o+4+c] += float32(s.second * float32(p[c]))
 		}
 	}
 }
@@ -219,7 +219,7 @@ func spread(row []float32, s areaSpan, p []uint8) {
 // addWeighted adds w times src to dst.
 func addWeighted(dst, src []float32, w float32) {
 	for i, v := range src {
-		dst[i] += w * v
+		dst[i] += float32(w * v)
 	}
 }
 
@@ -259,7 +259,7 @@ func boxRadii(sigma float64, n int) []int {
 		lower--
 	}
 	upper := lower + 2
-	m := int(math.Round((12*sigma*sigma - float64(n*lower*lower) - 4*float64(n*lower) - 3*float64(n)) / (-4*float64(lower) - 4)))
+	m := int(math.Round((float64(12*sigma*sigma) - float64(n*lower*lower) - float64(4*float64(n*lower)) - float64(3*float64(n))) / (float64(-4*float64(lower)) - 4)))
 	radii := make([]int, n)
 	for i := range radii {
 		width := upper
