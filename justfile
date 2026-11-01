@@ -5,13 +5,23 @@ default:
     @just --list
 
 # Run every release gate in order: vet, lint, test, race, build.
-check: vet lint test race build
+check: vet lint no-fused test race build
 
 # Static analysis of every package with go vet.
 vet:
     go vet ./...
 
 # Lint without changing anything: formatting and golangci-lint
+# Fail on any float product fused into an FMA, which rounds differently from amd64.
+no-fused:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    asm=$(GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -gcflags=-S -o /dev/null ./... 2>&1)
+    if fused=$(grep -E '\b(FMADD|FMSUB|FNMADD|FNMSUB)[DS]\b' <<<"$asm"); then
+        printf '%s\n' "$fused" >&2
+        exit 1
+    fi
+
 # (settings in .golangci.yml).
 lint:
     golangci-lint fmt --diff
