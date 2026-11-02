@@ -4,10 +4,10 @@ go 1.27.3
 
 require (
 	github.com/ebitengine/purego v0.11.2
-	github.com/stubbedev/lys-lib v0.1.1-0.20261101201358-84198873c126
-	github.com/stubbedev/lys-secrets v0.2.1-0.20261101200308-86fefedf039f
-	github.com/stubbedev/lys-shell v0.1.1-0.20261101202712-63a17779b58f
-	github.com/stubbedev/lys-ui v0.0.0-20261101201333-753e90aa0111
+	github.com/stubbedev/lys-lib v0.1.1-0.20261101235025-6595d87e7c82
+	github.com/stubbedev/lys-secrets v0.2.1-0.20261101235344-f73553c76e8e
+	github.com/stubbedev/lys-shell v0.1.1-0.20261102000746-101eb797b2c7
+	github.com/stubbedev/lys-ui v0.0.0-20261101235832-063b0c557a81
 	github.com/stubbedev/memory-go v0.5.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0
@@ -22,7 +22,6 @@ require (
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	golang.org/x/image v0.47.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
