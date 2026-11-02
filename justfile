@@ -71,6 +71,11 @@ login-vm:
 keyring-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.keyring-vm
 
+# The greeter under greetd in a cage kiosk in a NixOS VM (needs KVM), on GLES2
+# over llvmpipe and on pixman: a wrong and a right password, and the greeter back.
+greetd-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.greetd-vm
+
 # An X11 session through the display manager in a NixOS VM (needs KVM): logind
 # holds it as Type=x11, and the greeter before it stays wayland.
 x11-session-vm:

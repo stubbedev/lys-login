@@ -1,0 +1,81 @@
+# lys-login under greetd in a cage kiosk, on both of wlroots' render paths
+# (GLES2, over Mesa's software driver as the VM has no GPU, and pixman): the
+# greeter takes keys typed the moment it says it is ready, a wrong
+# password leaves it up, the right one starts the session, and the greeter
+# comes back with the password field focused for the remembered user.
+#
+# Build: nix build .#checks.<system>.greetd-vm -L
+{
+  pkgs,
+  self,
+}: let
+  user = "alice";
+  password = "lys-login-vm";
+  greeterVm = import ./greeter-vm.nix {inherit pkgs;};
+
+  session = pkgs.writeShellScript "lys-login-greetd-vm-session" ''
+    id -un > /tmp/lys-login/session
+    sleep 2
+  '';
+
+  node = {
+    renderer,
+    env ? [],
+  }: {
+    imports = [self.nixosModules.default greeterVm.module];
+    programs.lys-login.greeter = {
+      enable = true;
+      displayManager = "greetd";
+      inherit renderer;
+      graphicsWrapper = ["${pkgs.systemd}/bin/systemd-cat" "--identifier=lys-greeter"] ++ env;
+      session = {
+        dirs = [];
+        x11Dirs = [];
+        command = "${session}";
+      };
+    };
+    users.users.${user} = {
+      isNormalUser = true;
+      inherit password;
+    };
+  };
+in
+  pkgs.testers.nixosTest {
+    name = "lys-login-greetd-vm";
+
+    nodes.gles = node {
+      renderer = "auto";
+      env = ["env" "WLR_RENDERER_ALLOW_SOFTWARE=1"];
+    };
+    nodes.pixman = node {renderer = "software";};
+
+    testScript = ''
+      ${greeterVm.script "-t lys-greeter"}
+
+      def logs_of(machine):
+          return machine.succeed("journalctl -u greetd -t lys-greeter -o cat --no-pager")
+
+      def login_through(machine):
+          machine.wait_for_unit("greetd.service")
+          await_ready(machine, "username", 1)
+          machine.screenshot(f"{machine.name}-01-greeter")
+
+          machine.send_chars("${user}\nwrong-password\n")
+          machine.wait_until_succeeds("journalctl -t lys-greeter -o cat --no-pager | grep -q 'greeter: authentication failed'", timeout=30)
+          machine.screenshot(f"{machine.name}-02-wrong-password")
+          machine.fail("test -e /tmp/lys-login/session")
+
+          machine.send_chars("${password}\n")
+          machine.wait_until_succeeds("test -s /tmp/lys-login/session", timeout=60)
+          seen = machine.succeed("cat /tmp/lys-login/session").strip()
+          if seen != "${user}":
+              raise Exception(f"the session ran as {seen}:\n" + logs_of(machine))
+
+          await_ready(machine, "password", 1)
+          machine.screenshot(f"{machine.name}-03-greeter-again")
+
+      login_through(gles)
+      gles.shutdown()
+      login_through(pixman)
+    '';
+  }
