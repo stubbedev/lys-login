@@ -7,8 +7,10 @@ import (
 
 // Login is a display manager's PAM login: one transaction from the
 // authentication through the session it opens, ended by Close. PAM
-// keeps per-thread state, so every call must come from the OS thread
-// that authenticated; a session worker locks one for its whole life.
+// keeps per-thread state, and pam_loginuid writes /proc/self/loginuid,
+// which the kernel lets only the main thread write, so every call must
+// come from the process's main thread; a session worker stays on it for
+// its whole life.
 type Login struct {
 	txn  pamTxn
 	user string

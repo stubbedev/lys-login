@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/stubbedev/lys-lib/xdg"
@@ -48,11 +49,20 @@ import (
 
 const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml> | lys-login record-cursor"
 
+func init() { runtime.LockOSThread() }
+
+func releaseMainThreadUnlessWorker(mode string) {
+	if mode != "worker" {
+		runtime.UnlockOSThread()
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
+	releaseMainThreadUnlessWorker(os.Args[1])
 	args := os.Args[2:]
 	switch os.Args[1] {
 	case "greet":

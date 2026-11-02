@@ -180,11 +180,9 @@ func (o WorkerOptions) startAs(a account, argv, env []string) (*exec.Cmd, error)
 
 // RunGreeter is the greeter's worker: it opens the greeter user's
 // session, runs the compositor as that user, and closes the session when
-// the compositor exits or the daemon stops the worker (SIGTERM). The
-// worker keeps one OS thread for PAM.
+// the compositor exits or the daemon stops the worker (SIGTERM). It
+// must run on the process's main thread, as auth.Login says.
 func RunGreeter(o WorkerOptions, greeterUser string, compositor, extraEnv []string) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	a, err := lookupAccount(greeterUser)
 	if err != nil {
 		return err
@@ -323,10 +321,9 @@ func lookupIn(env []string) xdg.Env {
 // RunSession is one login's worker, serving the daemon over rw: it
 // authenticates the user the daemon names, relaying PAM's prompts, and
 // once told to start, opens the session, runs the command as the user
-// until it exits, and closes the session.
+// until it exits, and closes the session. It must run on the process's
+// main thread, as auth.Login says.
 func RunSession(o WorkerOptions, rw io.ReadWriter) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	ch := newChannel(rw)
 	var req request
 	if err := ch.recv(&req); err != nil {

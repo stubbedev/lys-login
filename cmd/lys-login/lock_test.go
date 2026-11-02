@@ -25,6 +25,9 @@ func TestMain(m *testing.M) {
 		main()
 		os.Exit(0)
 	}
+	if mode := os.Getenv(mainThreadProbeEnv); mode != "" {
+		os.Exit(probeMainThread(mode))
+	}
 	testhome.Run(m)
 }
 
