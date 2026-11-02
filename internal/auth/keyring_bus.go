@@ -203,13 +203,27 @@ func (b *keyringBus) findProvider(ctx context.Context) (providerFinding, error) 
 	return providerFinding{}, nil
 }
 
-func (b *keyringBus) defaultCollectionLocked(ctx context.Context, owner string) (bool, error) {
+// defaultCollection reads the default alias, twice before calling it absent:
+// gnome-keyring answers "/" for a real alias when the read beats the entry it
+// schedules for a new client, and that entry exists by the next message.
+func (b *keyringBus) defaultCollection(ctx context.Context, owner string) (dbus.ObjectPath, error) {
+	service := b.conn.Object(owner, secretServicePath)
 	var collection dbus.ObjectPath
-	if err := b.conn.Object(owner, secretServicePath).CallWithContext(ctx, secretServiceInterface+".ReadAlias", dbus.FlagNoAutoStart, "default").Store(&collection); err != nil {
-		return false, fmt.Errorf("read the default alias: %w", err)
+	for range 2 {
+		if err := service.CallWithContext(ctx, secretServiceInterface+".ReadAlias", dbus.FlagNoAutoStart, "default").Store(&collection); err != nil {
+			return noObject, fmt.Errorf("read the default alias: %w", err)
+		}
+		if collection != noObject {
+			return collection, nil
+		}
 	}
-	if collection == noObject {
-		return false, errors.New("no default alias")
+	return noObject, errors.New("no default alias")
+}
+
+func (b *keyringBus) defaultCollectionLocked(ctx context.Context, owner string) (bool, error) {
+	collection, err := b.defaultCollection(ctx, owner)
+	if err != nil {
+		return false, err
 	}
 	var locked dbus.Variant
 	if err := b.conn.Object(owner, collection).CallWithContext(ctx, "org.freedesktop.DBus.Properties.Get", dbus.FlagNoAutoStart, collectionInterface, "Locked").Store(&locked); err != nil {

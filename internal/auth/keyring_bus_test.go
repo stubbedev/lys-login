@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -554,4 +555,51 @@ func TestSessionBusAddress(t *testing.T) {
 	if got, err := sessionBusAddress(sessionEnv(map[string]string{"XDG_RUNTIME_DIR": "relative"})); err == nil {
 		t.Errorf("no absolute runtime dir = %q, want an error", got)
 	}
+}
+
+// racingSecretService answers its first ReadAlias as gnome-keyring does
+// when the read beats the client's entry: "/", whatever the alias holds.
+type racingSecretService struct {
+	collection dbus.ObjectPath
+	reads      atomic.Int32
+}
+
+func (s *racingSecretService) ReadAlias(string) (dbus.ObjectPath, *dbus.Error) {
+	if s.reads.Add(1) == 1 {
+		return noObject, nil
+	}
+	return s.collection, nil
+}
+
+func ownRacingCollection(t *testing.T, b *activatableBus, locked bool) {
+	t.Helper()
+	conn := b.conn(t)
+	collection := dbus.ObjectPath("/org/freedesktop/secrets/collection/login")
+	if err := conn.Export(&racingSecretService{collection: collection}, secretServicePath, secretServiceInterface); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Export(fakeCollection{locked}, collection, "org.freedesktop.DBus.Properties"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.RequestName(secretServiceName, dbus.NameFlagDoNotQueue); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAwaitReadsTheCollectionBehindAFirstEmptyAlias(t *testing.T) {
+	t.Run("unlocked", func(t *testing.T) {
+		b := startActivatableBus(t)
+		ownRacingCollection(t, b, false)
+		if err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw")); err != nil {
+			t.Errorf("an unlocked keyring = %v, want no warning", err)
+		}
+	})
+	t.Run("locked", func(t *testing.T) {
+		b := startActivatableBus(t)
+		ownRacingCollection(t, b, true)
+		err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+		if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), "default collection is locked") {
+			t.Errorf("a locked keyring = %v, want it reported locked", err)
+		}
+	})
 }
