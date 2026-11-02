@@ -15,6 +15,8 @@
     devShells.default = pkgs.mkShell {
       inputsFrom = [self'.packages.default shell];
 
+      packages = ["${inputs.lys-ci}"];
+
       LD_LIBRARY_PATH = lib.makeLibraryPath (lib.unique (gpuDrivers.libraries ++ self'.packages.default.libs));
       CGO_ENABLED = "0";
       GOTOOLCHAIN = "local";
