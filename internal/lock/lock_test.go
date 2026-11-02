@@ -632,20 +632,24 @@ func mustBlur(sigma int64) config.LockBlur {
 }
 
 // The lock screen warns of Caps Lock as the greeter does: every face
-// follows a key press while locked, and a face built later starts in
-// the current state. No timer outlives the lock.
+// follows each change while locked, and a face built later starts in
+// the current state. No timer or subscription outlives the lock.
 func TestLockFollowsCapsLock(t *testing.T) {
 	h := newHarness(t, nil)
-	caps := false
-	h.s.d.CapsLock = func() bool { return caps }
+	var report func(bool)
+	stopped := 0
+	h.s.d.OnCapsLock = func(fn func(bool)) func() {
+		report = fn
+		fn(false)
+		return func() { stopped++ }
+	}
 	h.s.Lock()
 	for _, f := range h.s.faces {
 		if f.prompt.Caps.Visible() {
 			t.Fatal("the caps warning shows with Caps Lock off")
 		}
 	}
-	caps = true
-	h.s.keyPressed()
+	report(true)
 	for _, f := range h.s.faces {
 		if !f.prompt.Caps.Visible() || f.prompt.Caps.Text() != i18n.T("lock-caps-lock") {
 			t.Error("a face does not warn of Caps Lock")
@@ -659,6 +663,25 @@ func TestLockFollowsCapsLock(t *testing.T) {
 	for i, tick := range h.loop.every {
 		if tick != nil {
 			t.Errorf("timer %d still runs after the unlock", i)
+		}
+	}
+	if stopped != 1 {
+		t.Errorf("the Caps Lock subscription stopped %d times", stopped)
+	}
+}
+
+// Caps Lock already on when the screen locks warns at once, with no key
+// pressed.
+func TestLockWarnsOfCapsLockAlreadyOn(t *testing.T) {
+	h := newHarness(t, nil)
+	h.s.d.OnCapsLock = func(fn func(bool)) func() {
+		fn(true)
+		return func() {}
+	}
+	h.s.Lock()
+	for _, f := range h.s.faces {
+		if !f.prompt.Caps.Visible() {
+			t.Error("a face does not warn of Caps Lock on at the start")
 		}
 	}
 }

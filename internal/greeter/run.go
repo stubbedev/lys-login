@@ -109,9 +109,7 @@ func Run(init Init) error {
 		s.refreshClock()
 		s.announceReady()
 	})
-	a.OnKey(func(*widget.Router, uint32, app.Mods) {
-		a.Invoke(func() { s.setCapsLock(sess.Mods()&app.ModCapsLock != 0) })
-	})
+	a.OnLocks(func(l app.Locks) { s.setCapsLock(l.Caps) })
 	s.applyDebugOps(os.Getenv("LYS_SHELL_GREETER_DEBUG"), func(d time.Duration, fn func()) {
 		time.AfterFunc(d, func() { a.Invoke(fn) })
 	})

@@ -74,7 +74,9 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		Forget:   a.ForgetImage,
 		OnLocked: func() { _, _ = fmt.Fprintln(stdout, lockclient.LockedLine) },
 		OnEnded:  a.Quit,
-		CapsLock: func() bool { return sess.Mods()&app.ModCapsLock != 0 },
+		OnCapsLock: func(fn func(on bool)) func() {
+			return a.OnLocks(func(l app.Locks) { fn(l.Caps) })
+		},
 	}
 	if ld != nil {
 		deps.SetLockedHint = func(locked bool) {

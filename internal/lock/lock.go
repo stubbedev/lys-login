@@ -86,8 +86,9 @@ type Deps struct {
 	// lock, for what locks with the session (the vault); nil for
 	// nothing.
 	OnLocked func()
-	// CapsLock reports whether Caps Lock is on.
-	CapsLock func() bool
+	// OnCapsLock calls fn with Caps Lock's state on registering and on
+	// each change, on the loop, until the stop it returns; nil for no warning.
+	OnCapsLock func(fn func(on bool)) (stop func())
 	// OnEnded runs on the loop when a lock ends: unlocked, refused, or
 	// ended by the compositor; nil for nothing.
 	OnEnded func()
@@ -139,6 +140,7 @@ type Screen struct {
 	blanked   bool
 	clockStop func()
 	caps      bool
+	capsStop  func()
 	blankStop func()
 	blankGen  uint64
 	clockText string
@@ -249,13 +251,9 @@ func (s *Screen) buildFace(*app.Output) app.LockSurface {
 }
 
 // keyPressed is a press on any face: activity, which unblanks and re-arms
-// the timer, and maybe Caps Lock. The compositor sends the new modifiers after
-// the key, so the warning follows on the loop's next pass.
+// the timer.
 func (s *Screen) keyPressed() {
 	s.Activity()
-	if s.d.CapsLock != nil {
-		s.d.Loop.Invoke(s.refreshCaps)
-	}
 }
 
 // dropFace forgets the surface of an unplugged output (or of an ended
@@ -495,15 +493,15 @@ func (s *Screen) setBlanked(on bool) {
 func (s *Screen) startClock() {
 	s.refreshClock()
 	s.clockStop = s.d.Loop.Every(time.Second, s.refreshClock)
-	if s.d.CapsLock != nil {
-		s.refreshCaps()
+	if s.d.OnCapsLock != nil {
+		s.capsStop = s.d.OnCapsLock(s.setCaps)
 	}
 }
 
-func (s *Screen) refreshCaps() {
-	s.caps = s.d.CapsLock()
+func (s *Screen) setCaps(on bool) {
+	s.caps = on
 	for _, f := range s.faces {
-		f.prompt.SetCapsLock(s.caps)
+		f.prompt.SetCapsLock(on)
 	}
 }
 
@@ -525,6 +523,10 @@ func (s *Screen) stopTimers() {
 	if s.clockStop != nil {
 		s.clockStop()
 		s.clockStop = nil
+	}
+	if s.capsStop != nil {
+		s.capsStop()
+		s.capsStop = nil
 	}
 	if s.blankStop != nil {
 		s.blankStop()

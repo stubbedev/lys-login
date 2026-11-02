@@ -69,7 +69,7 @@ func (*fakeVault) Login(context.Context, vault.LoginRequest) error          { re
 func (*fakeVault) SendLoginEmail(context.Context, vault.LoginRequest) error { return nil }
 func (*fakeVault) LoginAPIKey(context.Context, vault.APIKeyRequest) error   { return nil }
 func (*fakeVault) Lock()                                                    {}
-func (*fakeVault) Logout() error                                            { return nil }
+func (*fakeVault) Logout(context.Context) error                             { return nil }
 func (*fakeVault) Sync(context.Context) error                               { return nil }
 
 func (*fakeVault) NetworkLogin(string, string) (vault.NetworkLogin, bool) {
