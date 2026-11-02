@@ -4,7 +4,9 @@
 # password leaves it up, the right one starts the session, and the greeter
 # comes back with the password field focused for the remembered user. On
 # a dead-key layout the password takes a composed character, and the greeter
-# finds its keyboard and locale data on all of them.
+# finds its keyboard and locale data on all of them. An account
+# AccountsService marks as a system account stays out of the list and still
+# logs in by typing its name.
 #
 # Build: nix build .#checks.<system>.greetd-vm -L
 {
@@ -50,6 +52,9 @@ in
       env = ["env" "WLR_RENDERER_ALLOW_SOFTWARE=1"];
     };
     nodes.pixman = node {renderer = "software";};
+    nodes.hidden = {
+      imports = [(node {renderer = "software";}) greeterVm.systemAccount];
+    };
     nodes.deadkey = node {
       renderer = "software";
       env = ["env" "XKB_DEFAULT_LAYOUT=us" "XKB_DEFAULT_VARIANT=intl"];
@@ -93,6 +98,21 @@ in
           machine.wait_until_succeeds("test -s /tmp/lys-login/session", timeout=30)
           no_xkb_errors(machine)
 
+      def hidden_account(machine):
+          machine.wait_for_unit("greetd.service")
+          await_ready(machine, "username", 1)
+          logged = machine.succeed("journalctl -t lys-greeter -o cat --no-pager")
+          if "not listing spare:" not in logged:
+              raise Exception(f"the system account was not left out:\n{logged}")
+          if "not listing ${user}:" in logged:
+              raise Exception(f"the regular account was left out:\n{logged}")
+          machine.screenshot("hidden-01-list")
+          machine.send_chars("spare\nspare-vm\n")
+          machine.wait_until_succeeds("test -s /tmp/lys-login/session", timeout=30)
+          seen = machine.succeed("cat /tmp/lys-login/session").strip()
+          if seen != "spare":
+              raise Exception(f"typing the hidden account's name ran the session as {seen}")
+
       login_through(gles)
       no_xkb_errors(gles)
       gles.shutdown()
@@ -100,5 +120,7 @@ in
       no_xkb_errors(pixman)
       pixman.shutdown()
       composed_password(deadkey)
+      deadkey.shutdown()
+      hidden_account(hidden)
     '';
   }

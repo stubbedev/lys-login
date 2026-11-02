@@ -63,6 +63,7 @@ in
         lys-wm.nixosModules.default
         lys-secrets.nixosModules.default
         greeterVm.module
+        greeterVm.systemAccount
       ];
 
       programs.lys-wm.enable = true;
@@ -146,6 +147,14 @@ in
       await_ready(machine, "username", 1)
       await_background({(0, 0, 0)}, "first greeter")
       machine.screenshot("01-greeter")
+
+      # AccountsService knows spare as a system account: the list leaves it
+      # out, and leaves the regular account in.
+      listed = machine.succeed("journalctl -t lys-login -o cat --no-pager")
+      if "not listing spare:" not in listed:
+          raise Exception(f"the system account was not left out:\n{listed}")
+      if "not listing ${user}:" in listed:
+          raise Exception(f"the regular account was left out:\n{listed}")
 
       # Without a session nobody but root changes the login screen, and
       # no polkit action stands in for the daemon.

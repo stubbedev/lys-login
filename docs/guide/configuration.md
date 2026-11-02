@@ -122,3 +122,13 @@ The last session goes in the `--state` file and the last username in a
 `last-user` file beside it. The display manager's unit and the NixOS module use
 `/var/lib/lys-greeter/`, `0700` and owned by the greeter's account: `lys-greeter`,
 or `greeter` under greetd.
+
+## Who the user list shows
+
+`show-user-list` offers accounts with a UID from 1000 to 59999 and a login
+shell. Where AccountsService runs, it leaves out any account marked
+`SystemAccount=true` in `/var/lib/AccountsService/users/<name>`, such as a
+spare administrator account. Without AccountsService, or if it does not
+answer within 2 seconds, every such account is listed.
+
+A left-out account still logs in by typing its name.

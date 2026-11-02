@@ -37,9 +37,10 @@ func ReadUsers() []User {
 	return parsePasswd(string(data))
 }
 
-// LoadUsers is ReadUsers with the avatars resolved.
+// LoadUsers is what the user list offers: ReadUsers without system accounts,
+// with the avatars resolved.
 func LoadUsers() []User {
-	users := ReadUsers()
+	users := withoutSystemAccounts(ReadUsers(), accountsBusTimeout)
 	for i := range users {
 		users[i].Icon = useraccount.FindAvatar(users[i].Name, users[i].Home)
 	}

@@ -21,6 +21,7 @@ Requires(postun): policycoreutils-python-utils
 Requires:       systemd
 Recommends:     lys-wm
 Recommends:     lys-secrets
+Recommends:     accountsservice
 Recommends:     vulkan-loader
 Recommends:     mesa-vulkan-drivers
 Provides:       service(graphical-login)

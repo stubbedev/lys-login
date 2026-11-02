@@ -24,6 +24,20 @@
     systemd.tmpfiles.rules = ["d /tmp/lys-login 0777 root root -"];
   };
 
+  # A real accounts-daemon that knows one regular-looking account as a system
+  # account, the way Ubuntu knows an administrator's spare one.
+  systemAccount = {
+    services.accounts-daemon.enable = true;
+    users.users.spare = {
+      isNormalUser = true;
+      password = "spare-vm";
+    };
+    systemd.tmpfiles.rules = [
+      "d /var/lib/AccountsService/users 0700 root root -"
+      "f+ /var/lib/AccountsService/users/spare 0600 root root - [User]\\nSystemAccount=true\\n"
+    ];
+  };
+
   script = journal: ''
     def await_ready(machine, field, occurrence):
         machine.wait_until_succeeds(
