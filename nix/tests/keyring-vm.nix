@@ -22,6 +22,46 @@
     sleep infinity
   '';
 
+  loginCollectionLocked =
+    pkgs.writers.writePython3 "lys-login-keyring-vm-locked" {
+      libraries = [pkgs.python3Packages.jeepney];
+    } ''
+      import sys
+
+      from jeepney import DBusAddress, MessageType, new_method_call
+      from jeepney.io.blocking import open_dbus_connection
+
+      SECRETS = "org.freedesktop.secrets"
+      service = DBusAddress(
+          "/org/freedesktop/secrets",
+          bus_name=SECRETS,
+          interface="org.freedesktop.Secret.Service",
+      )
+      collection = DBusAddress(
+          "/org/freedesktop/secrets/collection/login",
+          bus_name=SECRETS,
+          interface="org.freedesktop.DBus.Properties",
+      )
+
+
+      def call(conn, message):
+          reply = conn.send_and_get_reply(message, timeout=10)
+          if reply.header.message_type != MessageType.method_return:
+              sys.exit(f"{message.header.fields}: {reply.body}")
+          return reply.body
+
+
+      with open_dbus_connection("SESSION") as conn:
+          call(conn, new_method_call(service, "ReadAlias", "s", ("default",)))
+          (_, locked), = call(conn, new_method_call(
+              collection,
+              "Get",
+              "ss",
+              ("org.freedesktop.Secret.Collection", "Locked"),
+          ))
+      print("b true" if locked else "b false")
+    '';
+
   node = keyring: {config, ...}: {
     imports = [
       self.nixosModules.default
@@ -87,8 +127,7 @@ in
 
       def collection_locked(uid):
           return (
-              f"su ${user} -s /bin/sh -c 'XDG_RUNTIME_DIR=/run/user/{uid} ${pkgs.systemd}/bin/busctl --user get-property "
-              "org.freedesktop.secrets /org/freedesktop/secrets/collection/login org.freedesktop.Secret.Collection Locked'"
+              f"su ${user} -s /bin/sh -c 'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus ${loginCollectionLocked}'"
           )
 
       withkeyring.start()
