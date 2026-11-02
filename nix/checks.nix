@@ -130,6 +130,8 @@
         # above all.
         package = pkgs.runCommand "lys-login-package" {} ''
           grep -q "${lib.getLib pkgs.pam}/lib" ${pkg}/bin/lys-login || { echo "lys-login lacks libpam on its library path" >&2; exit 1; }
+          grep -q "${pkgs.xkeyboard-config}/share/X11/xkb" ${pkg}/bin/.lys-login-wrapped || { echo "lys-login lacks the keyboard data path" >&2; exit 1; }
+          grep -q "${pkgs.libX11}/share/X11/locale" ${pkg}/bin/.lys-login-wrapped || { echo "lys-login lacks the locale data path" >&2; exit 1; }
           touch $out
         '';
       };

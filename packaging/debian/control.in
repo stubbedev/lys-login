@@ -16,6 +16,8 @@ Depends:
  ${misc:Depends},
  libpam0g,
  libpam-systemd,
+ libx11-data,
+ xkb-data,
  systemd
 Recommends:
  lys-wm,

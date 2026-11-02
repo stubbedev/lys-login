@@ -2,7 +2,9 @@
 # (GLES2, over Mesa's software driver as the VM has no GPU, and pixman): the
 # greeter takes keys typed the moment it says it is ready, a wrong
 # password leaves it up, the right one starts the session, and the greeter
-# comes back with the password field focused for the remembered user.
+# comes back with the password field focused for the remembered user. On
+# a dead-key layout the password takes a composed character, and the greeter
+# finds its keyboard and locale data on all of them.
 #
 # Build: nix build .#checks.<system>.greetd-vm -L
 {
@@ -48,6 +50,10 @@ in
       env = ["env" "WLR_RENDERER_ALLOW_SOFTWARE=1"];
     };
     nodes.pixman = node {renderer = "software";};
+    nodes.deadkey = node {
+      renderer = "software";
+      env = ["env" "XKB_DEFAULT_LAYOUT=us" "XKB_DEFAULT_VARIANT=intl"];
+    };
 
     testScript = ''
       ${greeterVm.script "-t lys-greeter"}
@@ -74,8 +80,25 @@ in
           await_ready(machine, "password", 1)
           machine.screenshot(f"{machine.name}-03-greeter-again")
 
+      def no_xkb_errors(machine):
+          logged = machine.succeed("journalctl -t lys-greeter -o cat --no-pager | grep 'XKB-' || true")
+          if logged:
+              raise Exception(f"the greeter on {machine.name} lacks keyboard or locale data:\n{logged}")
+
+      def composed_password(machine):
+          machine.wait_for_unit("greetd.service")
+          machine.succeed("printf '${user}:caf\\303\\251\\n' | chpasswd")
+          await_ready(machine, "username", 1)
+          machine.send_chars("${user}\ncaf'e\n")
+          machine.wait_until_succeeds("test -s /tmp/lys-login/session", timeout=30)
+          no_xkb_errors(machine)
+
       login_through(gles)
+      no_xkb_errors(gles)
       gles.shutdown()
       login_through(pixman)
+      no_xkb_errors(pixman)
+      pixman.shutdown()
+      composed_password(deadkey)
     '';
   }

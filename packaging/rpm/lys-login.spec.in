@@ -12,6 +12,8 @@ ExclusiveArch:  x86_64 aarch64
 
 BuildRequires:  systemd-rpm-macros
 Requires:       pam
+Requires:       libX11-common
+Requires:       xkeyboard-config
 Requires(post): policycoreutils
 Requires(post): policycoreutils-python-utils
 Requires(postun): policycoreutils
