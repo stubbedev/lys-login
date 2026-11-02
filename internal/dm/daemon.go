@@ -133,9 +133,16 @@ func activateVT(vt int) error {
 	return nil
 }
 
+// kioskLook is the part of lys-wm's default look a kiosk turns off: no
+// border, gaps, rounding or shadow, so the greeter fills the screen to
+// its edges, and no animations, so its first frame on screen is the
+// whole greeter, and the hand-over from the splash shows nothing between
+// the two, not lys-wm's empty background through a fade.
+const kioskLook = "borders:\n  width: 0\ngaps:\n  inner: 0\n  outer: 0\ndecoration:\n  rounding: 0\n  shadow:\n    enabled: false\nanimations:\n  enabled: false\n"
+
 // kioskConfig is lys-wm's config for the greeter: no binds, so the
-// greeter's keys reach only it, no border, so the greeter fills the
-// screen to its edges, the greeter as the one program, and cursor in
+// greeter's keys reach only it, kioskLook, the greeter as the one
+// program, and cursor in
 // the environment, from which lys-wm draws the cursor the greeter asks
 // for and which the greeter inherits.
 func kioskConfig(greet []string, cursor greeter.Cursor) string {
@@ -144,7 +151,7 @@ func kioskConfig(greet []string, cursor greeter.Cursor) string {
 		quoted[i] = shlex.MustQuote(arg)
 	}
 	var b strings.Builder
-	b.WriteString("binds: []\nborders:\n  width: 0\nenv:\n")
+	b.WriteString("binds: []\n" + kioskLook + "env:\n")
 	b.WriteString("  XCURSOR_SIZE: " + yamlString(strconv.FormatUint(uint64(cursor.Size), 10)) + "\n")
 	if cursor.Theme != "" {
 		b.WriteString("  XCURSOR_THEME: " + yamlString(cursor.Theme) + "\n")

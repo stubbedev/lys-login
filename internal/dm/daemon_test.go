@@ -193,7 +193,7 @@ func TestATruncatedRequestIsAnError(t *testing.T) {
 
 func TestKioskConfigQuotesTheGreeter(t *testing.T) {
 	got := kioskConfig([]string{"/nix/store/x/bin/lys-login", "greet", "--sessions", "/run/my sessions", `--env`, `A="b"`}, greeter.Cursor{Size: 24})
-	want := "binds: []\nborders:\n  width: 0\nenv:\n  XCURSOR_SIZE: \"24\"\nautostart:\n  - \"/nix/store/x/bin/lys-login greet --sessions '/run/my sessions' --env 'A=\\\"b\\\"'\"\n"
+	want := "binds: []\n" + kioskLook + "env:\n  XCURSOR_SIZE: \"24\"\nautostart:\n  - \"/nix/store/x/bin/lys-login greet --sessions '/run/my sessions' --env 'A=\\\"b\\\"'\"\n"
 	if got != want {
 		t.Errorf("kiosk config =\n%s\nwant\n%s", got, want)
 	}
@@ -210,6 +210,41 @@ func TestKioskConfigDrawsNoBorder(t *testing.T) {
 	}
 	if cfg.Borders.Width == nil || *cfg.Borders.Width != 0 {
 		t.Errorf("borders.width = %v, want 0 so lys-wm draws no border around the greeter", cfg.Borders.Width)
+	}
+}
+
+// A kiosk config leaves out nothing lys-wm's default look would draw around
+// the greeter or animate on the way to it.
+func TestKioskConfigTurnsOffTheDefaultLook(t *testing.T) {
+	var cfg struct {
+		Gaps struct {
+			Inner *int `yaml:"inner"`
+			Outer *int `yaml:"outer"`
+		} `yaml:"gaps"`
+		Decoration struct {
+			Rounding *int `yaml:"rounding"`
+			Shadow   struct {
+				Enabled *bool `yaml:"enabled"`
+			} `yaml:"shadow"`
+		} `yaml:"decoration"`
+		Animations struct {
+			Enabled *bool `yaml:"enabled"`
+		} `yaml:"animations"`
+	}
+	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Size: 24})), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Gaps.Inner == nil || *cfg.Gaps.Inner != 0 || cfg.Gaps.Outer == nil || *cfg.Gaps.Outer != 0 {
+		t.Errorf("gaps = %+v, want 0 so the greeter reaches the edges", cfg.Gaps)
+	}
+	if cfg.Decoration.Rounding == nil || *cfg.Decoration.Rounding != 0 {
+		t.Errorf("decoration.rounding = %v, want 0 so no corner shows lys-wm's background", cfg.Decoration.Rounding)
+	}
+	if cfg.Decoration.Shadow.Enabled == nil || *cfg.Decoration.Shadow.Enabled {
+		t.Errorf("decoration.shadow.enabled = %v, want false", cfg.Decoration.Shadow.Enabled)
+	}
+	if cfg.Animations.Enabled == nil || *cfg.Animations.Enabled {
+		t.Errorf("animations.enabled = %v, want false so the greeter does not fade in over lys-wm's background", cfg.Animations.Enabled)
 	}
 }
 
