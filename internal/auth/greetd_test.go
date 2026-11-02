@@ -131,6 +131,9 @@ func TestGreetdAuthErrorCancels(t *testing.T) {
 	if err == nil || err.Error() != "pam_authenticate: AUTH_ERR" {
 		t.Fatalf("Run = %v, want the greetd description", err)
 	}
+	if refused, ok := errors.AsType[*RefusedError](err); !ok || refused.Refusal() != RefusalCredentials {
+		t.Errorf("Run = %#v, want a credentials refusal", err)
+	}
 	if last := f.requests[len(f.requests)-1]; last["type"] != "cancel_session" {
 		t.Errorf("last request = %v, want cancel_session", last)
 	}
@@ -290,5 +293,22 @@ func TestGreetdRunsBeforeAfterAuthenticationAndBeforeStartSession(t *testing.T) 
 	}
 	if strings.Join(got, ",") != "authenticated,before,start_session" {
 		t.Errorf("order %v, want Before between the authentication and start_session", got)
+	}
+}
+
+// TestGreetdPlainErrorIsNotARefusal: a greetd error that is no PAM code
+// stays what it says, never a wrong password.
+func TestGreetdPlainErrorIsNotARefusal(t *testing.T) {
+	_, err := runGreetd(t, "alice", func(Prompt) (string, bool) { return "pw", true }, func() []string { return nil }, func(f *fakeGreetd) {
+		f.read()
+		f.reply(`{"type":"error","error_type":"error","description":"no session"}`)
+		f.read()
+		f.reply(`{"type":"success"}`)
+	})
+	if err == nil || err.Error() != "no session" {
+		t.Fatalf("Run = %v, want the description", err)
+	}
+	if _, ok := errors.AsType[*RefusedError](err); ok {
+		t.Errorf("a plain error came back as a refusal: %v", err)
 	}
 }

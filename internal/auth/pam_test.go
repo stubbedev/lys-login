@@ -44,7 +44,7 @@ type fakeTxn struct {
 
 const (
 	fakeAuthErr = 7
-	fakeAcctErr = 9
+	fakeAcctErr = 13
 )
 
 func (t *fakeTxn) authenticate() int32 {
@@ -183,7 +183,7 @@ func TestPAMWrongPasswordFailsWithoutKeyring(t *testing.T) {
 	var unlocked []string
 	var seen []Prompt
 	err := newTestPAM(f, &unlocked).Run("alice", answering("wrong", &seen))
-	if err == nil || !strings.Contains(err.Error(), "Authentication failure") {
+	if err == nil || !strings.Contains(err.Error(), "AUTH_ERR") {
 		t.Fatalf("Run = %v, want the authentication failure", err)
 	}
 	if len(unlocked) != 0 {
@@ -225,7 +225,7 @@ func TestPAMAccountCheckFailure(t *testing.T) {
 	var unlocked []string
 	var seen []Prompt
 	err := newTestPAM(f, &unlocked).Run("alice", answering("pw", &seen))
-	if err == nil || err.Error() != "account check failed: User account has expired" {
+	if err == nil || err.Error() != "pam_acct_mgmt: ACCT_EXPIRED" {
 		t.Fatalf("Run = %v, want the account check failure", err)
 	}
 	if f.endStatus != fakeAcctErr {

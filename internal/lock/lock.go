@@ -130,6 +130,9 @@ type Screen struct {
 	// its events so a stale conversation's late events are dropped.
 	auth    authHandle
 	authGen uint64
+	// moduleError is the last error a PAM module sent during this attempt,
+	// which says more than the refusal that follows it.
+	moduleError string
 	// awaiting: a prompt is on screen waiting for the next submit.
 	awaiting bool
 	// pending answers the conversation's first prompt: the password
@@ -361,7 +364,7 @@ func (s *Screen) onAuthEvent(ev auth.Event) {
 		log.Printf("lock: authentication succeeded")
 		s.release()
 	case auth.EventFailure:
-		s.onFailure(ev.Reason)
+		s.onFailure(ev)
 	}
 }
 
@@ -370,6 +373,9 @@ func (s *Screen) onAuthEvent(ev auth.Event) {
 // only show their text.
 func (s *Screen) onPrompt(p auth.Prompt) {
 	if !p.WantsInput() {
+		if p.Kind == auth.PromptError {
+			s.moduleError = p.Text
+		}
 		s.setMessage(p.Text)
 		return
 	}
@@ -389,14 +395,15 @@ func (s *Screen) onPrompt(p auth.Prompt) {
 
 // onFailure counts the attempt and re-arms the entry unless the cap is
 // reached.
-func (s *Screen) onFailure(reason string) {
+func (s *Screen) onFailure(ev auth.Event) {
 	s.resetAuth()
 	if s.attempts < ^uint32(0) {
 		s.attempts++
 	}
-	log.Printf("lock: authentication failed (attempts %d): %s", s.attempts, reason)
+	log.Printf("lock: authentication failed (attempts %d): %s", s.attempts, ev.Reason)
 	s.setInput(!s.exhausted())
-	s.setMessage(s.failureText())
+	s.setMessage(s.failureText(ev.Refusal))
+	s.moduleError = ""
 	s.clearEntries()
 	if !s.exhausted() {
 		s.focusEntry()
@@ -404,10 +411,14 @@ func (s *Screen) onFailure(reason string) {
 }
 
 // failureText is show_error's message, from _lock.ftl.
-func (s *Screen) failureText() string {
+func (s *Screen) failureText(r auth.Refusal) string {
 	switch {
 	case s.exhausted():
 		return i18n.T("lock-locked-out")
+	case s.moduleError != "":
+		return s.moduleError
+	case r != auth.RefusalCredentials:
+		return loginscreen.RefusalText(r)
 	case s.cfg.ShowFailedAttempts:
 		return failedAttempts(s.attempts)
 	}

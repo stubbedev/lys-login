@@ -2,7 +2,6 @@ package dm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -321,15 +320,6 @@ func lookupIn(env []string) xdg.Env {
 	}
 }
 
-// refusalText is what the greeter shows for a failed login: PAM's own
-// reason when PAM refused it, the whole error otherwise.
-func refusalText(err error) string {
-	if refused, ok := errors.AsType[*auth.RefusedError](err); ok {
-		return refused.Reason
-	}
-	return err.Error()
-}
-
 // RunSession is one login's worker, serving the daemon over rw: it
 // authenticates the user the daemon names, relaying PAM's prompts, and
 // once told to start, opens the session, runs the command as the user
@@ -358,7 +348,7 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	login, err := auth.Authenticate(o.Service, req.User, ask)
 	if err != nil {
 		log.Printf("dm: login of %s: %v", req.User, err)
-		return ch.send(event{Kind: evFailed, Text: refusalText(err)})
+		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}
 	defer func() {
 		if err := login.Close(); err != nil {

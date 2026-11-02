@@ -246,7 +246,7 @@ func (g *Greetd) Run(username string, ask Ask) error {
 			break
 		}
 		if resp.Type == "error" {
-			return errors.Join(errors.New(resp.Description), g.cancel())
+			return errors.Join(greetdFailure(resp.Description), g.cancel())
 		}
 		prompt, _ := greetdPrompt(resp.AuthMessageType, resp.AuthMessage)
 		answer, ok := ask(prompt)
@@ -279,8 +279,17 @@ func (g *Greetd) Run(username string, ask Ask) error {
 	case "success":
 		return nil
 	case "error":
-		return errors.New(resp.Description)
+		return greetdFailure(resp.Description)
 	}
 	log.Printf("greetd: unexpected response to start_session: %+v", resp)
 	return errors.New("unexpected response to start_session")
+}
+
+// greetdFailure is a greetd error's description as an error, a
+// RefusedError when PAM refused the login.
+func greetdFailure(description string) error {
+	if refused, ok := parseRefused(description); ok {
+		return refused
+	}
+	return errors.New(description)
 }

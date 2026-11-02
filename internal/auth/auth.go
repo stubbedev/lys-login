@@ -76,8 +76,11 @@ type Event struct {
 	Kind EventKind
 	// Prompt is set for EventPrompt.
 	Prompt Prompt
-	// Reason is set for EventFailure.
+	// Reason is set for EventFailure: the detail for the log, not for the
+	// person logging in.
 	Reason string
+	// Refusal is set for EventFailure when PAM refused the login.
+	Refusal Refusal
 }
 
 // Ask is how a backend reaches the user. For prompts that want input
@@ -159,7 +162,11 @@ func Spawn(conv Conversation, username string, onEvent func(Event)) *Handle {
 		}
 		if err != nil {
 			log.Printf("auth: conversation failed: %v", err)
-			onEvent(Event{Kind: EventFailure, Reason: err.Error()})
+			ev := Event{Kind: EventFailure, Reason: err.Error()}
+			if refused, ok := errors.AsType[*RefusedError](err); ok {
+				ev.Refusal = refused.Refusal()
+			}
+			onEvent(ev)
 			return
 		}
 		onEvent(Event{Kind: EventSuccess})

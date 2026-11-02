@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -242,17 +240,6 @@ func TestShellOf(t *testing.T) {
 		if got := shellOf(passwd, name); got != want {
 			t.Errorf("%s: %q, want %q", name, got, want)
 		}
-	}
-}
-
-func TestRefusalTextIsPAMsReason(t *testing.T) {
-	refused := fmt.Errorf("login: %w", &auth.RefusedError{Step: "authentication", Reason: "Authentication failure"})
-	if got := refusalText(refused); got != "Authentication failure" {
-		t.Errorf("refused = %q, want PAM's reason alone", got)
-	}
-	other := errors.New("pam_start: no such service")
-	if got := refusalText(other); got != other.Error() {
-		t.Errorf("other = %q, want the whole error", got)
 	}
 }
 

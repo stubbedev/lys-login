@@ -1,6 +1,7 @@
 package greeter
 
 import (
+	"cmp"
 	"image"
 	"log"
 	"strings"
@@ -113,10 +114,13 @@ type screen struct {
 	mu       sync.Mutex // guards selected: greetd reads it off the loop
 	selected int
 
-	auth     authHandle
-	authGen  uint64
-	awaiting bool
-	pending  *string
+	auth    authHandle
+	authGen uint64
+	// moduleError is the last error a PAM module sent during this attempt,
+	// which says more than the refusal that follows it.
+	moduleError string
+	awaiting    bool
+	pending     *string
 
 	presented bool
 	announced bool
@@ -396,7 +400,8 @@ func (s *screen) onEvent(ev auth.Event) {
 		s.authGen++
 		s.awaiting = false
 		s.pending = nil
-		s.prompt.SetMessage(ev.Reason)
+		s.prompt.SetMessage(cmp.Or(s.moduleError, loginscreen.RefusalText(ev.Refusal)))
+		s.moduleError = ""
 		s.show()
 		// Keep the username, clear the password; the next submit starts
 		// a fresh conversation (greetd cancelled this one).
@@ -411,6 +416,9 @@ func (s *screen) onEvent(ev auth.Event) {
 // the next submit. Info and error prompts show their text.
 func (s *screen) onPrompt(p auth.Prompt) {
 	if !p.WantsInput() {
+		if p.Kind == auth.PromptError {
+			s.moduleError = p.Text
+		}
 		s.prompt.SetMessage(p.Text)
 		return
 	}

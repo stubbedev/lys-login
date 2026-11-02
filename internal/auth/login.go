@@ -5,15 +5,6 @@ import (
 	"strings"
 )
 
-// RefusedError is PAM turning a login down: the step that refused it
-// (authentication, the account check) and PAM's reason, which is what a
-// login screen shows.
-type RefusedError struct {
-	Step, Reason string
-}
-
-func (e *RefusedError) Error() string { return e.Step + " failed: " + e.Reason }
-
 // Login is a display manager's PAM login: one transaction from the
 // authentication through the session it opens, ended by Close. PAM
 // keeps per-thread state, so every call must come from the OS thread
@@ -53,13 +44,13 @@ func authenticate(lib pamLib, service, user string, conv *pamConversation) (*Log
 	}
 	l := &Login{txn: txn, user: user}
 	if l.last = txn.authenticate(); l.last != pamSuccess {
-		err := &RefusedError{Step: "authentication", Reason: txn.strerror(l.last)}
+		err := &RefusedError{Call: "pam_authenticate", Code: pamCodeName(l.last)}
 		clear(conv.secret)
 		txn.end(l.last)
 		return nil, err
 	}
 	if l.last = txn.acctMgmt(); l.last != pamSuccess {
-		err := &RefusedError{Step: "account check", Reason: txn.strerror(l.last)}
+		err := &RefusedError{Call: "pam_acct_mgmt", Code: pamCodeName(l.last)}
 		clear(conv.secret)
 		txn.end(l.last)
 		return nil, err

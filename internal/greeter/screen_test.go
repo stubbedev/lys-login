@@ -21,6 +21,7 @@ import (
 	"github.com/stubbedev/memory-go"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
 // fakeHandle is one greetd conversation the screen spawned.
@@ -320,8 +321,8 @@ func TestGreeterFailureRearms(t *testing.T) {
 	r.s.prompt.Username.SetText("ada")
 	r.s.submit("wrong")
 	first := r.conv(t)
-	first.emit(auth.Event{Kind: auth.EventFailure, Reason: "Authentication failed"})
-	if r.s.prompt.Error.Text() != "Authentication failed" || !r.s.prompt.Entry.Enabled() || r.s.prompt.Username.Text() != "ada" {
+	first.emit(auth.Event{Kind: auth.EventFailure, Reason: "pam_authenticate: AUTH_ERR", Refusal: auth.RefusalCredentials})
+	if r.s.prompt.Error.Text() != loginscreen.RefusalText(auth.RefusalCredentials) || !r.s.prompt.Entry.Enabled() || r.s.prompt.Username.Text() != "ada" {
 		t.Fatal("a failure shows the reason, keeps the user and re-arms the form")
 	}
 	if r.quit != 0 {
@@ -513,5 +514,47 @@ func TestAnX11SessionStartsWithItsOwnType(t *testing.T) {
 	}
 	if !slices.Equal(got.Env, []string{"XDG_SESSION_TYPE=x11", "LANG=C"}) {
 		t.Errorf("env = %v", got.Env)
+	}
+}
+
+func TestGreeterShowsNoRawReason(t *testing.T) {
+	for _, refusal := range []auth.Refusal{auth.RefusalCredentials, auth.RefusalExpired, auth.RefusalTooManyAttempts, auth.RefusalDenied, auth.RefusalUnknown} {
+		r := newRig(t, nil)
+		r.s.prompt.Username.SetText("ada")
+		r.s.submit("pw")
+		r.conv(t).emit(auth.Event{Kind: auth.EventFailure, Reason: "pam_acct_mgmt: ACCT_EXPIRED", Refusal: refusal})
+		if got, want := r.s.prompt.Error.Text(), loginscreen.RefusalText(refusal); got != want {
+			t.Errorf("refusal %d shows %q, want %q", refusal, got, want)
+		}
+	}
+}
+
+func TestGreeterKeepsAModuleErrorOverTheRefusal(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.prompt.Username.SetText("ada")
+	r.s.submit("pw")
+	first := r.conv(t)
+	first.emit(auth.Event{Kind: auth.EventPrompt, Prompt: auth.Prompt{Kind: auth.PromptError, Text: "The account is locked"}})
+	first.emit(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
+	if got := r.s.prompt.Error.Text(); got != "The account is locked" {
+		t.Errorf("message = %q, want the module's", got)
+	}
+	r.s.submit("pw")
+	second := r.conv(t)
+	second.emit(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
+	if got, want := r.s.prompt.Error.Text(), loginscreen.RefusalText(auth.RefusalCredentials); got != want {
+		t.Errorf("the next attempt = %q, want %q: the module error outlived its attempt", got, want)
+	}
+}
+
+func TestGreeterInfoPromptDoesNotOutliveTheRefusal(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.prompt.Username.SetText("ada")
+	r.s.submit("pw")
+	c := r.conv(t)
+	c.emit(auth.Event{Kind: auth.EventPrompt, Prompt: auth.Prompt{Kind: auth.PromptInfo, Text: "Last login: never"}})
+	c.emit(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
+	if got, want := r.s.prompt.Error.Text(), loginscreen.RefusalText(auth.RefusalCredentials); got != want {
+		t.Errorf("message = %q, want %q", got, want)
 	}
 }

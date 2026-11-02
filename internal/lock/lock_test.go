@@ -19,6 +19,7 @@ import (
 	"github.com/stubbedev/memory-go"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
 // fakeLocker plays lys-ui's session lock: Lock builds one surface per
@@ -282,7 +283,7 @@ func TestFailedAttempts(t *testing.T) {
 		t.Helper()
 		h.now = h.now.Add(time.Hour)
 		h.s.Submit("wrong")
-		h.conv(t).onEvent(auth.Event{Kind: auth.EventFailure, Reason: "authentication failed"})
+		h.conv(t).onEvent(auth.Event{Kind: auth.EventFailure, Reason: "authentication failed", Refusal: auth.RefusalCredentials})
 	}
 	fail()
 	h.eachFace(t, func(f *face) {
@@ -313,7 +314,7 @@ func TestFailedAttempts(t *testing.T) {
 	quiet := newHarness(t, func(l *config.LoginConfig) { l.ShowFailedAttempts = false })
 	quiet.lock(t)
 	quiet.s.Submit("wrong")
-	quiet.conv(t).onEvent(auth.Event{Kind: auth.EventFailure})
+	quiet.conv(t).onEvent(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
 	if got := quiet.s.faces[0].prompt.Error.Text(); got != i18n.T("lock-incorrect") {
 		t.Errorf("show-failed-attempts = false: %q", got)
 	}
@@ -400,7 +401,7 @@ func TestHotplugInheritsState(t *testing.T) {
 	h := newHarness(t, nil)
 	h.lock(t)
 	h.s.Submit("wrong")
-	h.conv(t).onEvent(auth.Event{Kind: auth.EventFailure})
+	h.conv(t).onEvent(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
 	h.s.Submit("again")
 	h.locker.plug()
 	late := h.s.faces[len(h.s.faces)-1]
@@ -426,7 +427,7 @@ func TestStaleConversationIgnored(t *testing.T) {
 		t.Fatal("ForceUnlock must unlock and cancel the conversation")
 	}
 	h.lock(t)
-	stale.onEvent(auth.Event{Kind: auth.EventFailure})
+	stale.onEvent(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
 	if h.s.attempts != 0 {
 		t.Error("a stale conversation's failure counted against the new lock")
 	}
@@ -562,7 +563,7 @@ func TestLockFreesTheBackground(t *testing.T) {
 		h.lock(t)
 		h.now = h.now.Add(time.Hour)
 		h.s.Submit("wrong")
-		h.conv(t).onEvent(auth.Event{Kind: auth.EventFailure, Reason: "bad"})
+		h.conv(t).onEvent(auth.Event{Kind: auth.EventFailure, Reason: "bad", Refusal: auth.RefusalCredentials})
 		if live := h.s.mem.Stats().Live; live != 1 || len(h.forgotten) != 0 {
 			t.Errorf("a failed attempt left %d allocations and forgot %v; the lock still shows it", live, h.forgotten)
 		}
@@ -684,4 +685,31 @@ func TestLockWarnsOfCapsLockAlreadyOn(t *testing.T) {
 			t.Error("a face does not warn of Caps Lock on at the start")
 		}
 	}
+}
+
+func TestLockExpiredAccountIsNotAWrongPassword(t *testing.T) {
+	h := newHarness(t, nil)
+	h.lock(t)
+	h.s.Submit("pw")
+	h.conv(t).onEvent(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalExpired})
+	want := loginscreen.RefusalText(auth.RefusalExpired)
+	h.eachFace(t, func(f *face) {
+		if got := f.prompt.Error.Text(); got != want {
+			t.Errorf("message = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestLockKeepsAModuleErrorOverTheRefusal(t *testing.T) {
+	h := newHarness(t, nil)
+	h.lock(t)
+	h.s.Submit("pw")
+	c := h.conv(t)
+	c.onEvent(auth.Event{Kind: auth.EventPrompt, Prompt: auth.Prompt{Kind: auth.PromptError, Text: "The account is locked"}})
+	c.onEvent(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
+	h.eachFace(t, func(f *face) {
+		if got := f.prompt.Error.Text(); got != "The account is locked" {
+			t.Errorf("message = %q, want the module's", got)
+		}
+	})
 }

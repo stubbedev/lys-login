@@ -80,7 +80,7 @@ func TestLoginTakeSecret(t *testing.T) {
 func TestLoginFailuresEndTheTransaction(t *testing.T) {
 	f := &fakePAM{batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password:"}}}, password: "pw"}
 	_, err := authenticate(f, "lys-login", "alice", &pamConversation{ask: answering("wrong", &[]Prompt{})})
-	if refused, ok := errors.AsType[*RefusedError](err); !ok || refused.Step != "authentication" || refused.Reason != "Authentication failure" {
+	if refused, ok := errors.AsType[*RefusedError](err); !ok || refused.Call != "pam_authenticate" || refused.Code != "AUTH_ERR" {
 		t.Errorf("wrong password = %v, want PAM's refusal of the authentication", err)
 	}
 	if got := strings.Join(f.calls, ","); got != "authenticate,end" || f.endStatus != fakeAuthErr {
@@ -89,7 +89,7 @@ func TestLoginFailuresEndTheTransaction(t *testing.T) {
 
 	f = &fakePAM{batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password:"}}}, password: "pw", acctRC: fakeAcctErr}
 	_, err = authenticate(f, "lys-login", "alice", &pamConversation{ask: answering("pw", &[]Prompt{})})
-	if refused, ok := errors.AsType[*RefusedError](err); !ok || refused.Step != "account check" || refused.Reason != "User account has expired" {
+	if refused, ok := errors.AsType[*RefusedError](err); !ok || refused.Call != "pam_acct_mgmt" || refused.Code != "ACCT_EXPIRED" {
 		t.Errorf("expired account = %v, want PAM's refusal of the account", err)
 	}
 
