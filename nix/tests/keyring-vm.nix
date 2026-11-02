@@ -53,12 +53,14 @@
 
       with open_dbus_connection("SESSION") as conn:
           call(conn, new_method_call(service, "ReadAlias", "s", ("default",)))
-          (_, locked), = call(conn, new_method_call(
+          (signature, locked), = call(conn, new_method_call(
               collection,
               "Get",
               "ss",
               ("org.freedesktop.Secret.Collection", "Locked"),
           ))
+      if signature != "b":
+          sys.exit(f"Locked has signature {signature}, not a boolean")
       print("b true" if locked else "b false")
     '';
 
