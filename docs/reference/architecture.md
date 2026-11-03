@@ -91,6 +91,49 @@ startup, from `pam_kwallet`, and offer no call to open a wallet with one. Put `p
 the service's PAM stack, as a KDE login does; the worker runs that stack, and then finds the
 wallet open.
 
+## Upgrading in place
+
+`lys-login upgrade`, run from a new build, asks the running daemon on `upgrade.sock` to
+become that build. The daemon replaces its program with `execve`: the pid stays, so
+systemd's main pid and the daemon's children stay too. An upgrade never touches a session.
+
+| What | During an upgrade |
+| --- | --- |
+| Your compositor and everything in the session | Keeps running. |
+| The session's worker | Stays on its old build until the session ends, as a PAM handle cannot cross an exec. The new daemon follows it, and the worker closes the PAM session at logout as usual. |
+| A lock screen that is up | Keeps running on its old build until it unlocks. The daemon has no part in the lock. |
+| The password at that lock screen | Reaches lys-secrets as before: the lock screen talks to its control socket itself. |
+| The next lock screen | The new build, once `lys-login` on the PATH is. |
+| The next login and the next greeter, with their compositor | The new build and the new arguments. |
+| A greeter that is up | Stopped, and the new build's greeter takes its place. A login under way gets 10 seconds to finish; after that it is cancelled and the user tries again. |
+| The VT and the DRM cards | The held cards pass through the exec, so the kernel never takes the screen back. |
+| The sockets | The listening sockets pass through the exec, so a request waiting in one still gets its answer. |
+
+The state goes over in a memfd whose descriptor the new program is told on its command
+line: JSON with a version, the descriptors, the session's worker and channel, and what the
+old daemon had read from that channel and not yet handled. A new build that does not know
+the version, or the protocol of a worker it would have to follow, refuses it.
+
+An upgrade fails in one of three places, each leaving the old daemon running:
+
+1. **Before the exec.** The new build runs once as `lys-login daemon-resume --check`, for
+   10 seconds at most. It checks the state, its arguments, the greeter's account and
+   compositor, and that it can load libpam. Nothing has changed yet, and a greeter that is up
+   stays up.
+2. **The exec itself.** The call returns an error, and the daemon carries on.
+3. **After the exec.** A new build that cannot take what was handed over, or panics trying,
+   executes the old program again from a descriptor it was handed, which works even when a
+   package manager has replaced the file. The old daemon resumes with the same state and
+   answers `lys-login upgrade` with the reason.
+
+The client gets its answer on the same connection, which also passes through the exec, so
+exit 0 means the new daemon has taken over.
+
+A new build that dies outright after passing its check, without a panic Go can catch,
+is the one case this does not cover: the service then restarts as it would after any
+crash of the daemon. A greeter that fails to come up on the new build is retried every 2
+seconds, as at boot.
+
 ## Sockets and files
 
 | Path | Who may use it | What for |
@@ -99,11 +142,12 @@ wallet open.
 | `/run/lys-login/apply.sock` | Root and the user whose session runs | [`apply-config`](/guide/configuration#change-the-login-screen-from-your-session). |
 | `/run/lys-login/cursor.sock` | The user whose session runs | [`record-cursor`](/guide/configuration#the-cursor). |
 | `/run/lys-login/splash.sock` | Root and the greeter's account | The greeter's first frame, which quits lys-splash. |
+| `/run/lys-login/upgrade.sock` | Root | [`upgrade`](/reference/cli#lys-login-upgrade). |
 | `/run/lys-login/kiosk.yaml` | Read by the greeter's account | The generated lys-wm config. |
 | `/var/lib/lys-greeter/` | The greeter's account (`0700`) | The last session and username. |
 | `/var/lib/lys-login/cursor/<uid>` | World-readable, written by the daemon | Each user's cursor record. |
 | `/etc/lys-shell/config.yaml` | Read by the greeter | The system config. |
 | `/etc/lys-shell/runtime.yaml` | Written by `apply-config` | The overlay on it. |
 
-`apply.sock`, `cursor.sock` and `splash.sock` are open to every local user (`0666`).
+`apply.sock`, `cursor.sock`, `splash.sock` and `upgrade.sock` are open to every local user (`0666`).
 The daemon checks the peer's uid on each request and answers a refusal with its reason.

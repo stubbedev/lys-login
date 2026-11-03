@@ -47,9 +47,16 @@ programs.lys-login.greeter = {
 [Configuration](/guide/configuration) covers what it holds.
 
 Sessions come from the aggregate NixOS sessions directory, which holds the session
-files of every installed compositor. The unit does not restart on
-`nixos-rebuild switch`, which would end your session; the new one starts at the
-next boot.
+files of every installed compositor.
+
+The unit never restarts on `nixos-rebuild switch`, which would end your session. When
+it changed, the switch reloads it, and that
+[upgrades the daemon in place](/reference/architecture#upgrading-in-place): your session
+and a lock screen that is up keep running, and the next greeter, login and lock screen use
+the new build. A failed upgrade leaves the old daemon running; the switch then exits 4 and
+lists `lys-login-upgrade-failed.service`, whose status gives the reason. The first switch
+from a build older than this feature fails that way too, since that daemon has no
+`upgrade.sock`; it takes the new build at the next reboot.
 
 To show the greeter in the lys-wm your desktop runs:
 

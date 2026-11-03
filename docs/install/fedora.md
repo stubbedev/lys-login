@@ -45,6 +45,15 @@ back, disable `lys-login` and enable the old one.
 The greeter reads `/etc/lys-shell/config.yaml`, which the package leaves to you:
 see [Configuration](/guide/configuration).
 
+## Upgrades
+
+Upgrading the package reloads a running `lys-login.service`, which
+[upgrades the daemon in place](/reference/architecture#upgrading-in-place): your session
+and a lock screen that is up keep running, and the next greeter, login and lock screen use
+the new package. A failed upgrade leaves the old daemon running; the package still installs,
+says so, and the reason is in `journalctl -u lys-login`. To retry, run
+`sudo systemctl reload lys-login`.
+
 ## The lock screen
 
 Fedora has the config's default service, `system-auth`, so the lock screen works as

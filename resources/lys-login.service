@@ -7,7 +7,9 @@ Wants=systemd-user-sessions.service
 [Service]
 Type=idle
 ExecStartPre=-/usr/bin/lys-splash deactivate
-ExecStart=/usr/bin/lys-login daemon --vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm --splash /usr/bin/lys-splash -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
+Environment="LYS_LOGIN_DAEMON_ARGS=--vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm --splash /usr/bin/lys-splash -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session"
+ExecStart=/usr/bin/lys-login daemon $LYS_LOGIN_DAEMON_ARGS
+ExecReload=/usr/bin/lys-login upgrade -- $LYS_LOGIN_DAEMON_ARGS
 Restart=always
 RestartSec=1
 KeyringMode=shared

@@ -13,6 +13,7 @@ start.
 | `just fmt` | Format every Go source in place |
 | `just login-vm` | The display manager in a NixOS VM (needs KVM) |
 | `just keyring-vm` | The login keyring with the real gnome-keyring in a NixOS VM (needs KVM) |
+| `just upgrade-vm` | The daemon upgraded in place in a NixOS VM (needs KVM): a session and its lock screen survive a switch to a second build, a refused and a failed upgrade leave the old daemon running and say why, and the next greeter and lock screen are new |
 | `just greetd-vm` | The greeter under greetd in a cage kiosk in a NixOS VM, on GLES2 over llvmpipe and on pixman (needs KVM) |
 | `just distro-vm <debian\|fedora>` | The `.deb` or `.rpm` built, installed and logged in through in a cloud VM (needs KVM and network in the guest) |
 | `just bump-lys` | lys-shell, lys-secrets, lys-ui and lys-lib to their heads, then the vendor hash |

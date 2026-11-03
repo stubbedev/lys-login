@@ -70,11 +70,13 @@ install -d -m 1777 "${OUT}"
 printf '%s\n%s\n' "${LOGIN_USER}" "${PASSWORD}" >"${OUT}/credentials"
 install -m 0755 scripts/distro-vm/greeter.py "${GREETER}"
 install -m 0755 scripts/distro-vm/session.sh "${SESSION}"
+install -d /usr/share/wayland-sessions
+printf '[Desktop Entry]\nType=Application\nName=distro-vm\nExec=%s\n' "${SESSION}" >/usr/share/wayland-sessions/lys-distro-vm.desktop
 
-exec_start="$(sed -n "s|^\(ExecStart=.* --compositor \)/usr/bin/lys-wm |\1${GREETER} |p" "${UNIT}")"
-[[ -n ${exec_start} ]] || fail "${UNIT} has no ExecStart with --compositor /usr/bin/lys-wm"
+daemon_args="$(sed -n "s|^\(Environment=\"LYS_LOGIN_DAEMON_ARGS=.* --compositor \)/usr/bin/lys-wm |\1${GREETER} |p" "${UNIT}")"
+[[ -n ${daemon_args} ]] || fail "${UNIT} has no LYS_LOGIN_DAEMON_ARGS with --compositor /usr/bin/lys-wm"
 install -d /etc/systemd/system/lys-login.service.d
-printf '[Service]\nExecStart=\n%s\n' "${exec_start}" >/etc/systemd/system/lys-login.service.d/distro-vm.conf
+printf '[Service]\n%s\n' "${daemon_args}" >/etc/systemd/system/lys-login.service.d/distro-vm.conf
 systemctl daemon-reload
 systemctl start lys-login.service
 
@@ -114,8 +116,24 @@ fi
 echo "${PASSWORD}" | runuser -u "${LOGIN_USER}" -- pamtester lys-shell "${LOGIN_USER}" authenticate ||
 	fail "lys-shell refused ${LOGIN_USER}'s password"
 
+greeters="$(wc -l <"${OUT}/greeter-again")"
+daemon="$(systemctl show -P MainPID lys-login.service)"
+case "${FORMAT}" in
+deb) apt-get install -y -q --reinstall "./${PACKAGE}" ;;
+rpm) dnf -y -q reinstall "./${PACKAGE}" ;;
+esac
+journalctl -b -u lys-login -o cat --no-pager | grep 'dm: upgraded in place from' >/dev/null ||
+	fail "upgrading the package did not upgrade the daemon in place"
+[[ "$(systemctl show -P MainPID lys-login.service)" == "${daemon}" ]] ||
+	fail "upgrading the package restarted the daemon"
+for _ in $(seq 60); do
+	[[ "$(wc -l <"${OUT}/greeter-again")" -gt ${greeters} ]] && break
+	sleep 1
+done
+[[ "$(wc -l <"${OUT}/greeter-again")" -gt ${greeters} ]] || fail "no greeter came up after the upgrade"
+
 if journalctl -b --no-pager | grep -F 'avc:  denied'; then
 	fail "SELinux denied the above"
 fi
 
-echo "distro-vm: ${DISTRO}: logged in through lys-login, which unlocked lys-secrets, and unlocked through lys-shell"
+echo "distro-vm: ${DISTRO}: logged in through lys-login, which unlocked lys-secrets, unlocked through lys-shell, and upgraded in place"

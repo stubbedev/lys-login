@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,14 +56,18 @@ func pipedLogin(t *testing.T) (*pendingLogin, *channel) {
 	t.Helper()
 	daemon, workerEnd := net.Pipe()
 	t.Cleanup(func() { _ = daemon.Close(); _ = workerEnd.Close() })
-	return &pendingLogin{w: &worker{cmd: &exec.Cmd{}, ch: newChannel(daemon)}, cmd: []string{"session"}}, newChannel(workerEnd)
+	self, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &pendingLogin{w: &worker{proc: self, ch: newChannel(daemon)}, cmd: []string{"session"}}, newChannel(workerEnd)
 }
 
 func runLogin(t *testing.T, login *pendingLogin, workerSide *channel, workerDoes func()) string {
 	t.Helper()
 	var warnings bytes.Buffer
 	errs := make(chan error, 1)
-	go func() { errs <- login.run(func(uint32) {}, log.New(&warnings, "", 0)) }()
+	go func() { errs <- login.run(func(uint32) {}, log.New(&warnings, "", 0), &upgrader{}) }()
 	var start request
 	if err := workerSide.recv(&start); err != nil {
 		t.Fatal(err)

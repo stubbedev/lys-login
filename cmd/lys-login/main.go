@@ -8,6 +8,7 @@
 //	                 [-- <greet args...>]
 //	lys-login apply-config [--config PATH] <STAGED.yaml>
 //	lys-login record-cursor
+//	lys-login upgrade [-- <daemon args...>]
 //
 // greet is the greetd greeter: the credential prompt over a session
 // picker and the login users, run as the single client of a kiosk
@@ -21,7 +22,10 @@
 // through daemon it hands the change to the daemon, run as root it
 // writes it itself. record-cursor hands the cursor of the session it
 // runs in (XCURSOR_THEME, XCURSOR_SIZE) to daemon, which keeps it for
-// the next greeter.
+// the next greeter. upgrade, run as root from the new build, moves the
+// running daemon to that build in place: its sessions keep running on the
+// workers they have, and a failure leaves the old daemon running and says
+// why.
 package main
 
 import (
@@ -40,6 +44,7 @@ import (
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/shell/lockclient"
 
+	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
@@ -47,7 +52,7 @@ import (
 	"github.com/stubbedev/lys-login/internal/lock"
 )
 
-const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml> | lys-login record-cursor"
+const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml> | lys-login record-cursor | lys-login upgrade [-- <daemon args...>]"
 
 func init() { runtime.LockOSThread() }
 
@@ -71,6 +76,10 @@ func main() {
 		os.Exit(lockSession(args))
 	case "daemon":
 		os.Exit(daemon(args))
+	case dm.ResumeMode:
+		os.Exit(daemonResume(args))
+	case "upgrade":
+		os.Exit(upgrade(args))
 	case "worker":
 		os.Exit(worker(args))
 	case "vault-unlock":
@@ -248,7 +257,7 @@ func workerFlags(fs *flag.FlagSet) *dm.WorkerOptions {
 	return o
 }
 
-func daemon(args []string) int {
+func parseDaemonArgs(args []string) (dm.Options, int) {
 	fs := flag.NewFlagSet("lys-login daemon", flag.ContinueOnError)
 	wo := workerFlags(fs)
 	greeterUser := fs.String("greeter-user", "lys-greeter", "account the greeter runs as")
@@ -256,33 +265,89 @@ func daemon(args []string) int {
 	runtimeDir := fs.String("runtime-dir", dm.DefaultRuntimeDir, "directory for the greeter's socket and the display manager's")
 	splash := fs.String("splash", "", "lys-splash, quit with --retain-splash once the greeter's first frame is presented")
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return dm.Options{}, 2
 	}
 	greet, err := greeter.ParseOptions(fs.Args())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter's arguments:", err)
-		return 2
+		return dm.Options{}, 2
 	}
 	if _, err := greet.Sessions(); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter would offer nothing to log into:", err)
-		return 2
+		return dm.Options{}, 2
 	}
 	if wo.Self, err = self(); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)
-		return 1
+		return dm.Options{}, 1
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-	err = dm.Run(ctx, dm.Options{
+	return dm.Options{
 		WorkerOptions: *wo, GreeterUser: *greeterUser,
 		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
 		GreeterConfig: greet.ConfigPath, GreeterState: greet.StatePath, CursorDir: cursorrecord.Dir,
-		Splash: *splash,
-	})
-	if err != nil {
+		Splash: *splash, Args: args,
+	}, 0
+}
+
+func daemon(args []string) int {
+	o, code := parseDaemonArgs(args)
+	if code != 0 {
+		return code
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	if err := dm.Run(ctx, o); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)
 		return 1
 	}
+	return 0
+}
+
+func daemonResume(args []string) int {
+	fs := flag.NewFlagSet("lys-login "+dm.ResumeMode, flag.ContinueOnError)
+	check := fs.Bool(dm.ResumeCheckFlag, false, "only check that the handover can be resumed")
+	stateFD := fs.Int(dm.ResumeStateFlag, -1, "the descriptor of the handed-over state")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	o, code := parseDaemonArgs(fs.Args())
+	if code != 0 {
+		return code
+	}
+	if *check {
+		if err := auth.CheckLibrary(); err != nil {
+			fmt.Fprintln(os.Stderr, "lys-login "+dm.ResumeMode+":", err)
+			return 1
+		}
+		if err := dm.CheckResume(*stateFD, o, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "lys-login "+dm.ResumeMode+":", err)
+			return 1
+		}
+		return 0
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	if err := dm.Resume(ctx, o, *stateFD); err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login "+dm.ResumeMode+":", err)
+		return 1
+	}
+	return 0
+}
+
+func upgrade(args []string) int {
+	fs := flag.NewFlagSet("lys-login upgrade", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	o, code := parseDaemonArgs(fs.Args())
+	if code != 0 {
+		return code
+	}
+	running, err := dm.UpgradeSocket.Send(o.RuntimeDir, dm.UpgradeRequest{Exec: o.Self, Args: o.Args})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login upgrade:", err)
+		return 1
+	}
+	fmt.Println("the display manager now runs", running)
 	return 0
 }
 

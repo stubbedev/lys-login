@@ -61,7 +61,7 @@ def main():
     sock.connect(os.environ["GREETD_SOCK"])
     record("greeter", "wrong-password " + json.dumps(login(sock, username, "wrong-password")))
     record("greeter", "password " + json.dumps(login(sock, username, password)))
-    send(sock, {"type": "start_session", "cmd": [SESSION], "env": []})
+    send(sock, {"type": "start_session", "cmd": [SESSION], "env": ["XDG_SESSION_TYPE=wayland"]})
     signal.pause()
 
 

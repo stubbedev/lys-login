@@ -38,6 +38,7 @@ type Socket[T any] struct {
 	name string
 	// maxRequest bounds a request on the wire.
 	maxRequest int64
+	exchange   time.Duration
 }
 
 var (
@@ -46,11 +47,13 @@ var (
 	ApplySocket = Socket[greeterconfig.Change]{
 		name:       "apply.sock",
 		maxRequest: (greeterconfig.MaxStaged+greeterconfig.MaxImage)/3*4 + 4096,
+		exchange:   exchangeTimeout,
 	}
 	// CursorSocket takes the cursor of the session that runs from
 	// `lys-login record-cursor`, for the greeter to show next.
-	CursorSocket = Socket[cursorrecord.Cursor]{name: "cursor.sock", maxRequest: 4096}
-	SplashSocket = Socket[Presented]{name: "splash.sock", maxRequest: 64}
+	CursorSocket  = Socket[cursorrecord.Cursor]{name: "cursor.sock", maxRequest: 4096, exchange: exchangeTimeout}
+	SplashSocket  = Socket[Presented]{name: "splash.sock", maxRequest: 64, exchange: exchangeTimeout}
+	UpgradeSocket = Socket[UpgradeRequest]{name: "upgrade.sock", maxRequest: 1 << 20, exchange: upgradeExchange}
 )
 
 type Presented struct{}
@@ -63,7 +66,7 @@ func (s Socket[T]) Path(runtimeDir string) string { return filepath.Join(runtime
 // maxReply bounds the daemon's answer.
 const maxReply = 64 << 10
 
-// exchangeTimeout bounds one exchange on a socket.
+// exchangeTimeout bounds one exchange on most sockets.
 const exchangeTimeout = 30 * time.Second
 
 // reply is the daemon's answer: the file the request went to, or why
@@ -135,7 +138,7 @@ func (s Socket[T]) serve(ln *net.UnixListener, handle handler[T]) {
 }
 
 func (s Socket[T]) answer(conn *net.UnixConn, handle handler[T]) error {
-	_ = conn.SetDeadline(time.Now().Add(exchangeTimeout))
+	_ = conn.SetDeadline(time.Now().Add(s.exchange))
 	uid, err := peercred.UID(conn)
 	if err != nil {
 		return err
@@ -171,7 +174,7 @@ func (s Socket[T]) Send(runtimeDir string, req T) (string, error) {
 		return "", fmt.Errorf("connect to %s: %w", path, err)
 	}
 	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(exchangeTimeout))
+	_ = conn.SetDeadline(time.Now().Add(s.exchange))
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return "", fmt.Errorf("send to %s: %w", path, err)
 	}
@@ -204,6 +207,14 @@ func applyChange(owner *sessionOwner, configPath string) handler[greeterconfig.C
 		}
 		log.Printf("dm: uid %d changed the login screen", uid)
 		return path, nil
+	}
+}
+
+func gated[T any](gate *sync.RWMutex, handle handler[T]) handler[T] {
+	return func(uid uint32, req T) (string, error) {
+		gate.RLock()
+		defer gate.RUnlock()
+		return handle(uid, req)
 	}
 }
 

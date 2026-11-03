@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -46,6 +47,7 @@ type Options struct {
 	// CursorDir holds the cursor records the sessions hand over.
 	CursorDir string
 	Splash    string
+	Args      []string
 }
 
 // retryPause spaces greeters that fail to come up.
@@ -56,55 +58,111 @@ const retryPause = 2 * time.Second
 // on ApplySocket from root and from the user whose session runs, and
 // that session's cursor on CursorSocket.
 func Run(ctx context.Context, o Options) error {
+	return runDaemon(ctx, o, systemConsole(), rootOnly, nil)
+}
+
+type console struct {
+	activate func(vt int) error
+	cards    *heldCards
+}
+
+func systemConsole() console { return console{activate: activateVT, cards: newHeldCards()} }
+
+type listeners struct {
+	apply, cursor, splash, upgrade *net.UnixListener
+}
+
+func listen(runtimeDir string) (l *listeners, err error) {
+	l = &listeners{}
+	if l.apply, err = ApplySocket.listen(runtimeDir); err != nil {
+		return nil, err
+	}
+	if l.cursor, err = CursorSocket.listen(runtimeDir); err != nil {
+		return nil, errors.Join(err, l.close())
+	}
+	if l.splash, err = SplashSocket.listen(runtimeDir); err != nil {
+		return nil, errors.Join(err, l.close())
+	}
+	if l.upgrade, err = UpgradeSocket.listen(runtimeDir); err != nil {
+		return nil, errors.Join(err, l.close())
+	}
+	return l, nil
+}
+
+func (l *listeners) close() error {
+	var errs []error
+	for _, ln := range []*net.UnixListener{l.apply, l.cursor, l.splash, l.upgrade} {
+		if ln != nil {
+			errs = append(errs, ln.Close())
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool, r *resumption) error {
 	if err := os.MkdirAll(o.RuntimeDir, 0o755); err != nil { //nolint:gosec // the greeter user reaches its socket through it
 		return fmt.Errorf("dm: create %s: %w", o.RuntimeDir, err)
 	}
 	owner := newSessionOwner()
 	warnings := newWarningLogger(os.Stderr, os.Getenv(journalStreamEnv))
-	apply, err := ApplySocket.listen(o.RuntimeDir)
-	if err != nil {
-		return fmt.Errorf("dm: %w", err)
+	var l *listeners
+	if r != nil {
+		l = r.adopted
+		if r.session != nil && r.session.uid != nil {
+			owner.set(*r.session.uid)
+		}
+	} else {
+		var err error
+		if l, err = listen(o.RuntimeDir); err != nil {
+			return fmt.Errorf("dm: %w", err)
+		}
 	}
-	defer func() { _ = apply.Close() }()
-	cursor, err := CursorSocket.listen(o.RuntimeDir)
-	if err != nil {
-		return fmt.Errorf("dm: %w", err)
-	}
-	defer func() { _ = cursor.Close() }()
-	splash, err := SplashSocket.listen(o.RuntimeDir)
-	if err != nil {
-		return fmt.Errorf("dm: %w", err)
-	}
-	defer func() { _ = splash.Close() }()
-	go ApplySocket.serve(apply, applyChange(owner, o.GreeterConfig))
-	go CursorSocket.serve(cursor, recordCursor(owner, o.CursorDir))
-	go SplashSocket.serve(splash, handOverSplash(o.isGreeter, quitSplash(o.Splash)))
-	cards := newHeldCards()
+	defer func() { _ = l.close() }()
+	gate := &sync.RWMutex{}
+	u := &upgrader{o: o, requests: make(chan *pendingUpgrade), listeners: l, cards: c.cards, gate: gate, mayUpgrade: may, drain: loginDrain}
+	go ApplySocket.serve(l.apply, gated(gate, applyChange(owner, o.GreeterConfig)))
+	go CursorSocket.serve(l.cursor, gated(gate, recordCursor(owner, o.CursorDir)))
+	go SplashSocket.serve(l.splash, handOverSplash(o.isGreeter, quitSplash(o.Splash)))
+	go u.serve()
 	defer func() {
-		if err := cards.Close(); err != nil {
+		if err := c.cards.Close(); err != nil {
 			log.Printf("dm: %v", err)
 		}
 	}()
+	if r != nil {
+		r.finish(o, owner, warnings, u)
+	}
 	for ctx.Err() == nil {
-		if err := activateVT(o.VT); err != nil {
+		if req := u.next(); req != nil {
+			if a, err := u.prepare(req, nil); err != nil {
+				req.fail(o.Self, err)
+			} else {
+				a.fail(a.exec(nil))
+			}
+		}
+		if err := c.activate(o.VT); err != nil {
 			log.Printf("dm: %v", err)
 		}
-		if err := cards.holdAll(); err != nil {
+		if err := c.cards.holdAll(); err != nil {
 			log.Printf("dm: %v", err)
 		}
-		login, err := o.greet(ctx)
-		if err != nil {
+		g, err := o.greet(ctx, u)
+		switch {
+		case err != nil:
 			log.Printf("dm: greeter: %v", err)
 			select {
 			case <-ctx.Done():
 			case <-time.After(retryPause):
+			case u.parked = <-u.requests:
 			}
-			continue
-		}
-		err = login.run(owner.set, warnings)
-		owner.clear()
-		if err != nil {
-			log.Printf("dm: session: %v", err)
+		case g.upgrade != nil:
+			g.upgrade.fail(g.upgrade.exec(nil))
+		default:
+			err := g.login.run(owner.set, warnings, u)
+			owner.clear()
+			if err != nil {
+				log.Printf("dm: session: %v", err)
+			}
 		}
 	}
 	return nil
@@ -195,23 +253,28 @@ type pendingLogin struct {
 	cmd, env []string
 }
 
+type greeted struct {
+	login   *pendingLogin
+	upgrade *upgradeAttempt
+}
+
 // greet runs the greeter until a user is authenticated and asks for a
-// session, then stops it.
-func (o Options) greet(ctx context.Context) (*pendingLogin, error) {
+// session, or an upgrade replaces this program, then stops it.
+func (o Options) greet(ctx context.Context, u *upgrader) (greeted, error) {
 	sock := filepath.Join(o.RuntimeDir, "greeter.sock")
 	ln, err := o.listen(sock)
 	if err != nil {
-		return nil, err
+		return greeted{}, err
 	}
 	defer func() { _ = ln.Close() }()
 	cfg := filepath.Join(o.RuntimeDir, "kiosk.yaml")
 	if err := os.WriteFile(cfg, []byte(kioskConfig(o.greeterCommand(), o.greeterCursor())), 0o644); err != nil { //nolint:gosec // the greeter user reads it
-		return nil, fmt.Errorf("write %s: %w", cfg, err)
+		return greeted{}, fmt.Errorf("write %s: %w", cfg, err)
 	}
 	gw := exec.Command(o.Self, o.greeterWorkerArgs(sock, cfg)...) //nolint:gosec // lys-login itself
 	gw.Stdout, gw.Stderr = os.Stderr, os.Stderr
 	if err := gw.Start(); err != nil {
-		return nil, fmt.Errorf("start the greeter worker: %w", err)
+		return greeted{}, fmt.Errorf("start the greeter worker: %w", err)
 	}
 	exited := make(chan struct{})
 	var exitErr error
@@ -235,13 +298,13 @@ func (o Options) greet(ctx context.Context) (*pendingLogin, error) {
 			}
 		}
 	}()
-	login, err := o.serveConns(ctx, conns, exited)
+	g, err := o.serveConns(ctx, conns, exited, u)
 	_ = gw.Process.Signal(syscall.SIGTERM)
 	<-exited
-	if login == nil && err == nil {
+	if g == (greeted{}) && err == nil {
 		err = errors.Join(errors.New("the greeter ended"), exitErr)
 	}
-	return login, err
+	return g, err
 }
 
 func (o Options) greeterCommand() []string {
@@ -263,10 +326,11 @@ func (o Options) isGreeter(uid uint32) bool {
 
 // serveConns serves the greeter's connections, each on its own, as the
 // greeter opens one per login attempt, until one hands over a session to
-// start, the greeter's worker ends (neither a login nor an error), or
-// ctx does. The connections still open then are closed, which cancels
-// their logins.
-func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <-chan struct{}) (*pendingLogin, error) {
+// start, the greeter's worker ends (neither a login nor an error), ctx
+// does, or an upgrade that passed its check has let the logins under way
+// finish. The connections still open then are closed, which cancels their
+// logins.
+func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <-chan struct{}, u *upgrader) (greeted, error) {
 	logins := make(chan *pendingLogin)
 	open := map[net.Conn]bool{}
 	ended := make(chan net.Conn)
@@ -285,12 +349,34 @@ func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <
 			}
 		}
 	}()
+	var attempt *upgradeAttempt
+	var drained <-chan time.Time
 	for {
+		requests := u.requests
+		if attempt != nil {
+			requests = nil
+		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			if attempt != nil {
+				attempt.fail(ctx.Err())
+			}
+			return greeted{}, ctx.Err()
 		case <-exited:
-			return nil, nil
+			return greeted{upgrade: attempt}, nil
+		case req := <-requests:
+			a, err := u.prepare(req, nil)
+			if err != nil {
+				req.fail(o.Self, err)
+				continue
+			}
+			if len(open) == 0 {
+				return greeted{upgrade: a}, nil
+			}
+			log.Printf("dm: an upgrade waits for the logins under way, %s at most", u.drain)
+			attempt, drained = a, time.After(u.drain)
+		case <-drained:
+			return greeted{upgrade: attempt}, nil
 		case conn := <-conns:
 			open[conn] = true
 			go func() {
@@ -306,9 +392,15 @@ func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <
 			}()
 		case login := <-logins:
 			// The winning connection's goroutine still reports its end.
-			return login, nil
+			if attempt != nil {
+				attempt.park()
+			}
+			return greeted{login: login}, nil
 		case conn := <-ended:
 			delete(open, conn)
+			if attempt != nil && len(open) == 0 {
+				return greeted{upgrade: attempt}, nil
+			}
 		}
 	}
 }
@@ -455,41 +547,128 @@ func relay(conn net.Conn, w *worker) (loginState, error) {
 	return endedLogin, fmt.Errorf("dm: unexpected event %q while authenticating", ev.Kind)
 }
 
-// run starts the authenticated session and waits for it to end,
-// telling started the uid it runs as once it does. What the worker
-// reports about the session's keyring goes to warnings.
-func (l *pendingLogin) run(started func(uid uint32), warnings *log.Logger) error {
-	defer l.w.wait()
+// run starts the authenticated session and follows it until it ends.
+func (l *pendingLogin) run(started func(uid uint32), warnings *log.Logger, u *upgrader) error {
 	if err := l.w.ch.send(request{Op: opStart, Cmd: l.cmd, Env: l.env}); err != nil {
+		l.w.wait()
 		return err
 	}
-	for {
-		var ev event
-		if err := l.w.ch.recv(&ev); err != nil {
-			if errors.Is(err, errClosed) {
-				return nil
+	s := &session{w: l.w, cmd: l.cmd}
+	return s.follow(started, warnings, u)
+}
+
+type session struct {
+	w   *worker
+	cmd []string
+	uid *uint32
+}
+
+type workerEvent struct {
+	ev  event
+	err error
+}
+
+func (w *worker) events(stop <-chan struct{}) <-chan workerEvent {
+	events := make(chan workerEvent)
+	go func() {
+		defer close(events)
+		for {
+			var ev event
+			err := w.ch.recv(&ev)
+			select {
+			case events <- workerEvent{ev, err}:
+			case <-stop:
+				return
 			}
-			return err
+			if err != nil {
+				return
+			}
 		}
-		switch ev.Kind {
-		case evStarted:
-			started(ev.UID)
-			log.Printf("dm: session of uid %d started: %s", ev.UID, strings.Join(l.cmd, " "))
-		case evFailed:
-			return fmt.Errorf("the session did not start: %s", ev.Text)
-		case evKeyringLocked:
-			warnings.Print(ev.Text)
-		case evEnded:
-			return nil
+	}()
+	return events
+}
+
+func (s *session) follow(started func(uid uint32), warnings *log.Logger, u *upgrader) error {
+	defer s.w.wait()
+	stop := make(chan struct{})
+	defer close(stop)
+	events := s.w.events(stop)
+	pending := u.parked
+	u.parked = nil
+	for {
+		if pending != nil {
+			var ended bool
+			var err error
+			events, ended, err = s.upgrade(pending, started, warnings, u, events, stop)
+			pending = nil
+			if ended {
+				return err
+			}
+		}
+		select {
+		case e := <-events:
+			if ended, err := s.handle(e, started, warnings); ended {
+				return err
+			}
+		case pending = <-u.requests:
 		}
 	}
 }
 
+func (s *session) handle(e workerEvent, started func(uid uint32), warnings *log.Logger) (ended bool, err error) {
+	if e.err != nil {
+		if errors.Is(e.err, errClosed) {
+			return true, nil
+		}
+		return true, e.err
+	}
+	switch e.ev.Kind {
+	case evStarted:
+		uid := e.ev.UID
+		s.uid = &uid
+		started(uid)
+		log.Printf("dm: session of uid %d started: %q", uid, s.cmd) //nolint:gosec // quoted
+	case evFailed:
+		return true, fmt.Errorf("the session did not start: %s", e.ev.Text)
+	case evKeyringLocked:
+		warnings.Print(e.ev.Text)
+	case evEnded:
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *session) upgrade(req *pendingUpgrade, started func(uid uint32), warnings *log.Logger, u *upgrader, events <-chan workerEvent, stop <-chan struct{}) (<-chan workerEvent, bool, error) {
+	a, err := u.prepare(req, s)
+	if err != nil {
+		req.fail(u.o.Self, err)
+		return events, false, nil
+	}
+	if err := s.w.f.SetReadDeadline(time.Now()); err != nil {
+		a.fail(fmt.Errorf("stop reading the session's channel: %w", err))
+		return events, false, nil
+	}
+	for e := range events {
+		if errors.Is(e.err, os.ErrDeadlineExceeded) {
+			break
+		}
+		if ended, err := s.handle(e, started, warnings); ended {
+			a.park()
+			return nil, true, err
+		}
+	}
+	a.fail(a.exec(s))
+	if err := s.w.f.SetReadDeadline(time.Time{}); err != nil {
+		return nil, true, fmt.Errorf("read the session's channel again: %w", err)
+	}
+	return s.w.events(stop), false, nil
+}
+
 // worker is a session worker process and its channel.
 type worker struct {
-	cmd *exec.Cmd
-	ch  *channel
-	f   *os.File
+	proc *os.Process
+	ch   *channel
+	f    *os.File
 }
 
 // startSessionWorker starts a session worker and asks it to
@@ -502,6 +681,11 @@ func (o Options) startSessionWorker(user string) (*worker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("socket pair: %w", err)
 	}
+	if err := unix.SetNonblock(pair[0], true); err != nil {
+		_ = unix.Close(pair[0])
+		_ = unix.Close(pair[1])
+		return nil, fmt.Errorf("socket pair: %w", err)
+	}
 	mine, theirs := os.NewFile(uintptr(pair[0]), "dm"), os.NewFile(uintptr(pair[1]), "worker")
 	defer func() { _ = theirs.Close() }()
 	cmd := exec.Command(o.Self, "worker", "session", "--service", o.Service, "--vt", strconv.Itoa(o.VT)) //nolint:gosec // lys-login itself
@@ -511,7 +695,7 @@ func (o Options) startSessionWorker(user string) (*worker, error) {
 		_ = mine.Close()
 		return nil, fmt.Errorf("start a session worker: %w", err)
 	}
-	w := &worker{cmd: cmd, ch: newChannel(mine), f: mine}
+	w := &worker{proc: cmd.Process, ch: newChannel(mine), f: mine}
 	if err := w.ch.send(request{Op: opAuth, User: user}); err != nil {
 		w.cancel()
 		return nil, err
@@ -527,6 +711,6 @@ func (w *worker) cancel() {
 
 // wait reaps the worker and closes the channel.
 func (w *worker) wait() {
-	_ = w.cmd.Wait()
+	_, _ = w.proc.Wait()
 	_ = w.f.Close()
 }

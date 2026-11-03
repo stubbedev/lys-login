@@ -59,6 +59,12 @@ if selinuxenabled; then
     restorecon %{_bindir}/lys-login
 fi
 
+if [ "$1" -gt 1 ] && systemctl is-active --quiet lys-login.service; then
+    systemctl daemon-reload
+    systemctl reload lys-login.service ||
+        echo "lys-login: the running display manager stays on the old version until it restarts; see journalctl -u lys-login" >&2
+fi
+
 %preun
 %systemd_preun lys-login.service
 

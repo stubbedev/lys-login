@@ -22,6 +22,9 @@ import (
 // TestMain lets the test binary be a session worker whose PAM is a
 // script: the password "pw" authenticates, anything else fails.
 func TestMain(m *testing.M) {
+	if code, ran := runFakeMode(); ran {
+		os.Exit(code)
+	}
 	if len(os.Args) > 2 && os.Args[1] == "worker" && os.Args[2] == "session" {
 		os.Exit(fakeSessionWorker())
 	}
@@ -91,7 +94,7 @@ func TestGreeterLogsInThroughTheDaemon(t *testing.T) {
 		t.Errorf("session = %v %v", login.cmd, login.env)
 	}
 	var started []uint32
-	if err := login.run(func(uid uint32) { started = append(started, uid) }, log.Default()); err != nil {
+	if err := login.run(func(uid uint32) { started = append(started, uid) }, log.Default(), &upgrader{}); err != nil {
 		t.Errorf("run: %v", err)
 	}
 	if !slices.Equal(started, []uint32{1000}) {
@@ -107,8 +110,8 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 	exited := make(chan struct{})
 	logins := make(chan *pendingLogin, 1)
 	go func() {
-		l, _ := testOptions().serveConns(context.Background(), conns, exited)
-		logins <- l
+		g, _ := testOptions().serveConns(context.Background(), conns, exited, &upgrader{})
+		logins <- g.login
 	}()
 	attempt := func(password string) error {
 		server, client := net.Pipe()
@@ -130,7 +133,7 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session after the retry")
 	}
-	if err := login.run(func(uint32) {}, log.Default()); err != nil {
+	if err := login.run(func(uint32) {}, log.Default(), &upgrader{}); err != nil {
 		t.Error(err)
 	}
 }
@@ -139,8 +142,8 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 func TestServeConnsEndsWithTheGreeter(t *testing.T) {
 	exited := make(chan struct{})
 	close(exited)
-	if l, err := testOptions().serveConns(context.Background(), make(chan net.Conn), exited); l != nil || err != nil {
-		t.Errorf("serveConns = %v, %v; want neither a login nor an error", l, err)
+	if g, err := testOptions().serveConns(context.Background(), make(chan net.Conn), exited, &upgrader{}); g != (greeted{}) || err != nil {
+		t.Errorf("serveConns = %v, %v; want neither a login nor an error", g, err)
 	}
 }
 
@@ -311,8 +314,8 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 	conns := make(chan net.Conn)
 	logins := make(chan *pendingLogin, 1)
 	go func() {
-		l, _ := testOptions().serveConns(context.Background(), conns, make(chan struct{}))
-		logins <- l
+		g, _ := testOptions().serveConns(context.Background(), conns, make(chan struct{}), &upgrader{})
+		logins <- g.login
 	}()
 	idleServer, idleClient := net.Pipe()
 	t.Cleanup(func() { _ = idleClient.Close() })
@@ -327,7 +330,7 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session")
 	}
-	if err := login.run(func(uint32) {}, log.Default()); err != nil {
+	if err := login.run(func(uint32) {}, log.Default(), &upgrader{}); err != nil {
 		t.Error(err)
 	}
 	if _, err := idleClient.Write([]byte{0}); err == nil {

@@ -65,6 +65,12 @@ login-vm:
 keyring-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.keyring-vm
 
+# The daemon upgraded in place in a NixOS VM (needs KVM): a session and its lock
+# screen survive a switch to a second build, a refused and a failed upgrade leave
+# the old daemon running and say why, and the next greeter and lock screen are new.
+upgrade-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.upgrade-vm
+
 # The greeter under greetd in a cage kiosk in a NixOS VM (needs KVM), on GLES2
 # over llvmpipe and on pixman: a wrong and a right password, and the greeter back.
 greetd-vm:

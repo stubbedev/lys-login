@@ -21,6 +21,9 @@
   cage kiosk.
 - `lys-login lock`: the session lock on `ext-session-lock-v1`, which
   [lys-shell](https://github.com/stubbedev/lys-shell) starts.
+- `lys-login upgrade`: moves the running display manager to a new build in place,
+  with no logout. Sessions keep running, and a failed upgrade leaves the old daemon
+  running and says why.
 
 It shares the desktop's look and its `login` config section with lys-shell. After
 authenticating it unlocks the login collection of

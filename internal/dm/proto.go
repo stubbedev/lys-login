@@ -16,10 +16,12 @@ package dm
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 
 	"github.com/stubbedev/lys-login/internal/auth"
@@ -73,9 +75,11 @@ const (
 
 // channel is one side of a worker's socket pair.
 type channel struct {
-	r  *bufio.Scanner
-	mu sync.Mutex
-	w  io.Writer
+	r       *bufio.Reader
+	backlog []byte
+	partial []byte
+	mu      sync.Mutex
+	w       io.Writer
 }
 
 // maxLine bounds one message: the largest is a session's command and
@@ -83,9 +87,11 @@ type channel struct {
 const maxLine = 1 << 20
 
 func newChannel(rw io.ReadWriter) *channel {
-	sc := bufio.NewScanner(rw)
-	sc.Buffer(make([]byte, 0, 4096), maxLine)
-	return &channel{r: sc, w: rw}
+	return resumeChannel(rw, nil)
+}
+
+func resumeChannel(rw io.ReadWriter, unread []byte) *channel {
+	return &channel{r: bufio.NewReaderSize(rw, 4096), backlog: unread, w: rw}
 }
 
 func (c *channel) send(v any) error {
@@ -103,14 +109,43 @@ func (c *channel) send(v any) error {
 var errClosed = errors.New("dm: the other side closed the channel")
 
 func (c *channel) recv(v any) error {
-	if !c.r.Scan() {
-		if err := c.r.Err(); err != nil {
-			return fmt.Errorf("dm: read: %w", err)
-		}
-		return errClosed
+	line, err := c.readLine()
+	if err != nil {
+		return err
 	}
-	if err := json.Unmarshal(c.r.Bytes(), v); err != nil {
-		return fmt.Errorf("dm: decode %q: %w", c.r.Text(), err)
+	if err := json.Unmarshal(line, v); err != nil {
+		return fmt.Errorf("dm: decode %q: %w", line, err)
 	}
 	return nil
+}
+
+func (c *channel) readLine() ([]byte, error) {
+	if i := bytes.IndexByte(c.backlog, '\n'); i >= 0 {
+		line := c.backlog[:i]
+		c.backlog = c.backlog[i+1:]
+		return line, nil
+	}
+	c.partial, c.backlog = append(c.partial, c.backlog...), nil
+	for {
+		fragment, err := c.r.ReadSlice('\n')
+		c.partial = append(c.partial, fragment...)
+		if len(c.partial) > maxLine {
+			return nil, fmt.Errorf("dm: read: a message over the %d-byte limit", maxLine)
+		}
+		switch {
+		case err == nil:
+			line := bytes.TrimSuffix(c.partial, []byte{'\n'})
+			c.partial = nil
+			return line, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+		case errors.Is(err, io.EOF):
+			return nil, errClosed
+		default:
+			return nil, fmt.Errorf("dm: read: %w", err)
+		}
+	}
+}
+
+func (c *channel) unread() []byte {
+	return slices.Concat(c.backlog, c.partial)
 }

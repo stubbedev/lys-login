@@ -42,6 +42,10 @@
           inherit self;
           inherit (inputs) lys-wm;
         };
+        upgrade-vm = pkgs.callPackage ./tests/upgrade-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm lys-secrets;
+        };
         # The greeter under greetd in cage; see nix/tests/greetd-vm.nix.
         greetd-vm = pkgs.callPackage ./tests/greetd-vm.nix {inherit self;};
         # An X11 session reaches logind as x11; see nix/tests/x11-session-vm.nix.
@@ -51,6 +55,16 @@
         };
       }
       // {
+        upgrade-unit = let
+          unit = (daemonSystem {session.environment = ["A=b c"];}).systemd.services.lys-login;
+          daemonArgs = lib.last (lib.splitString " daemon " unit.serviceConfig.ExecStart);
+        in
+          pkgs.runCommand "lys-login-upgrade-unit" {} ''
+            ${lib.optionalString (!unit.reloadIfChanged) ''echo "a switch does not reload the changed unit" >&2; exit 1''}
+            ${lib.optionalString unit.restartIfChanged ''echo "a switch may restart the display manager under a session" >&2; exit 1''}
+            grep -qF -- ${lib.escapeShellArg " upgrade -- ${daemonArgs} "} ${unit.serviceConfig.ExecReload} || { echo "ExecReload upgrades to other arguments than ExecStart runs with" >&2; exit 1; }
+            touch $out
+          '';
         splash-unit = let
           splash = pkgs.writeShellScriptBin "lys-splash" "";
           unit = splashPackage: (daemonSystem {inherit splashPackage;}).systemd.services.lys-login;

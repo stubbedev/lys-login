@@ -17,6 +17,7 @@ type fakeCard struct {
 	closed  bool
 }
 
+func (c *fakeCard) FD() int           { return -1 }
 func (c *fakeCard) DropMaster() error { c.dropped = true; return c.dropErr }
 func (c *fakeCard) Close() error      { c.closed = true; return nil }
 

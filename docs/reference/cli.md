@@ -36,11 +36,26 @@ session list that would be empty stops it at startup.
 | `--runtime-dir DIR` | `/run/lys-login` | The directory for the sockets and the kiosk config. |
 | `--splash PATH` | | lys-splash, quit with `--retain-splash` once the greeter's first frame is presented. |
 
-The packaged unit runs:
+The packaged unit keeps these arguments in `LYS_LOGIN_DAEMON_ARGS`, for its `ExecStart`
+and its `ExecReload` alike:
 
 ```text
-lys-login daemon --vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm --splash /usr/bin/lys-splash -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
+--vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm --splash /usr/bin/lys-splash -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
 ```
+
+## lys-login upgrade
+
+```text
+lys-login upgrade [-- <daemon args...>]
+```
+
+Run as root from the new build, usually by `systemctl reload lys-login`. It moves the
+running daemon to that build and those arguments in place, and prints the program the
+daemon now runs. [Upgrading in place](/reference/architecture#upgrading-in-place) says
+what stays and what changes.
+
+It exits 0 once the new daemon has taken over. It exits 1 with the reason when the upgrade
+fails, and the old daemon keeps running. It exits 2 on arguments the daemon would refuse.
 
 ## lys-login lock
 
@@ -73,7 +88,7 @@ that names no cursor records nothing and exits 0. See
 
 ## Internal modes
 
-`lys-login worker` and `lys-login vault-unlock` are started by lys-login itself.
+`lys-login worker`, `lys-login daemon-resume` and `lys-login vault-unlock` are started by lys-login itself.
 
 ## Environment
 

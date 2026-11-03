@@ -73,6 +73,11 @@ func loadLibpam() (*libpam, error) {
 	return lib, errLib
 }
 
+func CheckLibrary() error {
+	_, err := loadLibpam()
+	return err
+}
+
 func bindLibpam() (*libpam, error) {
 	pam, err := clib.Open(libpamCandidates)
 	if err != nil {

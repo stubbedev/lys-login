@@ -7,6 +7,13 @@ process dies.
 lys-shell runs `lys-login lock` from the PATH, so installing lys-login is enough
 for the binary. It also needs a [PAM service](/guide/pam#the-lock-screen-s-service).
 
+## Upgrades
+
+[Upgrading the display manager in place](/reference/architecture#upgrading-in-place) leaves a
+lock screen that is up alone: it keeps the session locked on its old build until it unlocks,
+and its unlock still opens the login collection. The next lock is the new build, once
+`lys-login` on the PATH is.
+
 ## What locks the session
 
 lys-shell starts it for:

@@ -101,6 +101,67 @@ self: {
     "${wrapperPrefix}${envPrefix}${cageExe} -s -- "
     + "${greeterExe} greet --config /etc/lys-shell/config.yaml "
     + "--state ${greeterStateDir}/last-session ${sessionDirArgs} ${xsessionDirArgs} ${envArgs} ${fallback}";
+
+  daemonArgs =
+    [
+      "--vt"
+      (toString cfg.greeter.vt)
+      "--service"
+      "lys-login"
+      "--greeter-user"
+      "lys-greeter"
+      "--compositor"
+      (lib.getExe' cfg.greeter.compositorPackage "lys-wm")
+    ]
+    ++ lib.optionals (cfg.greeter.splashPackage != null) [
+      "--splash"
+      (lib.getExe' cfg.greeter.splashPackage "lys-splash")
+    ]
+    ++ [
+      "--"
+      "--config"
+      "/etc/lys-shell/config.yaml"
+      "--state"
+      "${greeterStateDir}/last-session"
+    ]
+    ++ lib.concatMap (d: [
+      "--sessions"
+      d
+    ])
+    cfg.greeter.session.dirs
+    ++ lib.concatMap (d: [
+      "--xsessions"
+      d
+    ])
+    cfg.greeter.session.x11Dirs
+    ++ lib.concatMap (e: [
+      "--env"
+      e
+    ])
+    cfg.greeter.session.environment
+    ++ lib.optionals (cfg.greeter.session.command != "") [
+      "--"
+      "/bin/sh"
+      "-c"
+      cfg.greeter.session.command
+    ];
+
+  upgradeFailedUnit = "lys-login-upgrade-failed.service";
+
+  upgradeScript = pkgs.writeShellScript "lys-login-upgrade" ''
+    if said=$(${lib.escapeShellArgs ([(lib.getExe' cfg.package "lys-login") "upgrade" "--"] ++ daemonArgs)} 2>&1); then
+      printf '%s\n' "$said"
+      exit 0
+    fi
+    printf '%s\n' "$said" >&2
+    if ${config.systemd.package}/bin/systemctl --quiet is-failed ${upgradeFailedUnit}; then
+      ${config.systemd.package}/bin/systemctl reset-failed ${upgradeFailedUnit}
+    fi
+    ${config.systemd.package}/bin/systemd-run --quiet --wait --unit=${upgradeFailedUnit} \
+      --description="lys-login's in-place upgrade failed; the old display manager keeps running" \
+      ${pkgs.runtimeShell} -c 'printf "%s\n" "$1" >&2; exit 1' lys-login-upgrade "$said"
+    exit 1
+  '';
 in {
   options.programs.lys-login = {
     enable = lib.mkEnableOption ''
@@ -377,54 +438,11 @@ in {
           ["getty@tty${toString cfg.greeter.vt}.service"]
           ++ lib.optional (cfg.greeter.splashPackage != null) "lys-splash-quit.service";
         restartIfChanged = false;
+        reloadIfChanged = true;
         serviceConfig = {
           ExecStartPre = lib.mkIf (cfg.greeter.splashPackage != null) "-${lib.getExe' cfg.greeter.splashPackage "lys-splash"} deactivate";
-          ExecStart = lib.escapeShellArgs (
-            [
-              (lib.getExe' cfg.package "lys-login")
-              "daemon"
-              "--vt"
-              (toString cfg.greeter.vt)
-              "--service"
-              "lys-login"
-              "--greeter-user"
-              "lys-greeter"
-              "--compositor"
-              (lib.getExe' cfg.greeter.compositorPackage "lys-wm")
-            ]
-            ++ lib.optionals (cfg.greeter.splashPackage != null) [
-              "--splash"
-              (lib.getExe' cfg.greeter.splashPackage "lys-splash")
-            ]
-            ++ [
-              "--"
-              "--config"
-              "/etc/lys-shell/config.yaml"
-              "--state"
-              "${greeterStateDir}/last-session"
-            ]
-            ++ lib.concatMap (d: [
-              "--sessions"
-              d
-            ])
-            cfg.greeter.session.dirs
-            ++ lib.concatMap (d: [
-              "--xsessions"
-              d
-            ])
-            cfg.greeter.session.x11Dirs
-            ++ lib.concatMap (e: [
-              "--env"
-              e
-            ])
-            cfg.greeter.session.environment
-            ++ lib.optionals (cfg.greeter.session.command != "") [
-              "--"
-              "/bin/sh"
-              "-c"
-              cfg.greeter.session.command
-            ]
-          );
+          ExecStart = lib.escapeShellArgs ([(lib.getExe' cfg.package "lys-login") "daemon"] ++ daemonArgs);
+          ExecReload = upgradeScript;
           Restart = "always";
           RestartSec = 1;
           Type = "idle";
