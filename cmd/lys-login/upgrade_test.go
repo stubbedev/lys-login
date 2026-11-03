@@ -27,7 +27,12 @@ func runSelf(t *testing.T, args ...string) (int, string) {
 }
 
 func TestUpgradeSaysWhenNoDaemonListens(t *testing.T) {
-	runtime := filepath.Join(t.TempDir(), "no-daemon")
+	short, err := os.MkdirTemp("", "lys-up-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(short) })
+	runtime := filepath.Join(short, "no-daemon")
 	code, out := runSelf(t, "upgrade", "--", "--runtime-dir", runtime, "--", "--", "/bin/sh")
 	if code != 1 || !strings.Contains(out, dm.ErrNoDaemon.Error()) || !strings.Contains(out, runtime) {
 		t.Errorf("exit %d: %s", code, out)
