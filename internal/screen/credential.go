@@ -47,9 +47,6 @@ type Options struct {
 	// Focus moves keyboard focus; the username entry's Enter uses it
 	// to move on to the secret entry.
 	Focus func(widget.Widget)
-	// IconScale is the buffer scale the prompt shows at, which its icons are
-	// decoded for ahead of the first click.
-	IconScale int
 }
 
 // Prompt is a built credential prompt and the handles its screen
@@ -71,6 +68,10 @@ type Prompt struct {
 	Error  *widget.Label
 	peeked bool
 	iconPx int
+	// scaleWatch sees the device scale each frame paints at, which is fractional
+	// where the compositor says so and known to nothing before the first paint.
+	scaleWatch *widget.DrawingArea
+	preloaded  [2]int
 }
 
 // newPrompt assembles a prompt (CredentialBox::build); onSubmit fires with
@@ -93,7 +94,9 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	p.Entry.SetWidthChars(entryChars, 0)
 	p.iconPx = int(textPx)
 	p.Entry.SetTrailingIcon(peekReveal, textPx, p.togglePeek)
-	go preloadPeekIcons(p.iconPx, o.IconScale)
+	p.scaleWatch = widget.NewDrawingArea(0, 0)
+	p.scaleWatch.AddClass("lock-scale-watch")
+	p.scaleWatch.OnDraw = func(cv *render.Canvas, _ render.Rect) { p.preloadAt(cv.DeviceScale()) }
 	p.Entry.OnActivate = onSubmit
 	p.Error.SetVisible(false)
 
@@ -120,7 +123,7 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	if o.Extra != nil {
 		card.Append(o.Extra, false)
 	}
-	card.Append(p.Error, false)
+	card.Append(p.Error, false).Append(p.scaleWatch, false)
 
 	clock := widget.NewBox(widget.Column, 0, 0)
 	clock.AddClass("lock-time")
@@ -146,13 +149,20 @@ func label(font render.Font, px float64, classes ...string) *widget.Label {
 	return l
 }
 
-// preloadPeekIcons decodes both peek icons, since the first click would otherwise
-// read and rasterize one on the UI loop. It reads the disk, so it runs off it.
-func preloadPeekIcons(px, scale int) {
-	scale = max(scale, 1)
-	for _, name := range [...]string{peekReveal, peekConceal} {
-		widget.PreloadThemeIcon(name, px, scale, 1)
+// preloadAt decodes both peek icons for the device scale num/denom the first time
+// a frame paints at it, since the first click would otherwise read and rasterize one
+// on the UI loop. It reads the disk, so it runs off it.
+func (p *Prompt) preloadAt(num, denom int) {
+	if p.preloaded == [2]int{num, denom} {
+		return
 	}
+	p.preloaded = [2]int{num, denom}
+	px := p.iconPx
+	go func() {
+		for _, name := range [...]string{peekReveal, peekConceal} {
+			widget.PreloadThemeIcon(name, px, num, denom)
+		}
+	}()
 }
 
 // togglePeek is the peek icon's click: the masked text shows, or hides

@@ -247,10 +247,10 @@ func (s *Screen) dropBackground() {
 // buildFace builds one output's surface; lys-ui calls it for every
 // output at lock time and again for each output plugged in while
 // locked. A new face picks up the current state.
-func (s *Screen) buildFace(out *app.Output) app.LockSurface {
+func (s *Screen) buildFace(*app.Output) app.LockSurface {
 	surface := loginscreen.Build(loginscreen.Spec{
 		Mode: loginscreen.Lock, Config: s.cfg, Font: s.font, Sheet: s.sheet, Backdrop: s.bg,
-		CapsLock: i18n.T("lock-caps-lock"), OnSubmit: s.Submit, IconScale: out.Scale,
+		CapsLock: i18n.T("lock-caps-lock"), OnSubmit: s.Submit,
 	})
 	f := &face{prompt: surface.Prompt, scrim: surface.Scrim}
 	f.prompt.SetCapsLock(s.caps)

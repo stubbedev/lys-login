@@ -142,33 +142,48 @@ func TestThePeekIconsNeedNoDiskAfterThePromptIsBuilt(t *testing.T) {
 		widget.SetIconSearchPaths(paths)
 		widget.RefreshIcons()
 	})
-	const scale = 2
-	p := newPrompt(Options{Font: treetest.Font(t), IconScale: scale}, func(string) {})
-	deadline := time.Now().Add(5 * time.Second)
-	for !widget.ThemeIconPreloaded(peekReveal, p.iconPx, scale, 1) || !widget.ThemeIconPreloaded(peekConceal, p.iconPx, scale, 1) {
-		if time.Now().After(deadline) {
-			t.Fatal("the peek icons were not decoded in 5s")
+	removed := false
+	for _, scale := range [][2]int{{2, 1}, {5, 4}, {3, 2}} {
+		num, denom := scale[0], scale[1]
+		p := newPrompt(Options{Font: treetest.Font(t)}, func(string) {})
+		pix := make([]byte, 4*64*64)
+		cv := render.NewScaled(pix, 4*64, 64, 64, num, denom)
+		widget.PaintChild(cv, p.scaleWatch)
+		deadline := time.Now().Add(5 * time.Second)
+		for !widget.ThemeIconPreloaded(peekReveal, p.iconPx, num, denom) || !widget.ThemeIconPreloaded(peekConceal, p.iconPx, num, denom) {
+			if removed {
+				t.Fatalf("scale %d/%d: the peek icons are not decoded and their files are gone", num, denom)
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("scale %d/%d: the peek icons were not decoded in 5s", num, denom)
+			}
+			time.Sleep(time.Millisecond)
 		}
-		time.Sleep(time.Millisecond)
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	pix := make([]byte, 4*64*64)
-	cv := render.NewScaled(pix, 4*64, 64, 64, scale, 1)
-	for range 2 {
-		p.togglePeek()
-		icon := p.Entry.TrailingIcon()
-		if got := icon.Measure(widget.Row, widget.Unknown).Nat; got != p.iconPx {
-			t.Errorf("after a click the icon measures %d across, want %d", got, p.iconPx)
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatal(err)
 		}
-		icon.Arrange(render.Rect{W: 32, H: 32})
-		icon.Paint(cv)
-		if err := icon.Err(); err != nil {
-			t.Errorf("painting %s after the click read the disk and missed: %v", icon.Name(), err)
+		for range 2 {
+			p.togglePeek()
+			icon := p.Entry.TrailingIcon()
+			if got := icon.Measure(widget.Row, widget.Unknown).Nat; got != p.iconPx {
+				t.Errorf("after a click the icon measures %d across, want %d", got, p.iconPx)
+			}
+			icon.Arrange(render.Rect{W: 32, H: 32})
+			icon.Paint(cv)
+			if err := icon.Err(); err != nil {
+				t.Errorf("scale %d/%d: painting %s after the click read the disk and missed: %v", num, denom, icon.Name(), err)
+			}
 		}
-	}
-	if !slices.ContainsFunc(pix, func(b byte) bool { return b != 0 }) {
-		t.Error("the peek icon painted nothing")
+		if !slices.ContainsFunc(pix, func(b byte) bool { return b != 0 }) {
+			t.Errorf("scale %d/%d: the peek icon painted nothing", num, denom)
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{peekReveal, peekConceal} {
+			if err := os.WriteFile(filepath.Join(dir, name+".svg"), []byte(peekIconSVG), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
