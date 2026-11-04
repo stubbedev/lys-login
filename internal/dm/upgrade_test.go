@@ -85,6 +85,10 @@ func fakeConsole(dir string) console {
 			appendLine("activations", "vt")
 			return nil
 		},
+		showText: func(_ int, on bool) error {
+			appendLine("console-modes", strconv.FormatBool(on))
+			return nil
+		},
 		cards: &heldCards{
 			glob: filepath.Join(dir, "card[0-9]*"),
 			open: func(path string) (openCard, error) {
@@ -1065,4 +1069,31 @@ func TestStopSignalsCoverWhatSystemdSends(t *testing.T) {
 			t.Errorf("%v is no stop signal", want)
 		}
 	}
+}
+
+// The console stays off the screen from the first greeter on: past the greeter
+// a login ends, and past a session that ends. A stop gives the console back.
+func TestTheConsoleStaysHiddenBetweenCompositorsAndComesBackOnAStop(t *testing.T) {
+	d := startFakeDM(t)
+	d.awaitGreeter(1)
+	hidden := func(want int) {
+		t.Helper()
+		got := d.lines("console-modes")
+		if len(got) != want || slices.Contains(got, "true") {
+			t.Fatalf("console modes %v, want %d hidings and no text", got, want)
+		}
+	}
+	hidden(1)
+	worker, _ := d.login()
+	hidden(2)
+	d.endSession(worker)
+	d.awaitGreeter(2)
+	hidden(3)
+	if err := syscall.Kill(d.pid, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	d.await("the console back", func() bool {
+		got := d.lines("console-modes")
+		return len(got) == 4 && got[3] == "true"
+	})
 }

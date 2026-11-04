@@ -68,10 +68,24 @@ func Run(ctx context.Context, o Options) error {
 
 type console struct {
 	activate func(vt int) error
+	// showText gives the VT's console its cursor back (true), or clears it and
+	// hides the cursor (false).
+	showText func(vt int, on bool) error
 	cards    *heldCards
 }
 
-func systemConsole() console { return console{activate: activateVT, cards: newHeldCards()} }
+func systemConsole() console {
+	return console{activate: activateVT, showText: showVTText, cards: newHeldCards()}
+}
+
+// hideText leaves nothing on the kernel's console to see. The console shows
+// whenever no compositor holds the VT, and logind decides when that starts, so
+// its mode cannot be held: its contents can.
+func (c console) hideText(vt int) {
+	if err := c.showText(vt, false); err != nil {
+		log.Printf("dm: %v", err)
+	}
+}
 
 type listeners struct {
 	apply, cursor, splash, upgrade *net.UnixListener
@@ -134,6 +148,11 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 			log.Printf("dm: %v", err)
 		}
 	}()
+	defer func() {
+		if err := c.showText(o.VT, true); err != nil {
+			log.Printf("dm: %v", err)
+		}
+	}()
 	if r != nil {
 		r.finish(ctx, o, owner, warnings, u)
 	}
@@ -171,6 +190,7 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 		if err := c.activate(o.VT); err != nil {
 			log.Printf("dm: %v", err)
 		}
+		c.hideText(o.VT)
 		if err := c.cards.holdAll(); err != nil {
 			log.Printf("dm: %v", err)
 		}
@@ -186,6 +206,7 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 		case g.upgrade != nil:
 			g.upgrade.fail(g.upgrade.exec(nil))
 		default:
+			c.hideText(o.VT)
 			err := g.login.run(ctx, owner.set, warnings, u)
 			owner.clear()
 			if err != nil {
@@ -215,6 +236,30 @@ func activateVT(vt int) error {
 	}
 	if err := unix.IoctlSetInt(fd, vtWaitActive, vt); err != nil {
 		return fmt.Errorf("wait for VT %d: %w", vt, err)
+	}
+	return nil
+}
+
+// The console sequences: clear the screen and its scrollback, home, and hide
+// or show the cursor.
+const (
+	vtHideText = "\x1b[2J\x1b[3J\x1b[H\x1b[?25l"
+	vtShowText = "\x1b[?25h"
+)
+
+// showVTText writes the sequence to the VT's console.
+func showVTText(vt int, on bool) error {
+	tty, err := os.OpenFile(fmt.Sprintf("/dev/tty%d", vt), os.O_WRONLY|syscall.O_NOCTTY, 0) //nolint:gosec // the VT the daemon was told to run on
+	if err != nil {
+		return fmt.Errorf("open VT %d: %w", vt, err)
+	}
+	defer func() { _ = tty.Close() }()
+	sequence := vtHideText
+	if on {
+		sequence = vtShowText
+	}
+	if _, err := tty.WriteString(sequence); err != nil {
+		return fmt.Errorf("write to VT %d: %w", vt, err)
 	}
 	return nil
 }

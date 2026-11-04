@@ -121,6 +121,8 @@ in
     };
 
     testScript = ''
+      import os
+      import re
       import shlex
       import time
 
@@ -209,10 +211,35 @@ in
           if locked_hint(sid) != "no":
               raise Exception("logind still has the session locked after the unlock")
 
+      def console_shown_while(done, what):
+          """Dumps the screen until done() holds and fails on a frame with the
+          kernel's console on it: a lot of its text colour, which neither the
+          greeter nor lys-wm draws."""
+          path = os.path.join(machine.out_dir, "console-probe.ppm")
+          end = time.monotonic() + 60
+          while not done():
+              if time.monotonic() >= end:
+                  raise Exception(f"{what} did not finish")
+              machine.send_monitor_command(f"screendump {path}")
+              with open(path, "rb") as f:
+                  data = f.read()
+              header = re.match(rb"P6\s+\d+\s+\d+\s+\d+\s", data)
+              assert header is not None
+              body = data[header.end():]
+              text = sum(1 for at in range(0, len(body) - 3, 21) if body[at:at + 3] == b"\xaa\xaa\xaa")
+              if text > 1000:
+                  machine.screenshot("console-shown")
+                  raise Exception(f"the kernel's console shows during {what}: {text} sampled pixels of its text")
+          os.remove(path)
+
+      def session_env_written():
+          return machine.execute("test -s /tmp/lys-login/session-env")[0] == 0
+
       def login(field, occurrence, typed, build):
           await_ready(machine, field, occurrence)
           machine.succeed("rm -f /tmp/lys-login/session-env")
           machine.send_chars(typed + "\n")
+          console_shown_while(session_env_written, "the login")
           machine.wait_until_succeeds("test -s /tmp/lys-login/session-env", timeout=60)
           session_worker = worker()
           runs(session_worker, build, "the session's worker")
@@ -223,6 +250,7 @@ in
       def logout(sid, compositor, session_worker):
           machine.succeed("touch /tmp/lys-login/end-session")
           machine.succeed(f"kill -TERM {compositor}")
+          console_shown_while(lambda: machine.execute("pgrep -u lys-greeter -f 'lys-login greet'")[0] == 0, "the logout")
           machine.wait_until_succeeds(f"! test -e /proc/{session_worker}", timeout=30)
           machine.wait_until_succeeds(f"! loginctl show-session {sid}", timeout=30)
           machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=60)
