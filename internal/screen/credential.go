@@ -5,9 +5,9 @@
 // greeter's user list, username entry, session picker and power buttons.
 //
 // The credential prompt at its center (wayle-widgets' credential_box.rs)
-// holds the clock, the date, an optional username entry, the secret
-// entry, the caps lock warning and the error line in the centered
-// .lock-center card.
+// floats the clock and the date over the background, above the centered
+// .lock-center glass card with an optional username entry, the secret
+// entry, the caps lock warning and the error line.
 package screen
 
 import (
@@ -38,7 +38,7 @@ type Options struct {
 	// WithUsername adds a visible username entry above the secret one
 	// (the greeter; the lock screen authenticates the session user).
 	WithUsername bool
-	// Header goes between the date and the entries (the greeter's user
+	// Header goes above the entries in the card (the greeter's user
 	// list); Extra between the caps lock warning and the error line (the
 	// greeter's session picker). Either may be nil.
 	Header, Extra widget.Widget
@@ -92,13 +92,11 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	p.Error.SetVisible(false)
 
 	th := widget.Current()
-	center := widget.NewBox(widget.Column, th.Spacing, 4*th.Padding)
-	center.AddClass(css.Card, "lock-center")
-	center.SetHAlign(widget.AlignCenter)
-	center.SetVAlign(widget.AlignCenter)
-	center.Append(p.Clock, false).Append(p.Date, false)
+	card := widget.NewBox(widget.Column, th.Spacing, 2*th.Padding)
+	card.AddClass(css.LiquidGlass, "lock-center")
+	card.SetHAlign(widget.AlignCenter)
 	if o.Header != nil {
-		center.Append(o.Header, false)
+		card.Append(o.Header, false)
 	}
 	if o.WithUsername {
 		p.Username = widget.NewEntry(o.Font, textPx, 0)
@@ -110,15 +108,24 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 				o.Focus(p.Entry)
 			}
 		}
-		center.Append(p.Username, false)
+		card.Append(p.Username, false)
 	}
-	center.Append(p.Entry, false).Append(p.Caps, false)
+	card.Append(p.Entry, false).Append(p.Caps, false)
 	if o.Extra != nil {
-		center.Append(o.Extra, false)
+		card.Append(o.Extra, false)
 	}
-	center.Append(p.Error, false)
+	card.Append(p.Error, false)
 
-	p.Reveal = widget.NewRevealer(center)
+	clock := widget.NewBox(widget.Column, 0, 0)
+	clock.AddClass("lock-time")
+	clock.Append(p.Clock, false).Append(p.Date, false)
+	stack := widget.NewBox(widget.Column, 3*th.Spacing, 0)
+	stack.AddClass("lock-stack")
+	stack.SetHAlign(widget.AlignCenter)
+	stack.SetVAlign(widget.AlignCenter)
+	stack.Append(clock, false).AppendAligned(card, false, widget.AlignCenter)
+
+	p.Reveal = widget.NewRevealer(stack)
 	p.Reveal.SetHAlign(widget.AlignCenter)
 	p.Reveal.SetVAlign(widget.AlignCenter)
 	return p

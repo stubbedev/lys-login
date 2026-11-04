@@ -12,6 +12,7 @@ import (
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/i18n"
 	"github.com/stubbedev/lys-shell/imagedecode"
+	"github.com/stubbedev/lys-shell/shell/reveal"
 	"github.com/stubbedev/lys-shell/shell/widgets"
 	"github.com/stubbedev/lys-shell/styling"
 	"github.com/stubbedev/lys-ui/widget"
@@ -27,10 +28,6 @@ func t(id string, args ...i18n.Arg) string { return i18n.Greeter().Get(id, args.
 
 // CustomSessionName labels the explicit `-- <argv>` session.
 func CustomSessionName() string { return t("greeter-custom-session") }
-
-// revealFade is the credential card's reveal, fixed in the greeter
-// (CredentialOpts: Fade, 300ms) rather than [animations].
-const revealFade = 300 * time.Millisecond
 
 const handOverWait = 2 * time.Second
 
@@ -105,6 +102,7 @@ type screen struct {
 	drop   *widget.Dropdown
 	power  *widget.Box
 	users  []*userButton
+	picked *userButton
 
 	// bg is the background at the outputs' size, freed when the
 	// greeter ends; nil draws the color. Its pixels live in mem.
@@ -179,8 +177,7 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 	})
 	s.prompt, s.root = surface.Prompt, surface.Root
 	s.prompt.Username.SetPlaceholder(t("greeter-username"))
-	s.prompt.Reveal.SetTransition(widget.RevealFade)
-	s.prompt.Reveal.SetDuration(revealFade)
+	s.prompt.Username.SetVisible(s.picked == nil)
 	s.refreshClock()
 	return s
 }
@@ -188,7 +185,7 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 // start pre-fills the remembered user and focuses the next field:
 // the password when the username is known, the username otherwise.
 func (s *screen) start() {
-	s.prompt.Reveal.SetRevealed(true)
+	s.showPrompt()
 	if s.init.LastUser != "" {
 		s.prompt.Username.SetText(s.init.LastUser)
 		s.d.focus(s.prompt.Entry)
@@ -269,6 +266,7 @@ func (s *screen) populateUsers(row *widget.Box, font render.Font) {
 		ub.button.AddClass("lock-user-button", css.Ghost)
 		if u.Name == s.init.LastUser {
 			ub.button.AddClass("selected")
+			s.picked = ub
 		}
 		ub.button.OnClick = func() { s.pickUser(ub) }
 		s.users = append(s.users, ub)
@@ -277,11 +275,20 @@ func (s *screen) populateUsers(row *widget.Box, font render.Font) {
 }
 
 func (s *screen) pickUser(picked *userButton) {
-	for _, ub := range s.users {
-		ub.button.RemoveClass("selected")
+	if s.picked != nil {
+		s.picked.button.RemoveClass("selected")
 	}
+	if picked == s.picked {
+		s.picked = nil
+		s.prompt.Username.SetText("")
+		s.prompt.Username.SetVisible(true)
+		s.d.focus(s.prompt.Username)
+		return
+	}
+	s.picked = picked
 	picked.button.AddClass("selected")
 	s.prompt.Username.SetText(picked.user.Name)
+	s.prompt.Username.SetVisible(false)
 	s.d.focus(s.prompt.Entry)
 }
 
@@ -304,7 +311,7 @@ func (s *screen) powerRow() *widget.Box {
 	th := widget.Current()
 	row := widget.NewBox(widget.Row, th.Spacing, 0)
 	row.SetMargin(render.Insets{Bottom: 4 * th.Padding})
-	row.AddClass("lock-power")
+	row.AddClass(css.LiquidGlass, "lock-power")
 	row.SetHAlign(widget.AlignCenter)
 	row.SetVAlign(widget.AlignEnd)
 	for _, b := range []struct {
@@ -492,17 +499,7 @@ func (s *screen) leave(done func()) {
 			done()
 		}
 	}
-	if !s.prompt.Reveal.Revealed() {
-		present()
-		return
-	}
-	s.prompt.Reveal.SetOnTransitionDone(func(revealed bool) {
-		if !revealed {
-			s.prompt.Reveal.SetOnTransitionDone(nil)
-			present()
-		}
-	})
-	s.prompt.Reveal.SetRevealed(false)
+	reveal.Hide(s.prompt.Reveal, s.init.Config.Animations, config.AnimLock, present)
 }
 
 func (s *screen) show() {
@@ -510,5 +507,9 @@ func (s *screen) show() {
 	if s.power != nil {
 		s.power.SetVisible(true)
 	}
-	s.prompt.Reveal.SetRevealed(true)
+	s.showPrompt()
+}
+
+func (s *screen) showPrompt() {
+	reveal.Show(s.prompt.Reveal, s.init.Config.Animations, config.AnimLock)
 }

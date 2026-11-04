@@ -135,8 +135,8 @@ func prompt(kind auth.PromptKind, text string) auth.Event {
 func TestGreeterStartsRevealedAndFocused(t *testing.T) {
 	r := newRig(t, nil)
 	r.s.start()
-	if !r.s.prompt.Reveal.Revealed() || r.s.prompt.Reveal.Transition() != widget.RevealFade {
-		t.Error("the card does not fade in")
+	if !r.s.prompt.Reveal.Revealed() {
+		t.Error("the card does not reveal")
 	}
 	if r.focused != r.s.prompt.Username {
 		t.Error("with nobody remembered the username takes focus")
@@ -462,15 +462,14 @@ func TestGreeterLeavesOnlyItsBackgroundBeforeTheSessionStarts(t *testing.T) {
 }
 
 func TestGreeterHandOverWaitsForThePresentedFrameOrTheTimeout(t *testing.T) {
-	r := newRig(t, nil)
+	noAnimations := func(i *Init) { i.Config.Animations.Enabled = false }
+	r := newRig(t, noAnimations)
 	r.s.start()
-	r.s.prompt.Reveal.SetDuration(0)
 	r.s.d.whenPresented = func(fn func()) error { fn(); return nil }
 	r.s.handOver()
 
-	r = newRig(t, nil)
+	r = newRig(t, noAnimations)
 	r.s.start()
-	r.s.prompt.Reveal.SetDuration(0)
 	close(r.timeout)
 	r.s.handOver()
 	if len(r.presented) != 1 {
@@ -556,5 +555,59 @@ func TestGreeterInfoPromptDoesNotOutliveTheRefusal(t *testing.T) {
 	c.emit(auth.Event{Kind: auth.EventFailure, Refusal: auth.RefusalCredentials})
 	if got, want := r.s.prompt.Error.Text(), loginscreen.RefusalText(auth.RefusalCredentials); got != want {
 		t.Errorf("message = %q, want %q", got, want)
+	}
+}
+
+func TestGreeterRevealsByTheConfiguredAnimation(t *testing.T) {
+	zoom := config.AnimationZoom
+	r := newRig(t, func(i *Init) { i.Config.Animations.Lock.Enter = &zoom })
+	r.s.start()
+	if got := r.s.prompt.Reveal.Transition(); got != widget.RevealZoom {
+		t.Errorf("the card reveals by %v, want the configured zoom", got)
+	}
+	r = newRig(t, func(i *Init) {
+		i.Config.Animations.Lock.Enter = &zoom
+		i.Config.Animations.Enabled = false
+	})
+	r.s.start()
+	if got := r.s.prompt.Reveal.Transition(); got != widget.RevealNone {
+		t.Errorf("with animations off the card reveals by %v", got)
+	}
+}
+
+func TestGreeterUsernameEntryOnlyWithoutAListedUser(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.start()
+	if !r.s.prompt.Username.Visible() {
+		t.Fatal("with nobody picked the entry takes the name")
+	}
+	r.s.users[0].button.OnClick()
+	if r.s.prompt.Username.Visible() || r.s.prompt.Username.Text() != "ada" || r.focused != r.s.prompt.Entry {
+		t.Error("a picked user takes the entry's place and fills it")
+	}
+	r.s.users[1].button.OnClick()
+	if r.s.prompt.Username.Visible() || r.s.prompt.Username.Text() != "bob" || slices.Contains(r.s.users[0].button.Classes(), "selected") {
+		t.Error("picking another user moves the pick")
+	}
+	r.s.users[1].button.OnClick()
+	if !r.s.prompt.Username.Visible() || r.s.prompt.Username.Text() != "" || r.focused != r.s.prompt.Username || slices.Contains(r.s.users[1].button.Classes(), "selected") {
+		t.Error("picking the user again clears the pick and hands the name back to the entry")
+	}
+	r.s.submit("hunter2")
+	if len(r.convs) != 0 {
+		t.Error("cleared, a login started without a name")
+	}
+
+	if r := newRig(t, func(i *Init) { i.LastUser = "ada" }); r.s.prompt.Username.Visible() {
+		t.Error("a remembered listed user still shows the entry")
+	}
+	r = newRig(t, func(i *Init) { i.LastUser = "carol" })
+	r.s.start()
+	if !r.s.prompt.Username.Visible() || r.s.prompt.Username.Text() != "carol" {
+		t.Error("a remembered user the list leaves out must stay in the entry")
+	}
+	r = newRig(t, func(i *Init) { i.LastUser = "ada"; i.Config.Login.Greeter.ShowUserList = false })
+	if !r.s.prompt.Username.Visible() {
+		t.Error("without the list the entry is the only way to name a user")
 	}
 }
