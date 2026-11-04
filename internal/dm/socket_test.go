@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stubbedev/lys-lib/sockdir"
 
@@ -243,5 +244,47 @@ func TestQuitSplashWithoutSplash(t *testing.T) {
 	}
 	if err := quitSplash(failing)(); err == nil || !strings.Contains(err.Error(), "no daemon") {
 		t.Errorf("a failing lys-splash: %v, want its output", err)
+	}
+}
+
+// serveOnce answers one connection with answer and closes, reading nothing.
+func serveOnce(t *testing.T, s Socket[string], dir, answer string) {
+	t.Helper()
+	l, err := net.Listen("unix", s.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		_, _ = conn.Write([]byte(answer))
+		_ = conn.Close()
+	}()
+}
+
+// A request too large for the socket's buffer is still being written when
+// the daemon answers and closes, as it does refusing by who asks: the answer
+// is what the caller hears, not the broken pipe.
+func TestARefusalBeforeTheRequestIsReadStillReachesTheCaller(t *testing.T) {
+	s := Socket[string]{name: "refuse.sock", exchange: 5 * time.Second}
+	dir := sockdir.Dir(t)
+	serveOnce(t, s, dir, `{"error":"only root may"}`)
+	_, err := s.Send(dir, strings.Repeat("x", 1<<22))
+	if err == nil || !strings.Contains(err.Error(), "only root may") {
+		t.Fatalf("Send = %v, want the refusal", err)
+	}
+}
+
+// With no answer at all, the failed send is the error.
+func TestAFailedSendWithoutAnAnswerSaysSo(t *testing.T) {
+	s := Socket[string]{name: "silent.sock", exchange: 5 * time.Second}
+	dir := sockdir.Dir(t)
+	serveOnce(t, s, dir, "")
+	_, err := s.Send(dir, strings.Repeat("x", 1<<22))
+	if err == nil || !strings.Contains(err.Error(), "send to") {
+		t.Fatalf("Send = %v, want the failed send", err)
 	}
 }

@@ -175,14 +175,17 @@ func (s Socket[T]) Send(runtimeDir string, req T) (string, error) {
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(s.exchange))
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return "", fmt.Errorf("send to %s: %w", path, err)
-	}
-	if err := conn.CloseWrite(); err != nil {
-		return "", fmt.Errorf("send to %s: %w", path, err)
+	// A daemon that refuses by who is asking answers without reading the request,
+	// so a failed send can still leave its answer to read.
+	sent := json.NewEncoder(conn).Encode(req)
+	if sent == nil {
+		sent = conn.CloseWrite()
 	}
 	var r reply
 	if err := json.NewDecoder(io.LimitReader(conn, maxReply)).Decode(&r); err != nil {
+		if sent != nil {
+			return "", fmt.Errorf("send to %s: %w", path, sent)
+		}
 		return "", fmt.Errorf("read the display manager's answer on %s: %w", path, err)
 	}
 	if r.Error != "" {
