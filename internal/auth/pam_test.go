@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakePAM is a scripted libpam: authenticate runs the conversation
@@ -130,7 +131,7 @@ func answering(answer string, seen *[]Prompt) Ask {
 }
 
 func newTestPAM(f *fakePAM, unlocked *[]string) *PAM {
-	return &PAM{Service: "lys-shell", lib: f, onVerified: []func([]byte){func(pw []byte) { *unlocked = append(*unlocked, string(pw)) }}}
+	return &PAM{Service: "lys-shell", lib: f, verified: &Verified{hooks: []func([]byte){func(pw []byte) { *unlocked = append(*unlocked, string(pw)) }}}}
 }
 
 // TestPAMConversationHandling pins the conversation: an echo-off
@@ -204,9 +205,10 @@ func TestPAMVerifiedHooksRunOnceEachOnlyOnSuccess(t *testing.T) {
 			return func(pw []byte) { got = append(got, name+":"+string(pw)) }
 		}
 		f := &fakePAM{password: "right", batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password: "}}}}
-		p := &PAM{Service: "lys-shell", lib: f, onVerified: []func([]byte){hook("first"), hook("second")}}
+		p := &PAM{Service: "lys-shell", lib: f, verified: &Verified{hooks: []func([]byte){hook("first"), hook("second")}}}
 		var seen []Prompt
 		_ = p.Run("alice", answering(tc.answer, &seen))
+		p.verified.Wait()
 		if !slices.Equal(got, tc.want) {
 			t.Errorf("answer %q: hooks saw %q, want %q", tc.answer, got, tc.want)
 		}
@@ -214,9 +216,9 @@ func TestPAMVerifiedHooksRunOnceEachOnlyOnSuccess(t *testing.T) {
 }
 
 func TestNewPAMRunsHooksBeforeTheKeyring(t *testing.T) {
-	p := NewPAM("lys-shell", func([]byte) {})
-	if len(p.onVerified) != 2 || reflect.ValueOf(p.onVerified[1]).Pointer() != reflect.ValueOf(UnlockLoginKeyring).Pointer() {
-		t.Errorf("NewPAM hooks = %d, want the extra hook then the keyring unlock", len(p.onVerified))
+	p := NewPAM("lys-shell", NewVerified(func([]byte) {}))
+	if hooks := p.verified.hooks; len(hooks) != 2 || reflect.ValueOf(hooks[1]).Pointer() != reflect.ValueOf(UnlockLoginKeyring).Pointer() {
+		t.Errorf("NewPAM hooks = %d, want the extra hook then the keyring unlock", len(hooks))
 	}
 }
 
@@ -359,5 +361,47 @@ func TestRealPAMConversationCallback(t *testing.T) {
 	})
 	if cancelled == nil || len(seen) != 1 {
 		t.Fatalf("cancelled prompt: err %v prompts %+v", cancelled, seen)
+	}
+}
+
+func TestSuccessDoesNotWaitForTheKeyring(t *testing.T) {
+	entered, release := make(chan []byte, 1), make(chan struct{})
+	f := &fakePAM{password: "right", batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password: "}}}}
+	v := &Verified{hooks: []func([]byte){func(pw []byte) {
+		entered <- pw
+		<-release
+	}}}
+	p := &PAM{Service: "lys-shell", lib: f, verified: v}
+	events := make(chan Event, 4)
+	handle := make(chan *Handle, 1)
+	handle <- Spawn(p, "alice", func(ev Event) {
+		if ev.Kind == EventPrompt && ev.Prompt.WantsInput() {
+			h := <-handle
+			h.Answer("right")
+			return
+		}
+		events <- ev
+	})
+	var borrowed []byte
+	select {
+	case borrowed = <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the hook never ran")
+	}
+	if got := string(borrowed); got != "right" {
+		t.Errorf("the hook saw %q", got)
+	}
+	select {
+	case ev := <-events:
+		if ev.Kind != EventSuccess {
+			t.Errorf("event %v, want success while the keyring works", ev.Kind)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no EventSuccess while the keyring is blocked")
+	}
+	close(release)
+	v.Wait()
+	if slices.ContainsFunc(borrowed, func(b byte) bool { return b != 0 }) {
+		t.Errorf("the secret is left in memory after the keyring: %q", borrowed)
 	}
 }

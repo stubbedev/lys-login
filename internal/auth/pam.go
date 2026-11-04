@@ -1,11 +1,13 @@
 package auth
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
 	"runtime"
 	"slices"
+	"sync"
 )
 
 // PAM return codes the backend uses (security/_pam_types.h).
@@ -71,19 +73,46 @@ const (
 // password is never logged.
 type PAM struct {
 	// Service is the PAM service name (/etc/pam.d/<service>).
-	Service string
-	lib     pamLib
-	// onVerified receive the verified password in turn, each borrowing
-	// it until it returns; a field so tests observe them without a
-	// daemon.
-	onVerified []func(password []byte)
+	Service  string
+	lib      pamLib
+	verified *Verified
 }
 
-// NewPAM returns the backend for service over the system libpam. The
-// verified password goes to each of verified in turn, then unlocks the
-// session keyring; each borrows it only until it returns.
-func NewPAM(service string, verified ...func(password []byte)) *PAM {
-	return &PAM{Service: service, lib: systemPAM{}, onVerified: append(slices.Clip(verified), UnlockLoginKeyring)}
+// Verified is what follows a verified password: the keyring, the vault. It runs
+// behind the success rather than before it, since a keyring deriving its key must
+// not keep the screen locked, and whoever ends the process waits for it, or the
+// keyring would never hear of the password.
+type Verified struct {
+	hooks []func(password []byte)
+	wg    sync.WaitGroup
+}
+
+// NewVerified is what follows a verified password: each of hooks in turn, then
+// unlocking the session keyring. Each borrows the password until it returns.
+func NewVerified(hooks ...func(password []byte)) *Verified {
+	return &Verified{hooks: append(slices.Clip(hooks), UnlockLoginKeyring)}
+}
+
+// start runs the hooks on their own copy of the password, zeroed after them.
+func (v *Verified) start(password []byte) {
+	own := bytes.Clone(password)
+	v.wg.Go(func() {
+		defer clear(own)
+		for _, fn := range v.hooks {
+			fn(own)
+		}
+	})
+}
+
+// Wait returns once every verified password has been dealt with.
+func (v *Verified) Wait() {
+	v.wg.Wait()
+}
+
+// NewPAM returns the backend for service over the system libpam, whose verified
+// passwords go to verified.
+func NewPAM(service string, verified *Verified) *PAM {
+	return &PAM{Service: service, lib: systemPAM{}, verified: verified}
 }
 
 // Run implements Conversation. The transaction opens for username (the
@@ -91,8 +120,9 @@ func NewPAM(service string, verified ...func(password []byte)) *PAM {
 // (pam_authenticate + pam_acct_mgmt), and always ends with pam_end
 // carrying the last call's status, as nonstick's transaction does; it
 // sets no credentials, an unlock needs none. On success the last secret
-// answered unlocks the session keyring's login collection (lys-secrets,
-// else gnome-keyring), best effort.
+// answered goes to Verified, which does not hold up the result: it unlocks the
+// session keyring's login collection (lys-secrets, else gnome-keyring), best
+// effort, and reports its own failures.
 func (p *PAM) Run(username string, ask Ask) error {
 	if username == "" {
 		username = CurrentUsername()
@@ -115,9 +145,7 @@ func (p *PAM) Run(username string, ask Ask) error {
 		log.Printf("auth: PAM %s: %v", p.Service, err)
 	}
 	if secret != nil {
-		for _, fn := range p.onVerified {
-			fn(secret)
-		}
+		p.verified.start(secret)
 	}
 	return nil
 }

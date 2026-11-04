@@ -40,6 +40,8 @@ var (
 func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 	vu := newVaultUnlock(cfg.Bitwarden.UnlockWithSession, vaultHelper)
 	defer vu.wait()
+	verified := auth.NewVerified(vu.start)
+	defer verified.Wait()
 	release, err := holdSession(xdg.OS)
 	if err != nil {
 		return err
@@ -67,7 +69,7 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 			return func() { t.Stop() }
 		},
 		Auth: func(service string, onEvent func(auth.Event)) authHandle {
-			return auth.Spawn(auth.NewPAM(service, vu.start), auth.CurrentUsername(), onEvent)
+			return auth.Spawn(auth.NewPAM(service, verified), auth.CurrentUsername(), onEvent)
 		},
 		Decode:   imagedecode.OpenOffHeap,
 		Outputs:  func() []image.Point { return outputsize.Devices(sess.Outputs()) },
