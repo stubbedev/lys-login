@@ -1,6 +1,8 @@
 package lock
 
 import (
+	"fmt"
+	"os"
 	"runtime"
 	"slices"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-shell/config"
+	"golang.org/x/sys/unix"
 )
 
 func goroutineID() uint64 {
@@ -31,7 +34,7 @@ func TestABlockedLogindHoldsNeitherTheLockNorTheRelease(t *testing.T) {
 	var mu sync.Mutex
 	var sent []bool
 	entered, release := make(chan struct{}, 8), make(chan struct{})
-	w := newHintWorker(func(locked bool) {
+	w := newLatest("logind", func(locked bool) {
 		if goroutineID() == loop {
 			onLoop.Add(1)
 		}
@@ -68,7 +71,7 @@ func TestHintsCollapseToTheLatestAndDrainDelivers(t *testing.T) {
 	var mu sync.Mutex
 	var sent []bool
 	entered, release := make(chan struct{}, 8), make(chan struct{})
-	w := newHintWorker(func(locked bool) {
+	w := newLatest("logind", func(locked bool) {
 		mu.Lock()
 		sent = append(sent, locked)
 		mu.Unlock()
@@ -93,9 +96,60 @@ func TestHintsCollapseToTheLatestAndDrainDelivers(t *testing.T) {
 func TestADrainGivesUpOnALogindThatNeverAnswers(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
-	w := newHintWorker(func(bool) { <-release })
+	w := newLatest("logind", func(bool) { <-release })
 	w.set(true)
 	timeout := make(chan time.Time)
 	close(timeout)
 	w.drain(timeout)
+}
+
+func TestAStdoutNobodyReadsLeavesTheLoopTicking(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if _, err := unix.FcntlInt(w.Fd(), unix.F_SETPIPE_SZ, 4096); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(make([]byte, 4096)); err != nil {
+		t.Fatal(err)
+	}
+	loop := goroutineID()
+	var onLoop atomic.Int32
+	writing := make(chan struct{}, 1)
+	line := newLatest("the locked line's reader", func(struct{}) {
+		if goroutineID() == loop {
+			onLoop.Add(1)
+		}
+		select {
+		case writing <- struct{}{}:
+		default:
+		}
+		_, _ = fmt.Fprintln(w, "locked")
+	})
+	h := newHarness(t, func(l *config.LoginConfig) { l.Lock.BlankTimeoutMS = 30000 })
+	h.s.d.OnLocked = line.set
+	h.lock(t)
+	select {
+	case <-writing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the locked line was never written")
+	}
+	ticks := 0
+	for range 100 {
+		h.s.Activity()
+		ticks++
+	}
+	h.locker.cfg.OnLocked()
+	if ticks != 100 {
+		t.Errorf("%d loop passes while stdout was full, want 100", ticks)
+	}
+	if got := onLoop.Load(); got != 0 {
+		t.Errorf("%d writes to stdout on the loop's goroutine", got)
+	}
+	timeout := make(chan time.Time)
+	close(timeout)
+	line.drain(timeout)
 }

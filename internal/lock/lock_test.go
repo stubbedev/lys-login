@@ -172,7 +172,7 @@ func newHarness(t *testing.T, edit func(*config.LoginConfig)) *harness {
 		},
 		Outputs:  func() []image.Point { return []image.Point{{1920, 1080}, {1080, 1920}} },
 		Forget:   func(id render.ImageID) { h.forgotten = append(h.forgotten, id) },
-		OnLocked: func() { h.locked++ },
+		OnLocked: func(struct{}) { h.locked++ },
 	})
 	return h
 }

@@ -83,10 +83,9 @@ type Deps struct {
 	// Forget drops the renderer's copy of a raster that is no longer
 	// drawn, before its pixels are freed.
 	Forget func(render.ImageID)
-	// OnLocked runs on the loop each time the compositor confirms a
-	// lock, for what locks with the session (the vault); nil for
-	// nothing.
-	OnLocked func()
+	// OnLocked tells whoever waits that the compositor confirmed a lock; it is
+	// called on the loop, so it must not wait. nil for nothing.
+	OnLocked func(struct{})
 	// OnCapsLock calls fn with Caps Lock's state on registering and on
 	// each change, on the loop, until the stop it returns; nil for no warning.
 	OnCapsLock func(fn func(on bool)) (stop func())
@@ -292,7 +291,7 @@ func (s *Screen) onLocked() {
 	s.confirmed = true
 	s.setLockedHint(true)
 	if s.d.OnLocked != nil {
-		s.d.OnLocked()
+		s.d.OnLocked(struct{}{})
 	}
 	log.Printf("lock: session locked (%d monitors)", len(s.faces))
 }

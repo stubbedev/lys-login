@@ -69,6 +69,12 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 			log.Printf("lock: close the clock: %v", err)
 		}
 	}()
+	lockedLine := newLatest("the locked line's reader", func(struct{}) {
+		if _, err := fmt.Fprintln(stdout, lockclient.LockedLine); err != nil {
+			log.Printf("lock: tell the shell the session is locked: %v", err)
+		}
+	})
+	defer func() { lockedLine.drain(time.After(drainWait)) }()
 	ld := logind.SystemClient("lock")
 	deps := Deps{
 		Locker: appLocker{a: a},
@@ -86,19 +92,19 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		Decode:   imagedecode.OpenOffHeap,
 		Outputs:  func() []image.Point { return outputsize.Devices(sess.Outputs()) },
 		Forget:   a.ForgetImage,
-		OnLocked: func() { _, _ = fmt.Fprintln(stdout, lockclient.LockedLine) },
+		OnLocked: lockedLine.set,
 		OnEnded:  a.Quit,
 		OnCapsLock: func(fn func(on bool)) func() {
 			return a.OnLocks(func(l app.Locks) { fn(l.Caps) })
 		},
 	}
 	if ld != nil {
-		hints := newHintWorker(func(locked bool) {
+		hints := newLatest("logind", func(locked bool) {
 			if err := ld.SetLockedHint(locked); err != nil {
 				log.Printf("lock: SetLockedHint failed (non-fatal): %v", err)
 			}
 		})
-		defer func() { hints.drain(time.After(hintDrainWait)) }()
+		defer func() { hints.drain(time.After(drainWait)) }()
 		deps.SetLockedHint = hints.set
 	}
 	s := New(cfg, app.FontFallback(base), apptheme.New(cfg).Sheet, deps)
