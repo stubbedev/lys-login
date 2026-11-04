@@ -7,8 +7,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,7 +57,9 @@ type rig struct {
 	focused    widget.Widget
 	keyboard   bool
 	quit       int
+	powerMu    sync.Mutex
 	power      []string
+	onPower    func(verb string)
 	// background is what the background image decodes to; nil fails
 	// the decode.
 	background image.Image
@@ -116,8 +122,15 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			r.scheduled = append(r.scheduled, scheduled{d, fn})
 			return func() {}
 		},
-		now:   func() time.Time { return time.Date(2026, 3, 5, 9, 7, 0, 0, time.UTC) },
-		power: func(verb string) { r.power = append(r.power, verb) },
+		now: func() time.Time { return time.Date(2026, 3, 5, 9, 7, 0, 0, time.UTC) },
+		power: func(verb string) {
+			if r.onPower != nil {
+				r.onPower(verb)
+			}
+			r.powerMu.Lock()
+			defer r.powerMu.Unlock()
+			r.power = append(r.power, verb)
+		},
 		loadImage: func(*memory.Shared, string) (imagedecode.Decoded, error) {
 			if r.background == nil {
 				return imagedecode.Decoded{}, errors.New("none")
@@ -129,6 +142,25 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 		loadAvatar: func(string) (image.Image, error) { return nil, errors.New("none") },
 	})
 	return r
+}
+
+// powerVerbs waits for n power actions to have run and returns them sorted: each
+// runs on its own goroutine.
+func (r *rig) powerVerbs(t *testing.T, n int) []string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		r.powerMu.Lock()
+		got := slices.Sorted(slices.Values(r.power))
+		r.powerMu.Unlock()
+		if len(got) >= n {
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d power actions ran in 5s, want %d", len(got), n)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func (r *rig) conv(t *testing.T) *fakeHandle {
@@ -400,8 +432,8 @@ func TestGreeterUserRowAndPower(t *testing.T) {
 	for _, b := range buttons {
 		b.OnClick()
 	}
-	if !slices.Equal(r.power, []string{"poweroff", "reboot"}) {
-		t.Errorf("power verbs = %v", r.power)
+	if got := r.powerVerbs(t, 2); !slices.Equal(got, []string{"poweroff", "reboot"}) {
+		t.Errorf("power verbs = %v", got)
 	}
 	for _, b := range buttons {
 		if !slices.Contains(b.Classes(), css.Ghost) || !slices.Contains(b.Classes(), css.Icon) || slices.Contains(b.Classes(), "flat") {
@@ -684,5 +716,53 @@ func TestTheGreeterClockWakesOncePerMinute(t *testing.T) {
 	r.scheduled[0].fn()
 	if len(r.scheduled) != 2 {
 		t.Errorf("%d wakes armed after one fired, want the next one", len(r.scheduled))
+	}
+}
+
+func goroutineID() uint64 {
+	buf := make([]byte, 64)
+	n := runtime.Stack(buf, false)
+	id, _, _ := strings.Cut(strings.TrimPrefix(string(buf[:n]), "goroutine "), " ")
+	v, err := strconv.ParseUint(id, 10, 64)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
+	r := newRig(t, nil)
+	loop := goroutineID()
+	var onLoop atomic.Int32
+	entered, release := make(chan struct{}, 2), make(chan struct{})
+	r.onPower = func(string) {
+		if goroutineID() == loop {
+			onLoop.Add(1)
+		}
+		entered <- struct{}{}
+		<-release
+	}
+	buttons := treetest.WithClass(r.s.power, "lock-power-button")
+	if len(buttons) != 2 {
+		t.Fatalf("%d power buttons", len(buttons))
+	}
+	for _, b := range buttons {
+		btn, ok := b.(*widget.Button)
+		if !ok {
+			t.Fatalf("a power button is a %T", b)
+		}
+		btn.OnClick()
+	}
+	for range buttons {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a power action never started while the click returned")
+		}
+	}
+	close(release)
+	r.powerVerbs(t, 2)
+	if got := onLoop.Load(); got != 0 {
+		t.Errorf("%d power actions on the loop's goroutine", got)
 	}
 }

@@ -77,7 +77,8 @@ type deps struct {
 	// schedule runs fn on the loop after d, once; cancel stops it.
 	schedule func(d time.Duration, fn func()) (cancel func())
 	now      func() time.Time
-	power    func(verb string)
+	// power runs a power action to its end, off the loop.
+	power func(verb string)
 	// loadImage decodes the background (no blur in the greeter), its
 	// pixels in mem where it can.
 	loadImage func(mem *memory.Shared, path string) (imagedecode.Decoded, error)
@@ -333,7 +334,7 @@ func (s *screen) powerRow() *widget.Box {
 		btn.AddClass("lock-power-button", css.Ghost, css.Icon, css.Large)
 		btn.SetTooltip(b.tooltip)
 		verb := b.verb
-		btn.OnClick = func() { s.d.power(verb) }
+		btn.OnClick = func() { go s.d.power(verb) }
 		row.Append(btn, false)
 	}
 	return row
