@@ -74,8 +74,10 @@ type deps struct {
 	quit          func()
 	whenPresented func(fn func()) error
 	after         func(d time.Duration) <-chan time.Time
-	now           func() time.Time
-	power         func(verb string)
+	// schedule runs fn on the loop after d, once; cancel stops it.
+	schedule func(d time.Duration, fn func()) (cancel func())
+	now      func() time.Time
+	power    func(verb string)
 	// loadImage decodes the background (no blur in the greeter), its
 	// pixels in mem where it can.
 	loadImage func(mem *memory.Shared, path string) (imagedecode.Decoded, error)
@@ -123,6 +125,8 @@ type screen struct {
 
 	presented bool
 	announced bool
+
+	clock *loginscreen.ClockTicker
 }
 
 // userButton is one avatar in the user list.
@@ -179,6 +183,11 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 	s.prompt, s.root = surface.Prompt, surface.Root
 	s.prompt.Username.SetPlaceholder(t("greeter-username"))
 	s.prompt.Username.SetVisible(s.picked == nil)
+	var shown []func(time.Time) string
+	if g.ShowClock {
+		shown = append(shown, g.ClockFormat.Layout().Format, g.DateFormat.Layout().Format)
+	}
+	s.clock = loginscreen.NewClockTicker(d.now, d.schedule, s.refreshClock, shown...)
 	s.refreshClock()
 	return s
 }

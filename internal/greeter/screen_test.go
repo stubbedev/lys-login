@@ -37,7 +37,13 @@ func (h *fakeHandle) Answer(s string) { h.answers = append(h.answers, s) }
 func (h *fakeHandle) Cancel()         { h.cancelled = true }
 
 // rig is a screen over fakes: no greetd, no compositor.
+type scheduled struct {
+	d  time.Duration
+	fn func()
+}
+
 type rig struct {
+	scheduled  []scheduled
 	s          *screen
 	convs      []*fakeHandle
 	starts     []auth.Start
@@ -106,6 +112,10 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			return nil
 		},
 		after: func(time.Duration) <-chan time.Time { return r.timeout },
+		schedule: func(d time.Duration, fn func()) func() {
+			r.scheduled = append(r.scheduled, scheduled{d, fn})
+			return func() {}
+		},
 		now:   func() time.Time { return time.Date(2026, 3, 5, 9, 7, 0, 0, time.UTC) },
 		power: func(verb string) { r.power = append(r.power, verb) },
 		loadImage: func(*memory.Shared, string) (imagedecode.Decoded, error) {
@@ -662,5 +672,17 @@ func TestCoverIsTheBackgroundAlone(t *testing.T) {
 	}
 	if len(treetest.All[*widget.Entry](cfg.Root)) != 0 || len(treetest.WithClass(cfg.Root, "lock-center")) != 0 {
 		t.Error("a cover is no second form")
+	}
+}
+
+func TestTheGreeterClockWakesOncePerMinute(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.clock.Arm()
+	if len(r.scheduled) != 1 || r.scheduled[0].d != time.Minute {
+		t.Fatalf("scheduled %+v, want one wake for the next minute", r.scheduled)
+	}
+	r.scheduled[0].fn()
+	if len(r.scheduled) != 2 {
+		t.Errorf("%d wakes armed after one fired, want the next one", len(r.scheduled))
 	}
 }

@@ -56,7 +56,6 @@ type locker interface {
 // events run on.
 type loop interface {
 	Invoke(func())
-	Every(time.Duration, func()) (cancel func())
 }
 
 // Deps are the screen's collaborators; New fills the production ones.
@@ -151,11 +150,11 @@ type Screen struct {
 	inputOn   bool
 	message   string
 	blanked   bool
-	clockStop func()
 	caps      bool
 	capsStop  func()
 	blank     Timer
 	blankDue  time.Time
+	clock     *loginscreen.ClockTicker
 	clockText string
 	dateText  string
 	// confirmed: the compositor sent locked for this lock.
@@ -169,7 +168,13 @@ type Screen struct {
 // The prompt shapes text with font; sheet (the shell's stylesheet)
 // styles the surfaces through the lock.css rules.
 func New(cfg *config.Config, font render.Font, sheet *widget.Stylesheet, d Deps) *Screen {
-	return &Screen{cfg: cfg.Login, anims: cfg.Animations, wallpaper: cfg.Wallpaper.Wallpaper, font: font, sheet: sheet, d: d}
+	s := &Screen{cfg: cfg.Login, anims: cfg.Animations, wallpaper: cfg.Wallpaper.Wallpaper, font: font, sheet: sheet, d: d}
+	var shown []func(time.Time) string
+	if s.cfg.ShowClock {
+		shown = append(shown, s.cfg.ClockFormat.Layout().Format, s.cfg.DateFormat.Layout().Format)
+	}
+	s.clock = loginscreen.NewClockTicker(d.Now, d.After, s.refreshClock, shown...)
+	return s
 }
 
 // Locked reports whether a lock is pending or held.
@@ -196,18 +201,21 @@ func (s *Screen) Lock() error {
 	s.message = ""
 	s.blanked = false
 	s.confirmed = false
-	s.refreshClockText()
+	s.clock.Start()
 	err := s.d.Locker.Lock(app.SessionLockConfig{
 		Surface:    s.buildFace,
 		OnLocked:   s.onLocked,
 		OnFinished: s.onFinished,
 	})
 	if err != nil {
+		s.clock.Stop()
 		s.faces = nil
 		s.dropBackground()
 		return fmt.Errorf("lock: cannot lock the session: %w", err)
 	}
-	s.startClock()
+	if s.d.OnCapsLock != nil {
+		s.capsStop = s.d.OnCapsLock(s.setCaps)
+	}
 	s.armBlank()
 	return nil
 }
@@ -480,11 +488,12 @@ func (s *Screen) setLockedHint(locked bool) {
 	}
 }
 
-// Activity unblanks and re-arms the blank timer. Every key comes through here,
-// so it allocates nothing.
+// Activity unblanks and re-arms the blank timer, and brings a clock a suspend left
+// behind up to date. Every key comes through here, so it allocates nothing.
 func (s *Screen) Activity() {
 	s.setBlanked(false)
 	s.armBlank()
+	s.clock.CatchUp()
 }
 
 func (s *Screen) armBlank() {
@@ -524,14 +533,11 @@ func (s *Screen) setBlanked(on bool) {
 	for _, f := range s.faces {
 		f.scrim.SetVisible(on)
 	}
-}
-
-func (s *Screen) startClock() {
-	s.refreshClock()
-	s.clockStop = s.d.Loop.Every(time.Second, s.refreshClock)
-	if s.d.OnCapsLock != nil {
-		s.capsStop = s.d.OnCapsLock(s.setCaps)
+	if on {
+		s.clock.Stop()
+		return
 	}
+	s.clock.Start()
 }
 
 func (s *Screen) setCaps(on bool) {
@@ -541,14 +547,10 @@ func (s *Screen) setCaps(on bool) {
 	}
 }
 
-func (s *Screen) refreshClockText() {
+func (s *Screen) refreshClock() {
 	now := s.d.Now()
 	s.clockText = s.cfg.ClockFormat.Layout().Format(now)
 	s.dateText = s.cfg.DateFormat.Layout().Format(now)
-}
-
-func (s *Screen) refreshClock() {
-	s.refreshClockText()
 	for _, f := range s.faces {
 		f.prompt.Clock.SetText(s.clockText)
 		f.prompt.Date.SetText(s.dateText)
@@ -556,10 +558,7 @@ func (s *Screen) refreshClock() {
 }
 
 func (s *Screen) stopTimers() {
-	if s.clockStop != nil {
-		s.clockStop()
-		s.clockStop = nil
-	}
+	s.clock.Stop()
 	if s.capsStop != nil {
 		s.capsStop()
 		s.capsStop = nil

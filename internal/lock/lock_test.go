@@ -68,15 +68,10 @@ func (f *fakeLocker) Release() {
 
 func (f *fakeLocker) Focus(w widget.Widget) { f.focused = append(f.focused, w) }
 
-// fakeLoop runs invokes inline and records the periodic timers.
-type fakeLoop struct{ every []func() }
+// fakeLoop runs invokes inline.
+type fakeLoop struct{}
 
 func (l *fakeLoop) Invoke(fn func()) { fn() }
-func (l *fakeLoop) Every(_ time.Duration, fn func()) func() {
-	l.every = append(l.every, fn)
-	i := len(l.every) - 1
-	return func() { l.every[i] = nil }
-}
 
 // fakeAuth records conversations; the test drives their events.
 type fakeAuth struct {
@@ -225,11 +220,11 @@ func TestLockCoversOutputsAndReportsTheHint(t *testing.T) {
 	if h.locked != 1 {
 		t.Errorf("what locks with the session ran %d times, want once", h.locked)
 	}
-	if len(h.loop.every) != 1 {
-		t.Errorf("clock timers = %d, want 1", len(h.loop.every))
+	if len(h.timers) != 1 || h.timers[0].d != time.Minute {
+		t.Fatalf("clock timers = %+v, want one for the next minute", h.timers)
 	}
 	h.now = h.now.Add(time.Minute)
-	h.loop.every[0]()
+	h.timers[0].fn()
 	if got := h.s.faces[1].prompt.Clock.Text(); got != "09:08" {
 		t.Errorf("tick clock = %q", got)
 	}
@@ -255,7 +250,7 @@ func TestLockRefusals(t *testing.T) {
 	if err := h.s.Lock(); !errors.Is(err, h.locker.lockErr) {
 		t.Errorf("a refused lock request = %v, want it wrapped", err)
 	}
-	if len(h.s.faces) != 0 || len(h.loop.every) != 0 {
+	if len(h.s.faces) != 0 || h.armedClock() != nil {
 		t.Error("a failed LockSession left state behind")
 	}
 }
@@ -291,7 +286,7 @@ func TestUnlockWithPassword(t *testing.T) {
 	if h.locker.active || h.locker.releases != 1 {
 		t.Error("success did not unlock")
 	}
-	if len(h.s.faces) != 0 || h.loop.every[0] != nil {
+	if len(h.s.faces) != 0 || h.armedClock() != nil {
 		t.Error("unlock left surfaces or the clock behind")
 	}
 	if got := h.hints[len(h.hints)-1]; got {
@@ -493,7 +488,7 @@ func TestDeniedLock(t *testing.T) {
 	h.s.Lock()
 	h.locker.active = false // lys-ui drops a finished lock
 	h.locker.cfg.OnFinished()
-	if len(h.s.faces) != 0 || h.loop.every[0] != nil {
+	if len(h.s.faces) != 0 || h.armedClock() != nil {
 		t.Error("a denied lock left surfaces or the clock behind")
 	}
 	if len(h.hints) != 0 {
@@ -712,8 +707,8 @@ func TestLockFollowsCapsLock(t *testing.T) {
 		t.Error("a face plugged in later does not start warning")
 	}
 	h.s.ForceUnlock()
-	for i, tick := range h.loop.every {
-		if tick != nil {
+	for i, tick := range h.timers {
+		if !tick.stopped {
 			t.Errorf("timer %d still runs after the unlock", i)
 		}
 	}
@@ -763,4 +758,60 @@ func TestLockKeepsAModuleErrorOverTheRefusal(t *testing.T) {
 			t.Errorf("message = %q, want the module's", got)
 		}
 	})
+}
+
+func (h *harness) armedClock() *timer {
+	for _, tm := range slices.Backward(h.timers) {
+		if !tm.stopped {
+			return tm
+		}
+	}
+	return nil
+}
+
+func TestTheClockWakesOnceAMinuteAndNeverWhileBlanked(t *testing.T) {
+	h := newHarness(t, func(l *config.LoginConfig) { l.Lock.BlankTimeoutMS = 30000 })
+	h.lock(t)
+	start := len(h.timers)
+	end := h.now.Add(60 * time.Second)
+	for {
+		tm := h.armedClock()
+		if tm == nil || h.now.Add(tm.d).After(end) {
+			break
+		}
+		h.now = h.now.Add(tm.d)
+		tm.stopped = true
+		tm.fn()
+	}
+	if got := len(h.timers) - start; got > 1 {
+		t.Errorf("%d clock wakes over 60s of a minute clock, want at most one", got)
+	}
+	h.now = h.now.Add(30 * time.Second)
+	h.blank.fn()
+	if !h.s.blanked {
+		t.Fatal("the screen did not blank")
+	}
+	if tm := h.armedClock(); tm != nil {
+		t.Errorf("a clock timer of %v armed under the blank scrim", tm.d)
+	}
+	h.now = h.now.Add(time.Hour)
+	h.s.Activity()
+	want := h.s.cfg.ClockFormat.Layout().Format(h.now)
+	if got := h.s.faces[0].prompt.Clock.Text(); got != want {
+		t.Errorf("unblanking shows %q, want %q", got, want)
+	}
+	if h.armedClock() == nil {
+		t.Error("unblanking did not start the clock again")
+	}
+}
+
+func TestAKeyBringsAClockASuspendLeftBehindUpToDate(t *testing.T) {
+	h := newHarness(t, nil)
+	h.lock(t)
+	h.now = h.now.Add(2 * time.Hour)
+	h.s.keyPressed()
+	want := h.s.cfg.ClockFormat.Layout().Format(h.now)
+	if got := h.s.faces[0].prompt.Clock.Text(); got != want {
+		t.Errorf("after a suspend a key shows %q, want %q", got, want)
+	}
 }

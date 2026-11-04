@@ -83,7 +83,11 @@ func Run(init Init) error {
 			return win.WhenPresented(fn)
 		},
 		after: time.After,
-		now:   time.Now,
+		schedule: func(d time.Duration, fn func()) func() {
+			t := time.AfterFunc(d, func() { a.Invoke(fn) })
+			return func() { t.Stop() }
+		},
+		now: time.Now,
 		power: func(verb string) {
 			// logind allows both for the active local session without
 			// extra polkit rules.
@@ -111,9 +115,14 @@ func Run(init Init) error {
 	if err := win.WhenPresented(s.markPresented); err != nil {
 		return fmt.Errorf("greeter: wait for the first frame: %w", err)
 	}
-	a.Every(time.Second, func() {
-		s.refreshClock()
+	s.clock.Arm()
+	defer s.clock.Stop()
+	var stopAnnouncing func()
+	stopAnnouncing = a.Every(time.Second, func() {
 		s.announceReady()
+		if s.announced {
+			stopAnnouncing()
+		}
 	})
 	a.OnLocks(func(l app.Locks) { s.setCapsLock(l.Caps) })
 	s.applyDebugOps(os.Getenv("LYS_SHELL_GREETER_DEBUG"), func(d time.Duration, fn func()) {
