@@ -1080,7 +1080,7 @@ func stoppedDaemonStops(t *testing.T, dir string) []int {
 }
 
 func TestADaemonStoppedBeforeItLooksStillEndsTheLiveSession(t *testing.T) {
-	dir := t.TempDir()
+	dir := sockdir.Dir(t)
 	held, err := holdSessionLock(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -1092,7 +1092,7 @@ func TestADaemonStoppedBeforeItLooksStillEndsTheLiveSession(t *testing.T) {
 }
 
 func TestADaemonStoppedWithNoSessionStopsNothing(t *testing.T) {
-	if got := stoppedDaemonStops(t, t.TempDir()); len(got) != 0 {
+	if got := stoppedDaemonStops(t, sockdir.Dir(t)); len(got) != 0 {
 		t.Errorf("stopped workers %v with no session running", got)
 	}
 }
