@@ -68,6 +68,11 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 			t := time.AfterFunc(d, func() { a.Invoke(fn) })
 			return func() { t.Stop() }
 		},
+		NewTimer: func(fn func()) Timer {
+			t := time.AfterFunc(time.Hour, func() { a.Invoke(fn) })
+			t.Stop()
+			return runtimeTimer{t}
+		},
 		Auth: func(service string, onEvent func(auth.Event)) authHandle {
 			return auth.Spawn(auth.NewPAM(service, verified), auth.CurrentUsername(), onEvent)
 		},
@@ -112,6 +117,12 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 	}
 	return nil
 }
+
+// runtimeTimer is a time.Timer as a Timer.
+type runtimeTimer struct{ t *time.Timer }
+
+func (r runtimeTimer) Reset(d time.Duration) { r.t.Reset(d) }
+func (r runtimeTimer) Stop()                 { r.t.Stop() }
 
 // holdSession takes the session's lys-login lock file under env's
 // $XDG_RUNTIME_DIR/lys-login, held until the returned release; another

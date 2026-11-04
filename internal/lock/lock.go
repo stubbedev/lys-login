@@ -67,6 +67,8 @@ type Deps struct {
 	Now func() time.Time
 	// After runs fn on the loop after d, once; cancel stops it.
 	After func(d time.Duration, fn func()) (cancel func())
+	// NewTimer makes a stopped Timer for a timer re-armed by every key.
+	NewTimer func(fn func()) Timer
 	// Auth starts a conversation; the production one is PAM against
 	// the configured service for the session user.
 	Auth func(service string, onEvent func(auth.Event)) authHandle
@@ -92,6 +94,14 @@ type Deps struct {
 	// OnEnded runs on the loop when a lock ends: unlocked, refused, or
 	// ended by the compositor; nil for nothing.
 	OnEnded func()
+}
+
+// Timer runs the function it was made with on the loop, once per Reset. A firing
+// already on its way when Reset or Stop comes may still arrive, so the function
+// checks it is due.
+type Timer interface {
+	Reset(d time.Duration)
+	Stop()
 }
 
 // authHandle is the running conversation's reply side.
@@ -144,8 +154,8 @@ type Screen struct {
 	clockStop func()
 	caps      bool
 	capsStop  func()
-	blankStop func()
-	blankGen  uint64
+	blank     Timer
+	blankDue  time.Time
 	clockText string
 	dateText  string
 	// confirmed: the compositor sent locked for this lock.
@@ -470,31 +480,46 @@ func (s *Screen) setLockedHint(locked bool) {
 	}
 }
 
-// Activity unblanks and re-arms the blank timer.
+// Activity unblanks and re-arms the blank timer. Every key comes through here,
+// so it allocates nothing.
 func (s *Screen) Activity() {
 	s.setBlanked(false)
 	s.armBlank()
 }
 
 func (s *Screen) armBlank() {
-	if s.blankStop != nil {
-		s.blankStop()
-		s.blankStop = nil
-	}
-	s.blankGen++
 	ms := s.cfg.Lock.BlankTimeoutMS
 	if ms == 0 || !s.d.Locker.Active() {
+		s.stopBlank()
 		return
 	}
-	gen := s.blankGen
-	s.blankStop = s.d.After(time.Duration(ms)*time.Millisecond, func() {
-		if gen == s.blankGen {
-			s.setBlanked(true)
-		}
-	})
+	if s.blank == nil {
+		s.blank = s.d.NewTimer(s.blankDueNow)
+	}
+	wait := time.Duration(ms) * time.Millisecond
+	s.blankDue = s.d.Now().Add(wait)
+	s.blank.Reset(wait)
+}
+
+func (s *Screen) stopBlank() {
+	if s.blank != nil {
+		s.blank.Stop()
+	}
+	s.blankDue = time.Time{}
+}
+
+// blankDueNow is the blank timer firing, unless a key since moved it on.
+func (s *Screen) blankDueNow() {
+	if s.blankDue.IsZero() || s.d.Now().Before(s.blankDue) {
+		return
+	}
+	s.setBlanked(true)
 }
 
 func (s *Screen) setBlanked(on bool) {
+	if s.blanked == on {
+		return
+	}
 	s.blanked = on
 	for _, f := range s.faces {
 		f.scrim.SetVisible(on)
@@ -539,11 +564,7 @@ func (s *Screen) stopTimers() {
 		s.capsStop()
 		s.capsStop = nil
 	}
-	if s.blankStop != nil {
-		s.blankStop()
-		s.blankStop = nil
-	}
-	s.blankGen++
+	s.stopBlank()
 	s.blanked = false
 }
 

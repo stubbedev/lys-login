@@ -98,9 +98,26 @@ type harness struct {
 	locked int
 	now    time.Time
 	timers []*timer
+	blank  *blankTimer
 	// forgotten are the rasters the renderer was told to drop.
 	forgotten []render.ImageID
 }
+
+// blankTimer is the one blank timer, re-armed in place.
+type blankTimer struct {
+	fn      func()
+	d       time.Duration
+	resets  int
+	stopped bool
+}
+
+func (b *blankTimer) Reset(d time.Duration) {
+	b.d = d
+	b.resets++
+	b.stopped = false
+}
+
+func (b *blankTimer) Stop() { b.stopped = true }
 
 type timer struct {
 	d       time.Duration
@@ -128,6 +145,13 @@ func newHarness(t *testing.T, edit func(*config.LoginConfig)) *harness {
 			tm := &timer{d: d, fn: fn}
 			h.timers = append(h.timers, tm)
 			return func() { tm.stopped = true }
+		},
+		NewTimer: func(fn func()) Timer {
+			if h.blank != nil {
+				t.Error("a second blank timer: every key must re-arm the one")
+			}
+			h.blank = &blankTimer{fn: fn}
+			return h.blank
 		},
 		Auth: func(service string, onEvent func(auth.Event)) authHandle {
 			c := &fakeAuth{service: service, onEvent: onEvent}
@@ -365,10 +389,11 @@ func TestGraceWindow(t *testing.T) {
 func TestBlankTimer(t *testing.T) {
 	h := newHarness(t, func(l *config.LoginConfig) { l.Lock.BlankTimeoutMS = 30000 })
 	h.lock(t)
-	if len(h.timers) != 1 || h.timers[0].d != 30*time.Second {
-		t.Fatalf("blank timers = %+v", h.timers)
+	if h.blank == nil || h.blank.resets != 1 || h.blank.d != 30*time.Second {
+		t.Fatalf("blank timer = %+v", h.blank)
 	}
-	h.timers[0].fn()
+	h.now = h.now.Add(30 * time.Second)
+	h.blank.fn()
 	h.eachFace(t, func(f *face) {
 		if !f.scrim.Visible() {
 			t.Error("the blank timer did not black out the surfaces")
@@ -380,18 +405,44 @@ func TestBlankTimer(t *testing.T) {
 			t.Error("activity did not unblank")
 		}
 	})
-	if len(h.timers) != 2 || h.timers[1].d != 30*time.Second {
+	if h.blank.resets != 2 || h.blank.d != 30*time.Second {
 		t.Error("activity did not re-arm the blank timer")
 	}
-	h.timers[0].fn() // a stale timer must not blank
+	h.blank.fn() // a stale firing must not blank
 	if h.s.faces[0].scrim.Visible() {
 		t.Error("a superseded blank timer blanked the screen")
+	}
+	h.now = h.now.Add(29 * time.Second)
+	h.s.Activity()
+	h.now = h.now.Add(29 * time.Second)
+	h.blank.fn()
+	if h.s.faces[0].scrim.Visible() {
+		t.Error("a key did not push the blank back")
+	}
+	h.s.ForceUnlock()
+	if !h.blank.stopped {
+		t.Error("the unlock left the blank timer running")
+	}
+	h.blank.fn()
+	if h.s.blanked {
+		t.Error("a firing after the unlock blanked")
 	}
 
 	never := newHarness(t, nil)
 	never.lock(t)
-	if len(never.timers) != 0 {
+	if never.blank != nil && never.blank.resets != 0 {
 		t.Error("blank-timeout-ms = 0 armed a timer")
+	}
+}
+
+func TestAKeyAllocatesNothing(t *testing.T) {
+	h := newHarness(t, func(l *config.LoginConfig) { l.Lock.BlankTimeoutMS = 30000 })
+	h.lock(t)
+	if n := testing.AllocsPerRun(100, h.s.Activity); n != 0 {
+		t.Errorf("%v allocations per key on the blank timer", n)
+	}
+	if h.blank.resets < 100 {
+		t.Errorf("%d re-arms for 100 keys", h.blank.resets)
 	}
 }
 
