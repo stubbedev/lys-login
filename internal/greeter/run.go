@@ -21,6 +21,7 @@ import (
 	"github.com/stubbedev/lys-ui/widget"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
 // Run shows the greeter until greetd starts a session (or the window
@@ -52,6 +53,15 @@ func Run(init Init) error {
 	}
 	font := app.FontFallback(base)
 
+	wall, err := loginscreen.NewSystemClock(a.Invoke)
+	if err != nil {
+		return fmt.Errorf("greeter: %w", err)
+	}
+	defer func() {
+		if err := wall.Close(); err != nil {
+			log.Printf("greeter: close the clock: %v", err)
+		}
+	}()
 	var win *app.Window
 	var held widget.Widget
 	sheet := Stylesheet(init.Config)
@@ -82,12 +92,9 @@ func Run(init Init) error {
 			}
 			return win.WhenPresented(fn)
 		},
-		after: time.After,
-		schedule: func(d time.Duration, fn func()) func() {
-			t := time.AfterFunc(d, func() { a.Invoke(fn) })
-			return func() { t.Stop() }
-		},
-		now:      time.Now,
+		after:    time.After,
+		wall:     wall,
+		now:      wall.Now,
 		saveLast: SaveLast,
 		power: func(verb string) {
 			// logind allows both for the active local session without

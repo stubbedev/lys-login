@@ -52,23 +52,22 @@ func (u clockUnit) next(now time.Time) time.Time {
 }
 
 // ClockTicker shows a clock when what its formats show changes, and not in
-// between: a clock of hours and minutes wakes the loop once a minute.
+// between: a clock of hours and minutes wakes the loop once a minute. Its timer runs
+// on the wall clock, so what it shows is right the moment the machine resumes, the
+// clock is set or the zone changes.
 type ClockTicker struct {
-	now     func() time.Time
-	after   func(d time.Duration, fn func()) (cancel func())
+	wall    WallClock
 	show    func()
 	armed   bool
 	unit    clockUnit
 	running bool
-	cancel  func()
-	due     time.Time
 }
 
 // NewClockTicker makes a stopped ticker that calls show on the loop whenever one
-// of formats would give something new; after runs a function on the loop, once.
-// With no formats nothing shows a clock, so it never arms.
-func NewClockTicker(now func() time.Time, after func(time.Duration, func()) func(), show func(), formats ...func(time.Time) string) *ClockTicker {
-	return &ClockTicker{now: now, after: after, show: show, armed: len(formats) > 0, unit: finestUnit(formats)}
+// of formats would give something new. With no formats nothing shows a clock, so it
+// never arms.
+func NewClockTicker(wall WallClock, show func(), formats ...func(time.Time) string) *ClockTicker {
+	return &ClockTicker{wall: wall, show: show, armed: len(formats) > 0, unit: finestUnit(formats)}
 }
 
 // Start shows the clock and keeps it right until Stop.
@@ -79,14 +78,10 @@ func (c *ClockTicker) Start() {
 
 // Arm keeps a clock shown just now right until Stop.
 func (c *ClockTicker) Arm() {
-	c.disarm()
 	c.running = c.armed
-	if !c.running {
-		return
+	if c.running {
+		c.wall.Arm(c.unit.next(c.wall.Now()), c.fired)
 	}
-	now := c.now()
-	c.due = c.unit.next(now)
-	c.cancel = c.after(c.due.Sub(now), c.fired)
 }
 
 func (c *ClockTicker) fired() {
@@ -95,24 +90,10 @@ func (c *ClockTicker) fired() {
 	}
 }
 
-func (c *ClockTicker) disarm() {
-	if c.cancel != nil {
-		c.cancel()
-		c.cancel = nil
-	}
-}
-
 // Stop lets the clock go stale until the next Start.
 func (c *ClockTicker) Stop() {
-	c.disarm()
-	c.running = false
-}
-
-// CatchUp shows the clock now if its timer is overdue, as after a suspend, which
-// timers do not count. It costs nothing while the clock is right, so a key can
-// call it.
-func (c *ClockTicker) CatchUp() {
-	if c.running && !c.now().Before(c.due) {
-		c.Start()
+	if c.running {
+		c.wall.Disarm()
 	}
+	c.running = false
 }

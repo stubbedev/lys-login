@@ -64,8 +64,8 @@ type Deps struct {
 	Loop   loop
 	// Now is the clock the grace window and the labels read.
 	Now func() time.Time
-	// After runs fn on the loop after d, once; cancel stops it.
-	After func(d time.Duration, fn func()) (cancel func())
+	// Wall is the clock the screen shows.
+	Wall loginscreen.WallClock
 	// NewTimer makes a stopped Timer for a timer re-armed by every key.
 	NewTimer func(fn func()) Timer
 	// Auth starts a conversation; the production one is PAM against
@@ -173,7 +173,7 @@ func New(cfg *config.Config, font render.Font, sheet *widget.Stylesheet, d Deps)
 	if s.cfg.ShowClock {
 		shown = append(shown, s.cfg.ClockFormat.Layout().Format, s.cfg.DateFormat.Layout().Format)
 	}
-	s.clock = loginscreen.NewClockTicker(d.Now, d.After, s.refreshClock, shown...)
+	s.clock = loginscreen.NewClockTicker(d.Wall, s.refreshClock, shown...)
 	return s
 }
 
@@ -488,12 +488,11 @@ func (s *Screen) setLockedHint(locked bool) {
 	}
 }
 
-// Activity unblanks and re-arms the blank timer, and brings a clock a suspend left
-// behind up to date. Every key comes through here, so it allocates nothing.
+// Activity unblanks and re-arms the blank timer. Every key comes through here, so
+// it allocates nothing.
 func (s *Screen) Activity() {
 	s.setBlanked(false)
 	s.armBlank()
-	s.clock.CatchUp()
 }
 
 func (s *Screen) armBlank() {

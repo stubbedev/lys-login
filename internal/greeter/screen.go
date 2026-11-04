@@ -74,9 +74,9 @@ type deps struct {
 	quit          func()
 	whenPresented func(fn func()) error
 	after         func(d time.Duration) <-chan time.Time
-	// schedule runs fn on the loop after d, once; cancel stops it.
-	schedule func(d time.Duration, fn func()) (cancel func())
-	now      func() time.Time
+	// wall is the clock the greeter shows.
+	wall loginscreen.WallClock
+	now  func() time.Time
 	// saveLast stores a remembered value; it syncs, so never on the loop.
 	saveLast func(path, value string) error
 	// power runs a power action to its end, off the loop.
@@ -195,7 +195,7 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 	if g.ShowClock {
 		shown = append(shown, g.ClockFormat.Layout().Format, g.DateFormat.Layout().Format)
 	}
-	s.clock = loginscreen.NewClockTicker(d.now, d.schedule, s.refreshClock, shown...)
+	s.clock = loginscreen.NewClockTicker(d.wall, s.refreshClock, shown...)
 	s.refreshClock()
 	return s
 }

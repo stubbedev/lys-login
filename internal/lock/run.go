@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
 // Errors Run ends with, which `lys-login lock` maps to lockclient's exit
@@ -59,15 +60,21 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 	if err != nil {
 		return fmt.Errorf("lock: font %q: %w", cfg.General.FontSans, err)
 	}
+	wall, err := loginscreen.NewSystemClock(a.Invoke)
+	if err != nil {
+		return fmt.Errorf("lock: %w", err)
+	}
+	defer func() {
+		if err := wall.Close(); err != nil {
+			log.Printf("lock: close the clock: %v", err)
+		}
+	}()
 	ld := logind.SystemClient("lock")
 	deps := Deps{
 		Locker: appLocker{a: a},
 		Loop:   a,
-		Now:    time.Now,
-		After: func(d time.Duration, fn func()) func() {
-			t := time.AfterFunc(d, func() { a.Invoke(fn) })
-			return func() { t.Stop() }
-		},
+		Now:    wall.Now,
+		Wall:   wall,
 		NewTimer: func(fn func()) Timer {
 			t := time.AfterFunc(time.Hour, func() { a.Invoke(fn) })
 			t.Stop()

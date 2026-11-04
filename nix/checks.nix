@@ -48,6 +48,9 @@
         };
         # The greeter under greetd in cage; see nix/tests/greetd-vm.nix.
         greetd-vm = pkgs.callPackage ./tests/greetd-vm.nix {inherit self;};
+        # Setting the wall clock wakes the login screen's clock; see
+        # nix/tests/wallclock-vm.nix.
+        wallclock-vm = pkgs.callPackage ./tests/wallclock-vm.nix {inherit pkg;};
         # An X11 session reaches logind as x11; see nix/tests/x11-session-vm.nix.
         x11-session-vm = pkgs.callPackage ./tests/x11-session-vm.nix {
           inherit self;

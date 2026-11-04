@@ -59,6 +59,10 @@ fmt:
 login-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.login-vm
 
+# Setting the wall clock wakes the login screen's clock, in a NixOS VM.
+wallclock-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.wallclock-vm
+
 # The login keyring with the real gnome-keyring and no PAM module for it, in a
 # NixOS VM (needs KVM): the daemon starts and unlocks it, a password it no
 # longer opens with warns, and so does no keyring at all.

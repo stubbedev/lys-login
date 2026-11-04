@@ -41,17 +41,29 @@ func (h *fakeHandle) Answer(s string) { h.answers = append(h.answers, s) }
 func (h *fakeHandle) Cancel()         { h.cancelled = true }
 
 // rig is a screen over fakes: no greetd, no compositor.
-type scheduled struct {
-	d  time.Duration
-	fn func()
+// fakeWall is a wall clock a test moves.
+type fakeWall struct {
+	r *rig
 }
+
+func (w *fakeWall) Now() time.Time { return w.r.clockNow }
+
+func (w *fakeWall) Arm(at time.Time, fn func()) {
+	w.r.armedAt, w.r.armed = at, fn
+	w.r.arms++
+}
+
+func (w *fakeWall) Disarm() { w.r.armed = nil }
 
 type rig struct {
 	avatar     image.Image
 	scale      int
 	invoke     func(func())
 	save       func(path, value string)
-	scheduled  []scheduled
+	clockNow   time.Time
+	armedAt    time.Time
+	armed      func()
+	arms       int
 	s          *screen
 	convs      []*fakeHandle
 	starts     []auth.Start
@@ -134,11 +146,13 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			return nil
 		},
 		after: func(time.Duration) <-chan time.Time { return r.timeout },
-		schedule: func(d time.Duration, fn func()) func() {
-			r.scheduled = append(r.scheduled, scheduled{d, fn})
-			return func() {}
+		wall:  &fakeWall{r: r},
+		now: func() time.Time {
+			if r.clockNow.IsZero() {
+				r.clockNow = time.Date(2026, 3, 5, 9, 7, 0, 0, time.UTC)
+			}
+			return r.clockNow
 		},
-		now: func() time.Time { return time.Date(2026, 3, 5, 9, 7, 0, 0, time.UTC) },
 		power: func(verb string) {
 			if r.onPower != nil {
 				r.onPower(verb)
@@ -736,15 +750,22 @@ func TestCoverIsTheBackgroundAlone(t *testing.T) {
 	}
 }
 
-func TestTheGreeterClockWakesOncePerMinute(t *testing.T) {
+func TestTheGreeterClockWakesOncePerMinuteAndFollowsAJump(t *testing.T) {
 	r := newRig(t, nil)
 	r.s.clock.Arm()
-	if len(r.scheduled) != 1 || r.scheduled[0].d != time.Minute {
-		t.Fatalf("scheduled %+v, want one wake for the next minute", r.scheduled)
+	if r.arms != 1 || !r.armedAt.Equal(r.clockNow.Add(time.Minute)) {
+		t.Fatalf("armed %d times for %v, want one wake for the minute after %v", r.arms, r.armedAt, r.clockNow)
 	}
-	r.scheduled[0].fn()
-	if len(r.scheduled) != 2 {
-		t.Errorf("%d wakes armed after one fired, want the next one", len(r.scheduled))
+	r.clockNow = r.armedAt
+	r.armed()
+	if r.arms != 2 {
+		t.Errorf("%d wakes armed after one fired, want the next one", r.arms)
+	}
+	r.clockNow = r.clockNow.Add(7 * time.Hour)
+	r.armed()
+	want := r.s.init.Config.Login.ClockFormat.Layout().Format(r.clockNow)
+	if got := r.s.prompt.Clock.Text(); got != want {
+		t.Errorf("after a jump the clock shows %q, want %q", got, want)
 	}
 }
 
