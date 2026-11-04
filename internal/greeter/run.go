@@ -100,6 +100,13 @@ func Run(init Init) error {
 		outputs:    func() []image.Point { return outputsize.Devices(sess.Outputs()) },
 		forget:     a.ForgetImage,
 		loadAvatar: imagedecode.Open,
+		outputScale: func() int {
+			scale := 1
+			for _, out := range sess.Outputs() {
+				scale = max(scale, out.Scale)
+			}
+			return scale
+		},
 	})
 	defer s.end()
 	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented))

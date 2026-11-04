@@ -339,3 +339,29 @@ func boxColumns(src, dst []uint8, w, h, stride, radius int, sums []uint64) {
 		}
 	}
 }
+
+// centered is the middle square of an image.
+type centered struct {
+	image.Image
+	bounds image.Rectangle
+}
+
+func (c centered) Bounds() image.Rectangle { return c.bounds }
+
+// SquareThumbnail is src's middle square area-resampled to px on a side, for a
+// picture only ever drawn that small and cropped to cover: the source's pixels
+// are not kept. A source no larger on either side comes back as it is.
+func SquareThumbnail(src image.Image, px int) image.Image {
+	b := src.Bounds()
+	if b.Dx() <= px && b.Dy() <= px {
+		return src
+	}
+	side := min(b.Dx(), b.Dy())
+	if side < px {
+		px = side
+	}
+	at := b.Min.Add(image.Pt((b.Dx()-side)/2, (b.Dy()-side)/2))
+	dst := image.NewRGBA(image.Rect(0, 0, px, px))
+	areaResample(dst, centered{Image: src, bounds: image.Rectangle{Min: at, Max: at.Add(image.Pt(side, side))}})
+	return dst
+}

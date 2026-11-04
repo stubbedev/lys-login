@@ -92,6 +92,8 @@ type deps struct {
 	forget func(render.ImageID)
 	// loadAvatar decodes an avatar file.
 	loadAvatar func(path string) (image.Image, error)
+	// outputScale is the largest buffer scale of the outputs the greeter shows on.
+	outputScale func() int
 }
 
 type authHandle interface {
@@ -310,12 +312,23 @@ func (s *screen) pickUser(picked *userButton) {
 func (s *screen) avatar(u User, font render.Font) *widget.Avatar {
 	a := widget.NewAvatar(font, avatarPx, u.DisplayName)
 	a.AddClass("lock-avatar")
-	if u.Icon != "" {
-		if img, err := s.d.loadAvatar(u.Icon); err == nil {
-			a.SetImage(img)
-		}
+	if img := s.avatarPicture(u); img != nil {
+		a.SetImage(img)
 	}
 	return a
+}
+
+// avatarPicture is the user's image at the size its slot shows it, nil when it does
+// not read: a photo keeps megabytes for a 64 pixel circle otherwise.
+func (s *screen) avatarPicture(u User) image.Image {
+	if u.Icon == "" {
+		return nil
+	}
+	img, err := s.d.loadAvatar(u.Icon)
+	if err != nil {
+		return nil
+	}
+	return loginscreen.SquareThumbnail(img, avatarPx*s.d.outputScale())
 }
 
 // powerRow is build_power_box: shutdown and reboot in the .lock-power

@@ -267,3 +267,33 @@ func TestAreaSpans(t *testing.T) {
 		}
 	}
 }
+
+func TestSquareThumbnailShowsTheMiddleSquare(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 400, 200))
+	for y := range 200 {
+		for x := range 400 {
+			if x >= 100 && x < 300 {
+				src.Set(x, y, color.RGBA{R: 255, A: 255})
+			} else {
+				src.Set(x, y, color.RGBA{B: 255, A: 255})
+			}
+		}
+	}
+	thumb := SquareThumbnail(src, 64)
+	if b := thumb.Bounds(); b.Dx() != 64 || b.Dy() != 64 {
+		t.Fatalf("bounds = %v", b)
+	}
+	for _, p := range []image.Point{{0, 0}, {63, 0}, {0, 63}, {63, 63}, {32, 32}} {
+		if r, _, b, _ := thumb.At(p.X, p.Y).RGBA(); r>>8 != 255 || b != 0 {
+			t.Errorf("%v shows %v, want the red middle only", p, thumb.At(p.X, p.Y))
+		}
+	}
+	small := image.NewRGBA(image.Rect(0, 0, 32, 48))
+	if got := SquareThumbnail(small, 64); got != image.Image(small) {
+		t.Errorf("a source that fits came back as %v", got.Bounds())
+	}
+	tall := SquareThumbnail(image.NewRGBA(image.Rect(10, 20, 30, 220)), 64)
+	if b := tall.Bounds(); b.Dx() != 20 || b.Dy() != 20 {
+		t.Errorf("a source narrower than the slot came back at %v, not upscaled", b)
+	}
+}

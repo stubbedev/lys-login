@@ -47,6 +47,8 @@ type scheduled struct {
 }
 
 type rig struct {
+	avatar     image.Image
+	scale      int
 	invoke     func(func())
 	save       func(path, value string)
 	scheduled  []scheduled
@@ -73,7 +75,7 @@ type rig struct {
 
 func newRig(t *testing.T, edit func(*Init)) *rig {
 	t.Helper()
-	return buildRig(t, edit, &rig{outputs: []image.Point{{1920, 1080}}, timeout: make(chan time.Time)})
+	return buildRig(t, edit, &rig{outputs: []image.Point{{1920, 1080}}, timeout: make(chan time.Time), scale: 1})
 }
 
 // buildRig builds r's screen over its fakes, with Init edited by edit.
@@ -151,9 +153,15 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			}
 			return imagedecode.Decoded{Image: r.background}, nil
 		},
-		outputs:    func() []image.Point { return r.outputs },
-		forget:     func(id render.ImageID) { r.forgotten = append(r.forgotten, id) },
-		loadAvatar: func(string) (image.Image, error) { return nil, errors.New("none") },
+		outputs: func() []image.Point { return r.outputs },
+		forget:  func(id render.ImageID) { r.forgotten = append(r.forgotten, id) },
+		loadAvatar: func(string) (image.Image, error) {
+			if r.avatar == nil {
+				return nil, errors.New("none")
+			}
+			return r.avatar, nil
+		},
+		outputScale: func() int { return r.scale },
 	})
 	return r
 }
@@ -860,5 +868,21 @@ func TestAStalledDiskDoesNotHoldTheSessionBack(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the session waited on the disk past the deadline")
+	}
+}
+
+func TestAnAvatarKeepsOnlyWhatItsSlotShows(t *testing.T) {
+	for _, scale := range []int{1, 2, 3} {
+		source := image.NewRGBA(image.Rect(0, 0, 4000, 3000))
+		r := buildRig(t, func(i *Init) {
+			i.Users = []User{{Name: "ada", DisplayName: "Ada", Icon: "/face"}}
+		}, &rig{outputs: []image.Point{{1920, 1080}}, timeout: make(chan time.Time), scale: scale, avatar: source})
+		got := r.s.avatarPicture(r.s.init.Users[0])
+		if got == nil {
+			t.Fatalf("scale %d: the avatar shows no image", scale)
+		}
+		if b := got.Bounds(); b.Dx() > avatarPx*scale || b.Dy() > avatarPx*scale {
+			t.Errorf("scale %d: the avatar keeps %v, want at most %d on a side", scale, b, avatarPx*scale)
+		}
 	}
 }
