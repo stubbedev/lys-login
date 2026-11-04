@@ -625,7 +625,7 @@ func parentOf(stat []byte) (int, error) {
 	return ppid, nil
 }
 
-func (r *resumption) finish(o Options, owner *sessionOwner, warnings *log.Logger, u *upgrader) {
+func (r *resumption) finish(ctx context.Context, o Options, owner *sessionOwner, warnings *log.Logger, u *upgrader) {
 	if r.failure != "" {
 		log.Printf("dm: rolled back to %s: %s", o.Self, r.failure) //nolint:gosec // this daemon's own state
 		if err := answerUpgrade(r.client, "", errors.New(r.failure)); err != nil {
@@ -645,7 +645,7 @@ func (r *resumption) finish(o Options, owner *sessionOwner, warnings *log.Logger
 	} else {
 		log.Printf("dm: following the session starting on worker %d", r.session.w.proc.Pid) //nolint:gosec // a number
 	}
-	err := r.session.follow(owner.set, warnings, u)
+	err := r.session.follow(ctx, owner.set, warnings, u)
 	owner.clear()
 	if err != nil {
 		log.Printf("dm: session: %v", err)

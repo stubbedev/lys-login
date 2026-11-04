@@ -2,6 +2,7 @@ package dm
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -67,7 +68,9 @@ func runLogin(t *testing.T, login *pendingLogin, workerSide *channel, workerDoes
 	t.Helper()
 	var warnings bytes.Buffer
 	errs := make(chan error, 1)
-	go func() { errs <- login.run(func(uint32) {}, log.New(&warnings, "", 0), &upgrader{}) }()
+	go func() {
+		errs <- login.run(context.Background(), func(uint32) {}, log.New(&warnings, "", 0), &upgrader{})
+	}()
 	var start request
 	if err := workerSide.recv(&start); err != nil {
 		t.Fatal(err)

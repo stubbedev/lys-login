@@ -33,7 +33,7 @@ const sessionPath = "/run/wrappers/bin:/run/current-system/sw/bin:/usr/local/bin
 // system and the user's profile first, then the command in its place.
 const profileScript = `[ -f /etc/profile ] && . /etc/profile; [ -f "$HOME/.profile" ] && . "$HOME/.profile"; exec "$@"`
 
-// stopGrace is how long a stopped greeter has to exit before it is
+// stopGrace is how long a stopped greeter or session has to exit before it is
 // killed.
 const stopGrace = 5 * time.Second
 
@@ -45,6 +45,8 @@ type WorkerOptions struct {
 	VT int
 	// Self is the lys-login program the workers and the greeter run.
 	Self string
+	// RuntimeDir holds the lock a session worker keeps while its session runs.
+	RuntimeDir string
 }
 
 // greeterSessionType is the type of the session the greeter's compositor
@@ -213,24 +215,24 @@ func RunGreeter(o WorkerOptions, greeterUser string, compositor, extraEnv []stri
 	case err := <-exited:
 		return fmt.Errorf("the greeter's compositor exited: %w", err)
 	case <-stop:
-		return stopGroup(cmd, exited)
+		return stopGroup("the greeter", cmd, exited)
 	}
 }
 
 // stopGroup ends the compositor cmd first, so it never draws a frame
-// without the greeter, then the rest of its process group; SIGKILL
-// after the grace.
-func stopGroup(cmd *exec.Cmd, exited <-chan error) error {
+// without what runs in it, then the rest of its process group; SIGKILL
+// after the grace. what names it in the log.
+func stopGroup(what string, cmd *exec.Cmd, exited <-chan error) error {
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case err := <-exited:
-		log.Printf("dm: the greeter's compositor stopped: %v", err)
+		log.Printf("dm: the compositor of %s stopped: %v", what, err)
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 		return nil
 	case <-time.After(stopGrace):
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		err := <-exited
-		return fmt.Errorf("the greeter did not stop in time and was killed: %w", err)
+		return fmt.Errorf("%s did not stop in time and was killed: %w", what, err)
 	}
 }
 
@@ -377,6 +379,14 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	}
 	env := a.environ(pamEnv, req.Env)
 	argv := append([]string{"/bin/sh", "-c", profileScript, "sh"}, req.Cmd...)
+	held, err := holdSessionLock(o.RuntimeDir)
+	if err != nil {
+		return ch.send(event{Kind: evFailed, Text: err.Error()})
+	}
+	defer func() { _ = held.Close() }()
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(stop)
 	cmd, err := o.startAs(a, argv, env)
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
@@ -389,7 +399,14 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 		secret = nil
 		go reportKeyring(ch, a.name, unlocked)
 	}
-	waitErr := cmd.Wait()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	var waitErr error
+	select {
+	case waitErr = <-exited:
+	case <-stop:
+		waitErr = stopGroup("the session of "+a.name, cmd, exited)
+	}
 	text := "exited"
 	if waitErr != nil {
 		text = waitErr.Error()

@@ -321,6 +321,48 @@ in
           tracked(FIRST)
           logout(sid, compositor, session_worker)
 
+          # Stopping the display manager ends a running session properly, in
+          # far less than the service's TimeoutStopSec, and leaves nothing behind.
+          sid, compositor, session_worker = login("password", 3, "${password}", FIRST)
+          machine.succeed("touch /tmp/lys-login/end-session")
+          begun = time.monotonic()
+          machine.succeed("systemctl stop lys-login.service")
+          took = time.monotonic() - begun
+          if took >= 20:
+              raise Exception(f"stopping with a session running took {took:.0f}s")
+          machine.wait_until_succeeds(f"! test -e /proc/{session_worker}", timeout=10)
+          machine.wait_until_succeeds(f"! loginctl show-session {sid}", timeout=30)
+          if "ending the session on worker" not in journal():
+              raise Exception("the daemon did not say it ended the session")
+          if "timed out" in machine.succeed("journalctl -b -u lys-login.service --no-pager"):
+              raise Exception("the stop waited out a timeout")
+          machine.succeed("systemctl start lys-login.service")
+          machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=60)
+
+          # A daemon that crashes leaves the session running. The restarted one
+          # puts no greeter on top of it, and shows one once it ends.
+          sid, compositor, session_worker = login("password", 4, "${password}", NEXT)
+          crashed = daemon()
+          machine.succeed("systemctl kill -s KILL --kill-whom=main lys-login.service")
+          machine.wait_until_succeeds(f"[ \"$(systemctl show -P MainPID lys-login.service)\" != {crashed} ] && [ \"$(systemctl show -P MainPID lys-login.service)\" != 0 ]", timeout=30)
+          machine.wait_until_succeeds("journalctl -b -u lys-login -o cat --no-pager | grep -q 'the greeter waits for it to end'", timeout=30)
+          alive(session_worker, "the session's worker after the crash")
+          if machine.execute("pgrep -u lys-greeter -f 'lys-login greet'")[0] == 0:
+              raise Exception("a greeter started on top of the live session")
+          logout(sid, compositor, session_worker)
+
+          # Stopping while waiting on such a session ends it too.
+          sid, compositor, session_worker = login("password", 5, "${password}", NEXT)
+          crashed = daemon()
+          machine.succeed("systemctl kill -s KILL --kill-whom=main lys-login.service")
+          machine.wait_until_succeeds(f"[ \"$(systemctl show -P MainPID lys-login.service)\" != {crashed} ] && [ \"$(systemctl show -P MainPID lys-login.service)\" != 0 ]", timeout=30)
+          machine.succeed("touch /tmp/lys-login/end-session")
+          machine.succeed("systemctl stop lys-login.service")
+          machine.wait_until_succeeds(f"! test -e /proc/{session_worker}", timeout=20)
+          machine.wait_until_succeeds(f"! loginctl show-session {sid}", timeout=30)
+          machine.succeed("systemctl start lys-login.service")
+          machine.wait_until_succeeds("pgrep -u lys-greeter -f 'lys-login greet'", timeout=60)
+
           log = journal()
           for absent in ("dm: greeter: the greeter ended", "dm: greeter connection:", "panic"):
               if absent in log:

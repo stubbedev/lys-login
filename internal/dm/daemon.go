@@ -53,6 +53,11 @@ type Options struct {
 // retryPause spaces greeters that fail to come up.
 const retryPause = 2 * time.Second
 
+// StopSignals end a daemon: systemd stops one with SIGTERM and, as the service
+// sets SendSIGHUP, SIGHUP right after it, whose default would kill the daemon
+// before it could end the session.
+var StopSignals = []os.Signal{syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP}
+
 // Run shows the greeter on the VT and starts each session a user logs
 // in to, until ctx ends. Meanwhile it takes changes of the login screen
 // on ApplySocket from root and from the user whose session runs, and
@@ -130,8 +135,9 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 		}
 	}()
 	if r != nil {
-		r.finish(o, owner, warnings, u)
+		r.finish(ctx, o, owner, warnings, u)
 	}
+	waitingOn := 0
 	for ctx.Err() == nil {
 		if req := u.next(); req != nil {
 			if a, err := u.prepare(req, nil); err != nil {
@@ -140,6 +146,28 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 				a.fail(a.exec(nil))
 			}
 		}
+		pid, live, err := liveSession(o.RuntimeDir)
+		if err != nil {
+			log.Printf("dm: %v", err)
+		}
+		if live {
+			if pid != waitingOn {
+				log.Printf("dm: worker %d still runs a session this daemon did not start: the greeter waits for it to end", pid)
+				waitingOn = pid
+			}
+			select {
+			case <-ctx.Done():
+				if pid != 0 {
+					if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+						log.Printf("dm: stop the session of worker %d: %v", pid, err)
+					}
+				}
+			case <-time.After(retryPause):
+			case u.parked = <-u.requests:
+			}
+			continue
+		}
+		waitingOn = 0
 		if err := c.activate(o.VT); err != nil {
 			log.Printf("dm: %v", err)
 		}
@@ -158,7 +186,7 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 		case g.upgrade != nil:
 			g.upgrade.fail(g.upgrade.exec(nil))
 		default:
-			err := g.login.run(owner.set, warnings, u)
+			err := g.login.run(ctx, owner.set, warnings, u)
 			owner.clear()
 			if err != nil {
 				log.Printf("dm: session: %v", err)
@@ -548,13 +576,13 @@ func relay(conn net.Conn, w *worker) (loginState, error) {
 }
 
 // run starts the authenticated session and follows it until it ends.
-func (l *pendingLogin) run(started func(uid uint32), warnings *log.Logger, u *upgrader) error {
+func (l *pendingLogin) run(ctx context.Context, started func(uid uint32), warnings *log.Logger, u *upgrader) error {
 	if err := l.w.ch.send(request{Op: opStart, Cmd: l.cmd, Env: l.env}); err != nil {
 		l.w.wait()
 		return err
 	}
 	s := &session{w: l.w, cmd: l.cmd}
-	return s.follow(started, warnings, u)
+	return s.follow(ctx, started, warnings, u)
 }
 
 type session struct {
@@ -588,13 +616,17 @@ func (w *worker) events(stop <-chan struct{}) <-chan workerEvent {
 	return events
 }
 
-func (s *session) follow(started func(uid uint32), warnings *log.Logger, u *upgrader) error {
+// follow runs until the session ends. When ctx ends it asks the worker to end
+// the session and keeps following: the session closes properly, and this
+// returns once it has, which is what stopping the display manager waits for.
+func (s *session) follow(ctx context.Context, started func(uid uint32), warnings *log.Logger, u *upgrader) error {
 	defer s.w.wait()
 	stop := make(chan struct{})
 	defer close(stop)
 	events := s.w.events(stop)
 	pending := u.parked
 	u.parked = nil
+	stopping := ctx.Done()
 	for {
 		if pending != nil {
 			var ended bool
@@ -611,6 +643,12 @@ func (s *session) follow(started func(uid uint32), warnings *log.Logger, u *upgr
 				return err
 			}
 		case pending = <-u.requests:
+		case <-stopping:
+			stopping = nil
+			log.Printf("dm: stopping: ending the session on worker %d", s.w.proc.Pid) //nolint:gosec // a number
+			if err := s.w.proc.Signal(syscall.SIGTERM); err != nil {
+				log.Printf("dm: stop the session's worker: %v", err)
+			}
 		}
 	}
 }
@@ -688,7 +726,7 @@ func (o Options) startSessionWorker(user string) (*worker, error) {
 	}
 	mine, theirs := os.NewFile(uintptr(pair[0]), "dm"), os.NewFile(uintptr(pair[1]), "worker")
 	defer func() { _ = theirs.Close() }()
-	cmd := exec.Command(o.Self, "worker", "session", "--service", o.Service, "--vt", strconv.Itoa(o.VT)) //nolint:gosec // lys-login itself
+	cmd := exec.Command(o.Self, "worker", "session", "--service", o.Service, "--vt", strconv.Itoa(o.VT), "--runtime-dir", o.RuntimeDir) //nolint:gosec // lys-login itself
 	cmd.ExtraFiles = []*os.File{theirs}
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Start(); err != nil {

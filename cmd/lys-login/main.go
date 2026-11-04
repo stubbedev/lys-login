@@ -38,7 +38,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"syscall"
 
 	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-shell/config"
@@ -293,7 +292,7 @@ func daemon(args []string) int {
 	if code != 0 {
 		return code
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	ctx, stop := signal.NotifyContext(context.Background(), dm.StopSignals...)
 	defer stop()
 	if err := dm.Run(ctx, o); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)
@@ -324,7 +323,7 @@ func daemonResume(args []string) int {
 		}
 		return 0
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	ctx, stop := signal.NotifyContext(context.Background(), dm.StopSignals...)
 	defer stop()
 	if err := dm.Resume(ctx, o, *stateFD); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login "+dm.ResumeMode+":", err)
@@ -362,6 +361,7 @@ func worker(args []string) int {
 	user := fs.String("user", "lys-greeter", "the greeter's account")
 	var env multiFlag
 	fs.Var(&env, "env", "KEY=value for the greeter's compositor (repeatable)")
+	fs.StringVar(&wo.RuntimeDir, "runtime-dir", dm.DefaultRuntimeDir, "directory for the lock a session holds while it runs")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}

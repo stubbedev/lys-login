@@ -19,7 +19,7 @@ worker stays on one OS thread for its whole life.
 | `lys-login worker greeter` | root | Opens the greeter account's session and runs the compositor in it. |
 | `lys-wm`, in a kiosk config | `lys-greeter` | Shows the greeter. No binds, so keys reach only the greeter, and no borders. |
 | `lys-login greet --hand-over` | `lys-greeter` | The login screen. Speaks the greetd protocol to the daemon. |
-| `lys-login worker session` | root, one per login attempt | Authenticates, then opens the session and runs it. |
+| `lys-login worker session` | root, one per login attempt | Authenticates, then opens the session and runs it. Stops it on SIGTERM, and holds `session.lock` in the runtime directory while it runs, so a daemon restarted after a crash waits for it instead of starting a greeter on top. |
 | Your compositor | you | The session. |
 
 The greeter uses the same protocol under greetd, on the socket `GREETD_SOCK` names, so

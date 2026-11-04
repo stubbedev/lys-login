@@ -133,9 +133,22 @@ func fakeDaemon() int {
 	if os.Getenv(fakeRootOnlyEnv) != "" {
 		may = rootOnly
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), StopSignals...)
 	defer stop()
 	c := fakeConsole(dir)
+	if os.Getenv(fakeLiveSessionEnv) != "" {
+		held, err := holdSessionLock(runtime)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "fake daemon:", err)
+			return 1
+		}
+		release := make(chan os.Signal, 1)
+		signal.Notify(release, syscall.SIGUSR1)
+		go func() {
+			<-release
+			_ = held.Close()
+		}()
+	}
 	var err error
 	if os.Args[1] == ResumeMode {
 		err = fakeResume(ctx, o, c, may)
@@ -979,5 +992,77 @@ func TestPreflightOutputStaysBounded(t *testing.T) {
 	}
 	if len(out.b) != preflightOutput || !strings.HasSuffix(string(out.b), "the end") {
 		t.Errorf("kept %d bytes ending %q", len(out.b), out.b[len(out.b)-7:])
+	}
+}
+
+// fakeLiveSessionEnv has a fake daemon start with a session's lock held, as a
+// daemon restarted over a worker that outlived the last one does; SIGUSR1
+// lets it go.
+const fakeLiveSessionEnv = "LYS_LOGIN_FAKE_LIVE_SESSION"
+
+// Stopping the daemon ends the session and then the daemon, in good time:
+// systemd would otherwise wait out its timeout and orphan the session.
+func TestStoppingTheDaemonEndsTheSessionFirst(t *testing.T) {
+	d := startFakeDM(t)
+	d.awaitGreeter(1)
+	worker, _ := d.login()
+	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGHUP} {
+		if err := syscall.Kill(d.pid, sig); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case err := <-d.done:
+		d.done <- err
+		if err != nil {
+			t.Fatalf("the daemon: %v", err)
+		}
+	case <-time.After(stepDeadline):
+		t.Fatalf("the daemon did not stop with a session running:\n%s", d.logged())
+	}
+	if _, err := os.Stat(fmt.Sprintf("/proc/%d", worker)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("worker %d outlived the daemon: %v", worker, err)
+	}
+	if !strings.Contains(d.logged(), "stopping: ending the session") {
+		t.Errorf("the daemon did not say it ended the session:\n%s", d.logged())
+	}
+}
+
+// A session keeps running after an unrelated request while the daemon runs:
+// only a stop ends it.
+func TestTheSessionRunsOnUntilTheDaemonStops(t *testing.T) {
+	d := startFakeDM(t)
+	d.awaitGreeter(1)
+	worker, _ := d.login()
+	time.Sleep(100 * time.Millisecond)
+	if err := syscall.Kill(worker, 0); err != nil {
+		t.Fatalf("worker %d ended with nothing asking it to: %v", worker, err)
+	}
+	if !d.tracks() {
+		t.Error("the daemon let go of a running session")
+	}
+}
+
+// A daemon restarted over a session it did not start shows no greeter on top
+// of it, and shows one once it ends.
+func TestARestartLeavesALiveSessionAlone(t *testing.T) {
+	d := startFakeDM(t, fakeLiveSessionEnv+"=1")
+	d.await("the daemon noticing the session", func() bool { return strings.Contains(d.logged(), "the greeter waits for it to end") })
+	if got := d.lines("greeters"); len(got) != 0 {
+		t.Fatalf("a greeter started over the live session: %v", got)
+	}
+	if err := syscall.Kill(d.pid, syscall.SIGUSR1); err != nil {
+		t.Fatal(err)
+	}
+	d.awaitGreeter(1)
+}
+
+// The service sets SendSIGHUP, so a stop arrives as SIGTERM and SIGHUP: both
+// must end the daemon through its context, not its default disposition.
+func TestStopSignalsCoverWhatSystemdSends(t *testing.T) {
+	for _, want := range []os.Signal{syscall.SIGTERM, syscall.SIGHUP} {
+		if !slices.Contains(StopSignals, want) {
+			t.Errorf("%v is no stop signal", want)
+		}
 	}
 }

@@ -33,7 +33,7 @@ func TestStopGroupStopsTheCompositorBeforeItsClients(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if err := stopGroup(cmd, exited); err != nil {
+	if err := stopGroup("the test", cmd, exited); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := os.ReadFile(verdict); err != nil || strings.TrimSpace(string(b)) != "alive" {

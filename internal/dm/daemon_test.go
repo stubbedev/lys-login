@@ -94,7 +94,7 @@ func TestGreeterLogsInThroughTheDaemon(t *testing.T) {
 		t.Errorf("session = %v %v", login.cmd, login.env)
 	}
 	var started []uint32
-	if err := login.run(func(uid uint32) { started = append(started, uid) }, log.Default(), &upgrader{}); err != nil {
+	if err := login.run(context.Background(), func(uid uint32) { started = append(started, uid) }, log.Default(), &upgrader{}); err != nil {
 		t.Errorf("run: %v", err)
 	}
 	if !slices.Equal(started, []uint32{1000}) {
@@ -133,7 +133,7 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session after the retry")
 	}
-	if err := login.run(func(uint32) {}, log.Default(), &upgrader{}); err != nil {
+	if err := login.run(context.Background(), func(uint32) {}, log.Default(), &upgrader{}); err != nil {
 		t.Error(err)
 	}
 }
@@ -330,7 +330,7 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session")
 	}
-	if err := login.run(func(uint32) {}, log.Default(), &upgrader{}); err != nil {
+	if err := login.run(context.Background(), func(uint32) {}, log.Default(), &upgrader{}); err != nil {
 		t.Error(err)
 	}
 	if _, err := idleClient.Write([]byte{0}); err == nil {
