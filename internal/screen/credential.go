@@ -47,6 +47,9 @@ type Options struct {
 	// Focus moves keyboard focus; the username entry's Enter uses it
 	// to move on to the secret entry.
 	Focus func(widget.Widget)
+	// IconScale is the buffer scale the prompt shows at, which its icons are
+	// decoded for ahead of the first click.
+	IconScale int
 }
 
 // Prompt is a built credential prompt and the handles its screen
@@ -67,6 +70,7 @@ type Prompt struct {
 	// Error is the error and info line, hidden until it has text.
 	Error  *widget.Label
 	peeked bool
+	iconPx int
 }
 
 // newPrompt assembles a prompt (CredentialBox::build); onSubmit fires with
@@ -87,7 +91,9 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	p.Entry.AddClass("lock-entry")
 	p.Entry.SetEcho(widget.EchoPassword)
 	p.Entry.SetWidthChars(entryChars, 0)
+	p.iconPx = int(textPx)
 	p.Entry.SetTrailingIcon(peekReveal, textPx, p.togglePeek)
+	go preloadPeekIcons(p.iconPx, o.IconScale)
 	p.Entry.OnActivate = onSubmit
 	p.Error.SetVisible(false)
 
@@ -140,6 +146,15 @@ func label(font render.Font, px float64, classes ...string) *widget.Label {
 	return l
 }
 
+// preloadPeekIcons decodes both peek icons, since the first click would otherwise
+// read and rasterize one on the UI loop. It reads the disk, so it runs off it.
+func preloadPeekIcons(px, scale int) {
+	scale = max(scale, 1)
+	for _, name := range [...]string{peekReveal, peekConceal} {
+		widget.PreloadThemeIcon(name, px, scale, 1)
+	}
+}
+
 // togglePeek is the peek icon's click: the masked text shows, or hides
 // again.
 func (p *Prompt) togglePeek() {
@@ -149,7 +164,7 @@ func (p *Prompt) togglePeek() {
 	if p.peeked {
 		icon = peekConceal
 	}
-	p.Entry.SetTrailingIcon(icon, 0, p.togglePeek)
+	p.Entry.SetTrailingIcon(icon, float64(p.iconPx), p.togglePeek)
 }
 
 // SetCapsLock shows or hides the caps lock warning.

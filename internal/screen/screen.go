@@ -37,6 +37,8 @@ type Spec struct {
 	CapsLock string
 	// Focus moves keyboard focus.
 	Focus func(widget.Widget)
+	// IconScale is the buffer scale the surface shows at.
+	IconScale int
 	// OnSubmit receives the secret entry's text on Enter.
 	OnSubmit func(string)
 }
@@ -58,7 +60,7 @@ func Cover(s Spec) widget.Widget {
 // in every mode; the greeter adds its username entry and its rows.
 func Build(s Spec) *Surface {
 	o := Options{
-		Font: s.Font, ShowClock: s.Config.ShowClock, CapsLock: s.CapsLock, Focus: s.Focus,
+		Font: s.Font, ShowClock: s.Config.ShowClock, CapsLock: s.CapsLock, Focus: s.Focus, IconScale: s.IconScale,
 	}
 	var layers []widget.Widget
 	if s.Mode == Greeter {

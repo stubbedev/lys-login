@@ -183,7 +183,7 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 	s.bg = s.loadBackground()
 	surface := loginscreen.Build(loginscreen.Spec{
 		Mode: loginscreen.Greeter, Config: g, Font: font, Sheet: sheet, Backdrop: s.bg,
-		Greeter: rows, CapsLock: t("greeter-caps-lock"), Focus: d.focus, OnSubmit: s.submit,
+		Greeter: rows, CapsLock: t("greeter-caps-lock"), Focus: d.focus, OnSubmit: s.submit, IconScale: d.outputScale(),
 	})
 	s.prompt, s.root = surface.Prompt, surface.Root
 	s.prompt.Username.SetPlaceholder(t("greeter-username"))

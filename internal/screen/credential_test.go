@@ -2,8 +2,11 @@ package screen
 
 import (
 	"image"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stubbedev/lys-lib/render"
 	"github.com/stubbedev/lys-shell/config"
@@ -118,5 +121,54 @@ func TestScrim(t *testing.T) {
 	s := Scrim()
 	if s.Visible() || !slices.Contains(s.Classes(), "lock-scrim") {
 		t.Error("the scrim starts hidden as .lock-scrim")
+	}
+}
+
+const peekIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>`
+
+// A first click must find both peek icons decoded: with their files gone, a cache
+// miss could only fail, and neither the toggle nor the paint after it may.
+func TestThePeekIconsNeedNoDiskAfterThePromptIsBuilt(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{peekReveal, peekConceal} {
+		if err := os.WriteFile(filepath.Join(dir, name+".svg"), []byte(peekIconSVG), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := widget.IconSearchPaths()
+	widget.SetIconSearchPaths(append([]string{dir}, paths...))
+	widget.RefreshIcons()
+	t.Cleanup(func() {
+		widget.SetIconSearchPaths(paths)
+		widget.RefreshIcons()
+	})
+	const scale = 2
+	p := newPrompt(Options{Font: treetest.Font(t), IconScale: scale}, func(string) {})
+	deadline := time.Now().Add(5 * time.Second)
+	for !widget.ThemeIconPreloaded(peekReveal, p.iconPx, scale, 1) || !widget.ThemeIconPreloaded(peekConceal, p.iconPx, scale, 1) {
+		if time.Now().After(deadline) {
+			t.Fatal("the peek icons were not decoded in 5s")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	pix := make([]byte, 4*64*64)
+	cv := render.NewScaled(pix, 4*64, 64, 64, scale, 1)
+	for range 2 {
+		p.togglePeek()
+		icon := p.Entry.TrailingIcon()
+		if got := icon.Measure(widget.Row, widget.Unknown).Nat; got != p.iconPx {
+			t.Errorf("after a click the icon measures %d across, want %d", got, p.iconPx)
+		}
+		icon.Arrange(render.Rect{W: 32, H: 32})
+		icon.Paint(cv)
+		if err := icon.Err(); err != nil {
+			t.Errorf("painting %s after the click read the disk and missed: %v", icon.Name(), err)
+		}
+	}
+	if !slices.ContainsFunc(pix, func(b byte) bool { return b != 0 }) {
+		t.Error("the peek icon painted nothing")
 	}
 }

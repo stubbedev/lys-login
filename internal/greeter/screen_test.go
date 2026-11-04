@@ -886,3 +886,26 @@ func TestAnAvatarKeepsOnlyWhatItsSlotShows(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryCoverSharesTheOneBackdrop(t *testing.T) {
+	decodes := 0
+	r := imageRig(t, image.NewRGBA(image.Rect(0, 0, 8, 8)), image.Pt(1920, 1080), image.Pt(1280, 720), image.Pt(3840, 2160))
+	if r.s.bg == nil {
+		t.Fatal("the greeter has no backdrop to share")
+	}
+	load := r.s.d.loadImage
+	r.s.d.loadImage = func(mem *memory.Shared, path string) (imagedecode.Decoded, error) {
+		decodes++
+		return load(mem, path)
+	}
+	face := treetest.Font(t)
+	for range r.outputs {
+		root := r.s.coverOn(&app.Output{}, face, nil).Root
+		if root == nil {
+			t.Fatal("a cover with nothing in it")
+		}
+	}
+	if decodes != 0 {
+		t.Errorf("%d decodes covering %d outputs: every cover draws the backdrop made once", decodes, len(r.outputs))
+	}
+}
