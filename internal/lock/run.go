@@ -79,11 +79,13 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		},
 	}
 	if ld != nil {
-		deps.SetLockedHint = func(locked bool) {
+		hints := newHintWorker(func(locked bool) {
 			if err := ld.SetLockedHint(locked); err != nil {
 				log.Printf("lock: SetLockedHint failed (non-fatal): %v", err)
 			}
-		}
+		})
+		defer func() { hints.drain(time.After(hintDrainWait)) }()
+		deps.SetLockedHint = hints.set
 	}
 	s := New(cfg, app.FontFallback(base), apptheme.New(cfg).Sheet, deps)
 	if ld != nil {
