@@ -132,6 +132,9 @@ type screen struct {
 	announced bool
 
 	clock *loginscreen.ClockTicker
+
+	// saving is the write handOver may have stopped waiting for.
+	saving sync.WaitGroup
 }
 
 // userButton is one avatar in the user list.
@@ -525,10 +528,10 @@ func (s *screen) handOver() {
 	expired := false
 	select {
 	case l := <-login:
-		go func() {
+		s.saving.Go(func() {
 			defer close(saved)
 			s.remember(l)
-		}()
+		})
 		select {
 		case <-saved:
 		case <-deadline:

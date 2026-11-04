@@ -163,6 +163,7 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 		},
 		outputScale: func() int { return r.scale },
 	})
+	t.Cleanup(r.s.saving.Wait)
 	return r
 }
 
