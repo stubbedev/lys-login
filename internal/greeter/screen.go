@@ -77,6 +77,8 @@ type deps struct {
 	// schedule runs fn on the loop after d, once; cancel stops it.
 	schedule func(d time.Duration, fn func()) (cancel func())
 	now      func() time.Time
+	// saveLast stores a remembered value; it syncs, so never on the loop.
+	saveLast func(path, value string) error
 	// power runs a power action to its end, off the loop.
 	power func(verb string)
 	// loadImage decodes the background (no blur in the greeter), its
@@ -462,15 +464,27 @@ func (s *screen) setForm(on bool) {
 	s.drop.SetEnabled(on)
 }
 
-// rememberLogin persists the session and the username for next time.
-func (s *screen) rememberLogin() {
-	if err := SaveLast(s.init.StatePath, s.selectedSession().ID); err != nil {
+// rememberedLogin is what a login leaves behind for the next one.
+type rememberedLogin struct {
+	session string
+	user    string
+}
+
+// loginToRemember reads what it needs on the loop.
+func (s *screen) loginToRemember() rememberedLogin {
+	return rememberedLogin{session: s.selectedSession().ID, user: strings.TrimSpace(s.prompt.Username.Text())}
+}
+
+// remember persists the session and the username for next time.
+func (s *screen) remember(l rememberedLogin) {
+	if err := s.d.saveLast(s.init.StatePath, l.session); err != nil {
 		log.Printf("greeter: could not save last session: %v", err)
 	}
-	if user := strings.TrimSpace(s.prompt.Username.Text()); user != "" {
-		if err := SaveLast(LastUserPath(s.init.StatePath), user); err != nil {
-			log.Printf("greeter: could not save last user: %v", err)
-		}
+	if l.user == "" {
+		return
+	}
+	if err := s.d.saveLast(LastUserPath(s.init.StatePath), l.user); err != nil {
+		log.Printf("greeter: could not save last user: %v", err)
 	}
 }
 
@@ -484,18 +498,42 @@ func (s *screen) refreshClock() {
 // setCapsLock shows or hides the warning.
 func (s *screen) setCapsLock(on bool) { s.prompt.SetCapsLock(on) }
 
-// handOver runs between the authentication and start_session. The login
-// is remembered here because the display manager may end the greeter as
-// soon as the session starts, before the success event reaches the loop.
+// handOver runs between the authentication and start_session, on the worker that
+// talks to greetd. The login is remembered here because the display manager may end
+// the greeter as soon as the session starts, before the success event reaches the
+// loop. Writing it syncs, so the loop only supplies what to write and goes on
+// animating. Nothing here holds the session back for longer than handOverWait: a
+// stalled disk costs what it had yet to write, not the login.
 func (s *screen) handOver() {
+	deadline := s.d.after(handOverWait)
+	login := make(chan rememberedLogin, 1)
+	s.d.invoke(func() { login <- s.loginToRemember() })
+	saved := make(chan struct{})
+	expired := false
+	select {
+	case l := <-login:
+		go func() {
+			defer close(saved)
+			s.remember(l)
+		}()
+		select {
+		case <-saved:
+		case <-deadline:
+			expired = true
+			log.Printf("greeter: the login was not saved within %v; starting the session regardless", handOverWait)
+		}
+	case <-deadline:
+		expired = true
+		log.Printf("greeter: the loop did not answer within %v; starting the session without remembering the login", handOverWait)
+	}
 	shown := make(chan struct{})
-	s.d.invoke(func() {
-		s.rememberLogin()
-		s.leave(func() { close(shown) })
-	})
+	s.d.invoke(func() { s.leave(func() { close(shown) }) })
+	if expired {
+		return
+	}
 	select {
 	case <-shown:
-	case <-s.d.after(handOverWait):
+	case <-deadline:
 		log.Printf("greeter: the frame without the login card was not presented within %v; starting the session over whatever is on screen", handOverWait)
 	}
 }

@@ -47,6 +47,8 @@ type scheduled struct {
 }
 
 type rig struct {
+	invoke     func(func())
+	save       func(path, value string)
 	scheduled  []scheduled
 	s          *screen
 	convs      []*fakeHandle
@@ -108,7 +110,19 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			r.convs = append(r.convs, h)
 			return h
 		},
-		invoke:       func(fn func()) { fn() },
+		invoke: func(fn func()) {
+			if r.invoke != nil {
+				r.invoke(fn)
+				return
+			}
+			fn()
+		},
+		saveLast: func(path, value string) error {
+			if r.save != nil {
+				r.save(path, value)
+			}
+			return SaveLast(path, value)
+		},
 		focus:        func(w widget.Widget) { r.focused = w },
 		focused:      func() widget.Widget { return r.focused },
 		keyboardHeld: func() bool { return r.keyboard },
@@ -311,8 +325,15 @@ func TestGreeterRemembersTheLoginBeforeTheSessionStarts(t *testing.T) {
 	if got := LoadLast(LastUserPath(r.s.init.StatePath)); got != "" {
 		t.Fatalf("user %q remembered before the login succeeded", got)
 	}
-	close(r.timeout)
+	presented := make(chan struct{})
+	r.s.d.whenPresented = func(fn func()) error {
+		fn()
+		close(presented)
+		return nil
+	}
+	r.s.prompt.Reveal.Finish()
 	r.starts[0].Before()
+	<-presented
 	if got := LoadLast(r.s.init.StatePath); got != "sway" {
 		t.Errorf("remembered session = %q; the display manager may end the greeter as soon as the session starts", got)
 	}
@@ -505,7 +526,6 @@ func TestGreeterLeavesOnlyItsBackgroundBeforeTheSessionStarts(t *testing.T) {
 }
 
 func TestGreeterHandOverWaitsForThePresentedFrameOrTheTimeout(t *testing.T) {
-	noAnimations := func(i *Init) { i.Config.Animations.Enabled = false }
 	r := newRig(t, noAnimations)
 	r.s.start()
 	r.s.d.whenPresented = func(fn func()) error { fn(); return nil }
@@ -764,5 +784,81 @@ func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 	r.powerVerbs(t, 2)
 	if got := onLoop.Load(); got != 0 {
 		t.Errorf("%d power actions on the loop's goroutine", got)
+	}
+}
+
+// loopRig runs what is invoked on a goroutine of its own, as the real loop does.
+func noAnimations(i *Init) { i.Config.Animations.Enabled = false }
+
+func loopRig(t *testing.T, edit func(*Init)) (*rig, *atomic.Uint64) {
+	t.Helper()
+	r := newRig(t, edit)
+	calls := make(chan func())
+	t.Cleanup(func() { close(calls) })
+	var loop atomic.Uint64
+	go func() {
+		loop.Store(goroutineID())
+		for fn := range calls {
+			fn()
+		}
+	}()
+	r.invoke = func(fn func()) { calls <- fn }
+	r.s.d.whenPresented = func(fn func()) error {
+		fn()
+		return nil
+	}
+	return r, &loop
+}
+
+func TestTheLoginIsSavedOffTheLoopBeforeTheCardLeaves(t *testing.T) {
+	r, loop := loopRig(t, noAnimations)
+	r.s.prompt.Username.SetText(" ada ")
+	r.s.drop.OnSelect(1)
+	var writes, onLoop atomic.Int32
+	r.save = func(string, string) {
+		writes.Add(1)
+		if goroutineID() == loop.Load() {
+			onLoop.Add(1)
+		}
+		if !r.s.prompt.Reveal.Revealed() {
+			t.Error("the card left before the login was saved")
+		}
+	}
+	r.s.start()
+	r.s.prompt.Reveal.Finish()
+	r.s.handOver()
+	if got := writes.Load(); got != 2 {
+		t.Errorf("%d writes, want the session and the user", got)
+	}
+	if got := onLoop.Load(); got != 0 {
+		t.Errorf("%d writes on the loop's goroutine", got)
+	}
+	if got := LoadLast(LastUserPath(r.s.init.StatePath)); got != "ada" {
+		t.Errorf("remembered user = %q", got)
+	}
+}
+
+func TestAStalledDiskDoesNotHoldTheSessionBack(t *testing.T) {
+	r, _ := loopRig(t, noAnimations)
+	r.s.prompt.Username.SetText("ada")
+	entered, release := make(chan struct{}, 2), make(chan struct{})
+	r.save = func(string, string) {
+		entered <- struct{}{}
+		<-release
+	}
+	defer close(release)
+	r.s.start()
+	r.s.prompt.Reveal.Finish()
+	done := make(chan struct{})
+	go func() {
+		r.s.handOver()
+		close(done)
+	}()
+	<-entered
+	close(r.timeout)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session waited on the disk past the deadline")
 	}
 }

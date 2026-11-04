@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/stubbedev/lys-lib/atomicfile"
 	"github.com/stubbedev/lys-shell/config"
 )
 
@@ -145,10 +146,14 @@ func LoadLast(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// SaveLast persists a remembered value, creating its directory.
+// SaveLast persists a remembered value, creating its directory and replacing the
+// file whole, so a crash leaves the old value or the new one.
 func SaveLast(path, value string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // the greeter's state dir is not secret
-		return err
+		return fmt.Errorf("greeter: create the directory of %s: %w", path, err)
 	}
-	return os.WriteFile(path, []byte(value), 0o644) //nolint:gosec // a session id and a username, not secret
+	if err := atomicfile.WriteFile(path, []byte(value), 0o644); err != nil {
+		return fmt.Errorf("greeter: write %s: %w", path, err)
+	}
+	return nil
 }

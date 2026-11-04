@@ -87,7 +87,8 @@ func Run(init Init) error {
 			t := time.AfterFunc(d, func() { a.Invoke(fn) })
 			return func() { t.Stop() }
 		},
-		now: time.Now,
+		now:      time.Now,
+		saveLast: SaveLast,
 		power: func(verb string) {
 			// logind allows both for the active local session without
 			// extra polkit rules.
