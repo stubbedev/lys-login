@@ -381,9 +381,9 @@ in
 
           # Stopping while waiting on such a session ends it too.
           sid, compositor, session_worker = login("password", 5, "${password}", NEXT)
-          crashed = daemon()
+          waits = journal().count("the greeter waits for it to end")
           machine.succeed("systemctl kill -s KILL --kill-whom=main lys-login.service")
-          machine.wait_until_succeeds(f"[ \"$(systemctl show -P MainPID lys-login.service)\" != {crashed} ] && [ \"$(systemctl show -P MainPID lys-login.service)\" != 0 ]", timeout=30)
+          machine.wait_until_succeeds(f"[ \"$(journalctl -b -u lys-login -o cat --no-pager | grep -c 'the greeter waits for it to end')\" -gt {waits} ]", timeout=30)
           machine.succeed("touch /tmp/lys-login/end-session")
           machine.succeed("systemctl stop lys-login.service")
           machine.wait_until_succeeds(f"! test -e /proc/{session_worker}", timeout=20)

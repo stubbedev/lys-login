@@ -104,6 +104,7 @@ func fakeConsole(dir string) console {
 			},
 			cards: map[string]openCard{},
 		},
+		stop: stopWorker,
 	}
 }
 
@@ -1059,6 +1060,41 @@ func TestARestartLeavesALiveSessionAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.awaitGreeter(1)
+}
+
+func stoppedDaemonStops(t *testing.T, dir string) []int {
+	t.Helper()
+	var stopped []int
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := console{
+		activate: func(int) error { t.Error("a stopped daemon took the VT"); return nil },
+		showText: func(int, bool) error { return nil },
+		cards:    newHeldCards(),
+		stop:     func(worker int) error { stopped = append(stopped, worker); return nil },
+	}
+	if err := runDaemon(ctx, Options{RuntimeDir: dir}, c, rootOnly, nil); err != nil {
+		t.Fatal(err)
+	}
+	return stopped
+}
+
+func TestADaemonStoppedBeforeItLooksStillEndsTheLiveSession(t *testing.T) {
+	dir := t.TempDir()
+	held, err := holdSessionLock(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = held.Close() }()
+	if got := stoppedDaemonStops(t, dir); !slices.Equal(got, []int{os.Getpid()}) {
+		t.Errorf("stopped workers %v, want the session's", got)
+	}
+}
+
+func TestADaemonStoppedWithNoSessionStopsNothing(t *testing.T) {
+	if got := stoppedDaemonStops(t, t.TempDir()); len(got) != 0 {
+		t.Errorf("stopped workers %v with no session running", got)
+	}
 }
 
 // The service sets SendSIGHUP, so a stop arrives as SIGTERM and SIGHUP: both

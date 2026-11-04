@@ -72,10 +72,11 @@ type console struct {
 	// hides the cursor (false).
 	showText func(vt int, on bool) error
 	cards    *heldCards
+	stop     func(worker int) error
 }
 
 func systemConsole() console {
-	return console{activate: activateVT, showText: showVTText, cards: newHeldCards()}
+	return console{activate: activateVT, showText: showVTText, cards: newHeldCards(), stop: stopWorker}
 }
 
 // hideText leaves nothing on the kernel's console to see. The console shows
@@ -176,11 +177,6 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 			}
 			select {
 			case <-ctx.Done():
-				if pid != 0 {
-					if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-						log.Printf("dm: stop the session of worker %d: %v", pid, err)
-					}
-				}
 			case <-time.After(retryPause):
 			case u.parked = <-u.requests:
 			}
@@ -214,8 +210,24 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 			}
 		}
 	}
+	endLiveSession(o.RuntimeDir, c.stop)
 	return nil
 }
+
+func endLiveSession(runtimeDir string, stop func(worker int) error) {
+	pid, live, err := liveSession(runtimeDir)
+	if err != nil {
+		log.Printf("dm: %v", err)
+	}
+	if !live || pid == 0 {
+		return
+	}
+	if err := stop(pid); err != nil {
+		log.Printf("dm: stop the session of worker %d: %v", pid, err)
+	}
+}
+
+func stopWorker(worker int) error { return syscall.Kill(worker, syscall.SIGTERM) }
 
 // The console ioctls of linux/vt.h, which x/sys/unix does not carry.
 const (
