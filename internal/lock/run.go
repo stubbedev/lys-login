@@ -75,7 +75,21 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		}
 	})
 	defer func() { lockedLine.drain(time.After(drainWait)) }()
-	ld := logind.SystemClient("lock")
+	logindLife, endLogind := context.WithCancel(context.Background())
+	defer endLogind()
+	ld := connectLogind(logindLife)
+	hints := newLatest("logind", func(locked bool) {
+		client := ld.wait()
+		if client == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(logindLife, logind.CallTimeout)
+		defer cancel()
+		if err := client.SetLockedHint(ctx, locked); err != nil {
+			log.Printf("lock: SetLockedHint failed (non-fatal): %v", err)
+		}
+	})
+	defer func() { hints.drain(time.After(drainWait)) }()
 	deps := Deps{
 		Locker: appLocker{a: a},
 		Loop:   a,
@@ -97,26 +111,18 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		OnCapsLock: func(fn func(on bool)) func() {
 			return a.OnLocks(func(l app.Locks) { fn(l.Caps) })
 		},
-	}
-	if ld != nil {
-		hints := newLatest("logind", func(locked bool) {
-			if err := ld.SetLockedHint(locked); err != nil {
-				log.Printf("lock: SetLockedHint failed (non-fatal): %v", err)
-			}
-		})
-		defer func() { hints.drain(time.After(drainWait)) }()
-		deps.SetLockedHint = hints.set
+		SetLockedHint: hints.set,
 	}
 	s := New(cfg, app.FontFallback(base), apptheme.New(cfg).Sheet, deps)
-	if ld != nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		go func() {
-			if err := ld.Listen(ctx, func() {}, func() { a.Invoke(s.ForceUnlock) }); err != nil {
-				log.Printf("lock: logind Unlock unavailable: %v", err)
-			}
-		}()
-	}
+	go func() {
+		client := ld.wait()
+		if client == nil {
+			return
+		}
+		if err := client.Listen(logindLife, func() {}, func() { a.Invoke(s.ForceUnlock) }); err != nil {
+			log.Printf("lock: logind Unlock unavailable: %v", err)
+		}
+	}()
 	// The lock is requested before the loop runs: Run returns at once
 	// while there is neither a window nor a lock to drive.
 	if err := s.Lock(); err != nil {
@@ -129,6 +135,31 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		return ErrRefused
 	}
 	return nil
+}
+
+// pendingLogind is logind's client being connected off the way of the lock: a
+// system bus that does not answer must not hold the session unlocked, so the lock
+// goes ahead and what needs logind waits for it, at most logind.CallTimeout.
+type pendingLogind struct {
+	done   chan struct{}
+	client *logind.Client
+}
+
+func connectLogind(life context.Context) *pendingLogind {
+	p := &pendingLogind{done: make(chan struct{})}
+	go func() {
+		defer close(p.done)
+		ctx, cancel := context.WithTimeout(life, logind.CallTimeout)
+		defer cancel()
+		p.client = logind.SystemClient(ctx, "lock")
+	}()
+	return p
+}
+
+// wait is the client once connected, nil without logind.
+func (p *pendingLogind) wait() *logind.Client {
+	<-p.done
+	return p.client
 }
 
 // runtimeTimer is a time.Timer as a Timer.

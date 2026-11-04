@@ -71,8 +71,8 @@ type Deps struct {
 	// Auth starts a conversation; the production one is PAM against
 	// the configured service for the session user.
 	Auth func(service string, onEvent func(auth.Event)) authHandle
-	// SetLockedHint reports the state to logind, best effort; nil
-	// without logind.
+	// SetLockedHint reports the state to logind, best effort; it is called on
+	// the loop, so it must not wait. nil for nothing.
 	SetLockedHint func(locked bool)
 	// Decode decodes the background image file, its pixels in mem
 	// where it can.
