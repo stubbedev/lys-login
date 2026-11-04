@@ -121,13 +121,17 @@ func Run(init Init) error {
 		return err
 	}
 	win.Fullscreen()
-	defer coverOutputs(sess.LayerShell() != nil, sess.Outputs(), sess.WatchOutputs, func(out *app.Output) {
-		if _, err := a.NewLayer(s.coverOn(out, font, sheet)); err != nil {
-			log.Printf("greeter: cover an output: %v", err)
-		}
-	})()
+	var covers covering
+	defer covers.end()
 	s.start()
-	if err := win.WhenPresented(s.markPresented); err != nil {
+	err = covers.startAfter(win.WhenPresented, s.markPresented, func() func() {
+		return coverOutputs(sess.LayerShell() != nil, sess.Outputs(), sess.WatchOutputs, func(out *app.Output) {
+			if _, err := a.NewLayer(s.coverOn(out, font, sheet)); err != nil {
+				log.Printf("greeter: cover an output: %v", err)
+			}
+		})
+	})
+	if err != nil {
 		return fmt.Errorf("greeter: wait for the first frame: %w", err)
 	}
 	s.clock.Arm()
@@ -149,6 +153,23 @@ func Run(init Init) error {
 		return nil
 	}
 	return err
+}
+
+type covering struct {
+	stop func()
+}
+
+func (c *covering) startAfter(whenPresented func(func()) error, presented func(), start func() (stop func())) error {
+	return whenPresented(func() {
+		presented()
+		c.stop = start()
+	})
+}
+
+func (c *covering) end() {
+	if c.stop != nil {
+		c.stop()
+	}
 }
 
 func coverOutputs(layerShell bool, outputs []*app.Output, watch func(added, removed func(*app.Output)) func(), cover func(*app.Output)) (stop func()) {

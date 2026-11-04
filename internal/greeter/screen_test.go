@@ -931,3 +931,40 @@ func TestEveryCoverSharesTheOneBackdrop(t *testing.T) {
 		t.Errorf("%d decodes covering %d outputs: every cover draws the backdrop made once", decodes, len(r.outputs))
 	}
 }
+
+func TestCoversWaitForTheGreetersFirstFrame(t *testing.T) {
+	var present func()
+	var presented, started, stopped int
+	var c covering
+	err := c.startAfter(func(fn func()) error { present = fn; return nil }, func() { presented++ }, func() func() {
+		started++
+		return func() { stopped++ }
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started != 0 {
+		t.Fatal("the covers drew before the greeter's first frame, over what the splash left")
+	}
+	present()
+	if presented != 1 || started != 1 {
+		t.Fatalf("after the first frame: presented %d, covers started %d; want 1 and 1", presented, started)
+	}
+	c.end()
+	if stopped != 1 {
+		t.Errorf("ending stopped the covers %d times, want 1", stopped)
+	}
+}
+
+func TestCoversNeverStartWithoutAFirstFrame(t *testing.T) {
+	var c covering
+	refused := errors.New("no window")
+	err := c.startAfter(func(func()) error { return refused }, func() {}, func() func() {
+		t.Error("the covers started though the greeter never presented")
+		return func() {}
+	})
+	if !errors.Is(err, refused) {
+		t.Errorf("err %v, want the presentation's", err)
+	}
+	c.end()
+}
