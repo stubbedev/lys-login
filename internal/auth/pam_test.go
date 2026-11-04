@@ -149,9 +149,11 @@ func TestPAMConversationHandling(t *testing.T) {
 	}
 	var unlocked []string
 	var seen []Prompt
-	if err := newTestPAM(f, &unlocked).Run("alice", answering("hunter2", &seen)); err != nil {
+	p := newTestPAM(f, &unlocked)
+	if err := p.Run("alice", answering("hunter2", &seen)); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	p.verified.Wait()
 	want := []Prompt{
 		{Kind: PromptInfo, Text: "Welcome"},
 		{Kind: PromptError, Text: "Password expires in 3 days"},
@@ -183,7 +185,9 @@ func TestPAMWrongPasswordFailsWithoutKeyring(t *testing.T) {
 	f := &fakePAM{password: "right", batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password: "}}}}
 	var unlocked []string
 	var seen []Prompt
-	err := newTestPAM(f, &unlocked).Run("alice", answering("wrong", &seen))
+	p := newTestPAM(f, &unlocked)
+	err := p.Run("alice", answering("wrong", &seen))
+	p.verified.Wait()
 	if err == nil || !strings.Contains(err.Error(), "AUTH_ERR") {
 		t.Fatalf("Run = %v, want the authentication failure", err)
 	}
@@ -226,7 +230,9 @@ func TestPAMAccountCheckFailure(t *testing.T) {
 	f := &fakePAM{password: "pw", acctRC: fakeAcctErr, batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password: "}}}}
 	var unlocked []string
 	var seen []Prompt
-	err := newTestPAM(f, &unlocked).Run("alice", answering("pw", &seen))
+	p := newTestPAM(f, &unlocked)
+	err := p.Run("alice", answering("pw", &seen))
+	p.verified.Wait()
 	if err == nil || err.Error() != "pam_acct_mgmt: ACCT_EXPIRED" {
 		t.Fatalf("Run = %v, want the account check failure", err)
 	}
@@ -286,7 +292,9 @@ func TestPAMEmptyUserIsSessionUser(t *testing.T) {
 	f := &fakePAM{password: "pw", batches: [][]pamMessage{{{style: pamPromptEchoOff}}}}
 	var unlocked []string
 	var seen []Prompt
-	_ = newTestPAM(f, &unlocked).Run("", answering("pw", &seen))
+	p := newTestPAM(f, &unlocked)
+	_ = p.Run("", answering("pw", &seen))
+	p.verified.Wait()
 	if f.user != "carol" {
 		t.Errorf("transaction user = %q, want the session user", f.user)
 	}
