@@ -49,6 +49,10 @@ type Surface struct {
 	Scrim *widget.Box
 }
 
+func Cover(s Spec) widget.Widget {
+	return Window(s.Sheet, Background(s.Backdrop, HexFill(s.Config.Background.Color)))
+}
+
 // Build assembles a login screen: the background, the credential prompt
 // with the clock and the caps lock warning, and the blank scrim, the same
 // in every mode; the greeter adds its username entry and its rows.

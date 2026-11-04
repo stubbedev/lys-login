@@ -15,6 +15,7 @@ import (
 	"github.com/stubbedev/lys-shell/shell/reveal"
 	"github.com/stubbedev/lys-shell/shell/widgets"
 	"github.com/stubbedev/lys-shell/styling"
+	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 	"github.com/stubbedev/lys-ui/widget/css"
 	"github.com/stubbedev/memory-go"
@@ -512,4 +513,17 @@ func (s *screen) show() {
 
 func (s *screen) showPrompt() {
 	reveal.Show(s.prompt.Reveal, s.init.Config.Animations, config.AnimLock)
+}
+
+func (s *screen) coverOn(out *app.Output, font render.Font, sheet *widget.Stylesheet) app.LayerConfig {
+	return app.LayerConfig{
+		Output:     out,
+		Layer:      app.LayerBackground,
+		Anchor:     app.AnchorTop | app.AnchorBottom | app.AnchorLeft | app.AnchorRight,
+		Keyboard:   app.KeyboardNone,
+		Namespace:  "lys-greeter-cover",
+		Background: render.RGB(0, 0, 0),
+		OwnMotion:  true,
+		Root:       loginscreen.Cover(loginscreen.Spec{Config: s.init.Config.Login, Font: font, Sheet: sheet, Backdrop: s.bg}),
+	}
 }

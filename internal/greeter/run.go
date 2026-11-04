@@ -54,7 +54,8 @@ func Run(init Init) error {
 
 	var win *app.Window
 	var held widget.Widget
-	s := newScreen(init, font, Stylesheet(init.Config), deps{
+	sheet := Stylesheet(init.Config)
+	s := newScreen(init, font, sheet, deps{
 		connect: func(start auth.Start) (auth.Conversation, error) {
 			return auth.NewGreetdFromEnv(start)
 		},
@@ -101,6 +102,11 @@ func Run(init Init) error {
 		return err
 	}
 	win.Fullscreen()
+	defer coverOutputs(sess.LayerShell() != nil, sess.Outputs(), sess.WatchOutputs, func(out *app.Output) {
+		if _, err := a.NewLayer(s.coverOn(out, font, sheet)); err != nil {
+			log.Printf("greeter: cover an output: %v", err)
+		}
+	})()
 	s.start()
 	if err := win.WhenPresented(s.markPresented); err != nil {
 		return fmt.Errorf("greeter: wait for the first frame: %w", err)
@@ -119,6 +125,17 @@ func Run(init Init) error {
 		return nil
 	}
 	return err
+}
+
+func coverOutputs(layerShell bool, outputs []*app.Output, watch func(added, removed func(*app.Output)) func(), cover func(*app.Output)) (stop func()) {
+	if !layerShell {
+		log.Printf("greeter: the compositor has no layer shell, so only the greeter's window covers its outputs")
+		return func() {}
+	}
+	for _, out := range outputs {
+		cover(out)
+	}
+	return watch(cover, nil)
 }
 
 func windowConfig(root widget.Widget, onPresented func()) app.WindowConfig {

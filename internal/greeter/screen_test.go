@@ -16,6 +16,7 @@ import (
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/imagedecode"
 	"github.com/stubbedev/lys-shell/shell/treetest"
+	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 	"github.com/stubbedev/lys-ui/widget/css"
 	"github.com/stubbedev/memory-go"
@@ -609,5 +610,57 @@ func TestGreeterUsernameEntryOnlyWithoutAListedUser(t *testing.T) {
 	r = newRig(t, func(i *Init) { i.LastUser = "ada"; i.Config.Login.Greeter.ShowUserList = false })
 	if !r.s.prompt.Username.Visible() {
 		t.Error("without the list the entry is the only way to name a user")
+	}
+}
+
+func TestCoverOutputsEveryOutputAndLaterOnes(t *testing.T) {
+	a, b, c := &app.Output{}, &app.Output{}, &app.Output{}
+	var covered []*app.Output
+	var added func(*app.Output)
+	stopped := false
+	stop := coverOutputs(true, []*app.Output{a, b}, func(add, _ func(*app.Output)) func() {
+		added = add
+		return func() { stopped = true }
+	}, func(o *app.Output) { covered = append(covered, o) })
+	if !slices.Equal(covered, []*app.Output{a, b}) {
+		t.Fatalf("covered %d outputs of the 2 there", len(covered))
+	}
+	added(c)
+	if !slices.Equal(covered, []*app.Output{a, b, c}) {
+		t.Fatal("an output plugged in later stays uncovered")
+	}
+	stop()
+	if !stopped {
+		t.Error("the watch outlives the greeter")
+	}
+}
+
+func TestCoverOutputsWithoutALayerShellLeavesThemToTheWindow(t *testing.T) {
+	var covered int
+	stop := coverOutputs(false, []*app.Output{{}}, func(_, _ func(*app.Output)) func() {
+		t.Error("watching outputs nothing can cover")
+		return func() {}
+	}, func(*app.Output) { covered++ })
+	stop()
+	if covered != 0 {
+		t.Errorf("covered %d outputs with no layer shell", covered)
+	}
+}
+
+func TestCoverIsTheBackgroundAlone(t *testing.T) {
+	r := newRig(t, nil)
+	out := &app.Output{}
+	cfg := r.s.coverOn(out, treetest.Font(t), nil)
+	if cfg.Output != out || cfg.Layer != app.LayerBackground || cfg.Keyboard != app.KeyboardNone {
+		t.Errorf("cover on %p layer %v keyboard %v", cfg.Output, cfg.Layer, cfg.Keyboard)
+	}
+	if want := app.AnchorTop | app.AnchorBottom | app.AnchorLeft | app.AnchorRight; cfg.Anchor != want {
+		t.Errorf("anchor %v, want every edge", cfg.Anchor)
+	}
+	if len(treetest.WithClass(cfg.Root, "lock-bg")) != 1 {
+		t.Error("the cover does not paint the background")
+	}
+	if len(treetest.All[*widget.Entry](cfg.Root)) != 0 || len(treetest.WithClass(cfg.Root, "lock-center")) != 0 {
+		t.Error("a cover is no second form")
 	}
 }
