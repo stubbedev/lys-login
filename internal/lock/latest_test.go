@@ -52,6 +52,7 @@ func TestABlockedLogindHoldsNeitherTheLockNorTheRelease(t *testing.T) {
 		t.Fatal("the hint never left")
 	}
 	h.s.ForceUnlock()
+	h.finishExit()
 	if h.locker.active {
 		t.Fatal("the release waited on logind")
 	}

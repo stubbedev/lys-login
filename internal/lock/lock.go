@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"slices"
 	"strconv"
 	"time"
 
@@ -161,6 +162,12 @@ type Screen struct {
 	// unlocked: the last lock ended in an unlock, by password or by
 	// logind.
 	unlocked bool
+	// leaving: an unlock is hiding the prompts before it releases the
+	// lock; exiting holds the faces still hiding, and exitGen drops the
+	// completions of an exit cancelled since.
+	leaving bool
+	exiting []*face
+	exitGen uint64
 }
 
 // New builds the screen over its collaborators.
@@ -185,6 +192,10 @@ func (s *Screen) Locked() bool { return s.d.Locker.Active() }
 func (s *Screen) Lock() error {
 	if !s.cfg.Lock.Enabled {
 		return errors.New("lock: disabled in config (login.lock.enabled)")
+	}
+	if s.leaving {
+		s.cancelExit()
+		return nil
 	}
 	if s.d.Locker.Active() {
 		return nil
@@ -212,11 +223,15 @@ func (s *Screen) Lock() error {
 		s.dropBackground()
 		return fmt.Errorf("lock: cannot lock the session: %w", err)
 	}
-	if s.d.OnCapsLock != nil {
-		s.capsStop = s.d.OnCapsLock(s.setCaps)
-	}
+	s.watchCapsLock()
 	s.armBlank()
 	return nil
+}
+
+func (s *Screen) watchCapsLock() {
+	if s.d.OnCapsLock != nil && s.capsStop == nil {
+		s.capsStop = s.d.OnCapsLock(s.setCaps)
+	}
 }
 
 // loadBackground resolves the configured background and makes it at
@@ -279,11 +294,9 @@ func (s *Screen) keyPressed() {
 // dropFace forgets the surface of an unplugged output (or of an ended
 // lock).
 func (s *Screen) dropFace(f *face) {
-	for i, cur := range s.faces {
-		if cur == f {
-			s.faces = append(s.faces[:i], s.faces[i+1:]...)
-			return
-		}
+	s.faces = slices.DeleteFunc(s.faces, func(cur *face) bool { return cur == f })
+	if s.leaving {
+		s.faceLeft(s.exitGen, f)
 	}
 }
 
@@ -299,6 +312,7 @@ func (s *Screen) onLocked() {
 // onFinished: the compositor refused the lock (a previous lock client
 // still holds the session) or ended a held one by its own policy.
 func (s *Screen) onFinished() {
+	s.dropExit()
 	if s.confirmed {
 		log.Printf("lock: the compositor ended the session lock")
 		s.setLockedHint(false)
@@ -463,9 +477,62 @@ func (s *Screen) resetAuth() {
 	s.pending = nil
 }
 
-// release tears the surfaces down and ends the lock.
+// release unlocks: the prompts hide under the lock's exit transition,
+// then the lock is released and the surfaces torn down. It is idempotent
+// while the exit runs, and a Lock meanwhile cancels it.
 func (s *Screen) release() {
+	if s.leaving {
+		return
+	}
+	s.leaving = true
+	s.exitGen++
+	gen := s.exitGen
 	s.stopTimers()
+	s.resetAuth()
+	s.setInput(false)
+	s.exiting = slices.Clone(s.faces)
+	if len(s.exiting) == 0 {
+		s.finishRelease()
+		return
+	}
+	for _, f := range slices.Clone(s.exiting) {
+		reveal.Hide(f.prompt.Reveal, s.anims, config.AnimLock, func() { s.faceLeft(gen, f) })
+	}
+}
+
+func (s *Screen) faceLeft(gen uint64, f *face) {
+	if !s.leaving || gen != s.exitGen {
+		return
+	}
+	s.exiting = slices.DeleteFunc(s.exiting, func(cur *face) bool { return cur == f })
+	if len(s.exiting) == 0 {
+		s.finishRelease()
+	}
+}
+
+func (s *Screen) dropExit() {
+	s.leaving = false
+	s.exiting = nil
+	s.exitGen++
+}
+
+// cancelExit keeps the lock a re-lock asked for during the exit: the
+// prompts come back and the watches run again.
+func (s *Screen) cancelExit() {
+	s.dropExit()
+	s.lockedAt = s.d.Now()
+	for _, f := range s.faces {
+		reveal.Show(f.prompt.Reveal, s.anims, config.AnimLock)
+	}
+	s.setInput(true)
+	s.clock.Start()
+	s.watchCapsLock()
+	s.armBlank()
+	s.focusEntry()
+}
+
+func (s *Screen) finishRelease() {
+	s.dropExit()
 	if s.d.Locker.Active() {
 		s.d.Locker.Release()
 	}
@@ -474,7 +541,6 @@ func (s *Screen) release() {
 	s.dropBackground()
 	s.lockedAt = time.Time{}
 	s.attempts = 0
-	s.resetAuth()
 	s.setLockedHint(false)
 	s.unlocked = true
 	log.Printf("lock: session unlocked")

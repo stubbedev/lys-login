@@ -70,6 +70,7 @@ func TestScreenReportsTheEnd(t *testing.T) {
 	h.s.d.OnEnded = func() { ends++ }
 	h.s.Lock()
 	h.s.ForceUnlock()
+	h.finishExit()
 	if ends != 1 || !h.s.unlocked {
 		t.Errorf("after an unlock: %d ends, unlocked %v", ends, h.s.unlocked)
 	}

@@ -186,6 +186,13 @@ func (h *harness) lock(t *testing.T) {
 	h.locker.cfg.OnLocked()
 }
 
+// finishExit runs every prompt's exit transition to its end.
+func (h *harness) finishExit() {
+	for _, f := range slices.Clone(h.s.faces) {
+		f.prompt.Reveal.Finish()
+	}
+}
+
 func (h *harness) conv(t *testing.T) *fakeAuth {
 	t.Helper()
 	if len(h.convs) == 0 {
@@ -296,6 +303,7 @@ func TestUnlockWithPassword(t *testing.T) {
 		t.Fatalf("answers = %q, want the stashed password", c.answers)
 	}
 	c.onEvent(auth.Event{Kind: auth.EventSuccess})
+	h.finishExit()
 	if h.locker.active || h.locker.releases != 1 {
 		t.Error("success did not unlock")
 	}
@@ -382,6 +390,7 @@ func TestGraceWindow(t *testing.T) {
 	h.lock(t)
 	h.now = h.now.Add(4 * time.Second)
 	h.s.Submit("")
+	h.finishExit()
 	if h.locker.active || len(h.convs) != 0 {
 		t.Error("a submit within the grace window must unlock without PAM")
 	}
@@ -482,6 +491,7 @@ func TestStaleConversationIgnored(t *testing.T) {
 	h.s.Submit("pw")
 	stale := h.conv(t)
 	h.s.ForceUnlock()
+	h.finishExit()
 	if h.locker.active || !stale.cancelled {
 		t.Fatal("ForceUnlock must unlock and cancel the conversation")
 	}
@@ -598,6 +608,7 @@ func TestLockFreesTheBackground(t *testing.T) {
 			h.lock(t)
 			id := h.s.bg.Image.ID
 			end(h)
+			h.finishExit()
 			if live := h.s.mem.Stats().Live; live != 0 {
 				t.Errorf("%d off-heap allocations after the lock ended", live)
 			}
@@ -637,6 +648,7 @@ func TestLockFreesTheBackgroundAfterTheFence(t *testing.T) {
 	h.lock(t)
 	drawing := render.NewRecorder(1, 1, 1, 1).Recording()
 	h.s.ForceUnlock()
+	h.finishExit()
 	if live := h.s.mem.Stats().Live; live != 1 {
 		t.Fatalf("%d allocations while a List from before the unlock is open, want the background kept", live)
 	}
@@ -821,5 +833,99 @@ func TestAJumpOfTheWallClockShowsWithoutAKey(t *testing.T) {
 	want := h.now.Format("15:04")
 	if got := h.s.faces[0].prompt.Clock.Text(); got != want {
 		t.Errorf("after the zone changed the clock shows %q, want %q", got, want)
+	}
+}
+
+func TestAnUnlockHidesThePromptsBeforeItReleasesTheLock(t *testing.T) {
+	h := newHarness(t, nil)
+	ends := 0
+	h.s.d.OnEnded = func() { ends++ }
+	h.lock(t)
+	h.finishExit()
+	h.s.ForceUnlock()
+	if !h.locker.active || h.locker.releases != 0 || ends != 0 {
+		t.Fatalf("released %d times (active %v, %d ends) before the prompts hid", h.locker.releases, h.locker.active, ends)
+	}
+	h.eachFace(t, func(f *face) {
+		if f.prompt.Reveal.Revealed() || f.prompt.Entry.Enabled() {
+			t.Error("a prompt stays up and typeable through the unlock")
+		}
+	})
+	h.finishExit()
+	if h.locker.active || h.locker.releases != 1 || ends != 1 || len(h.s.faces) != 0 {
+		t.Errorf("after the prompts hid: %d releases, active %v, %d ends, %d faces; want one clean release", h.locker.releases, h.locker.active, ends, len(h.s.faces))
+	}
+}
+
+func TestAnUnlockWithAnimationsOffIsInstant(t *testing.T) {
+	h := newHarness(t, nil)
+	h.s.anims.Enabled = false
+	h.lock(t)
+	h.s.ForceUnlock()
+	if h.locker.active || h.locker.releases != 1 {
+		t.Errorf("with animations off the unlock waited: %d releases, active %v", h.locker.releases, h.locker.active)
+	}
+}
+
+func TestARelockDuringTheUnlockKeepsTheLock(t *testing.T) {
+	h := newHarness(t, nil)
+	ends := 0
+	h.s.d.OnEnded = func() { ends++ }
+	h.lock(t)
+	h.finishExit()
+	h.s.ForceUnlock()
+	exiting := slices.Clone(h.s.faces)
+	if err := h.s.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	h.eachFace(t, func(f *face) {
+		if !f.prompt.Reveal.Revealed() || !f.prompt.Entry.Enabled() {
+			t.Error("the re-lock left a prompt hidden or untypeable")
+		}
+	})
+	for _, f := range exiting {
+		f.prompt.Reveal.Finish()
+	}
+	if !h.locker.active || h.locker.releases != 0 || ends != 0 {
+		t.Errorf("the cancelled unlock released anyway: %d releases, active %v, %d ends", h.locker.releases, h.locker.active, ends)
+	}
+	if len(h.locker.surfaces) != 2 {
+		t.Errorf("the re-lock made %d surfaces, want the two it kept", len(h.locker.surfaces))
+	}
+	h.s.ForceUnlock()
+	h.finishExit()
+	if h.locker.releases != 1 || ends != 1 {
+		t.Errorf("the next unlock: %d releases, %d ends, want one each", h.locker.releases, ends)
+	}
+}
+
+func TestASecondUnlockDuringTheExitReleasesOnce(t *testing.T) {
+	h := newHarness(t, nil)
+	ends := 0
+	h.s.d.OnEnded = func() { ends++ }
+	h.lock(t)
+	h.finishExit()
+	h.s.ForceUnlock()
+	h.s.ForceUnlock()
+	h.finishExit()
+	if h.locker.releases != 1 || ends != 1 {
+		t.Errorf("%d releases, %d ends, want one each", h.locker.releases, ends)
+	}
+}
+
+func TestTheCompositorEndingTheLockDuringTheExitEndsItOnce(t *testing.T) {
+	h := newHarness(t, nil)
+	ends := 0
+	h.s.d.OnEnded = func() { ends++ }
+	h.lock(t)
+	h.finishExit()
+	exiting := slices.Clone(h.s.faces)
+	h.s.ForceUnlock()
+	h.locker.cfg.OnFinished()
+	for _, f := range exiting {
+		f.prompt.Reveal.Finish()
+	}
+	if h.locker.releases != 0 || ends != 1 {
+		t.Errorf("%d releases, %d ends; the compositor's end is the only one", h.locker.releases, ends)
 	}
 }
