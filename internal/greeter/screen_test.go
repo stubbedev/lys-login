@@ -980,3 +980,19 @@ func TestCoversNeverStartWithoutAFirstFrame(t *testing.T) {
 	}
 	c.end()
 }
+
+func TestAGreeterTakingTheScreenShowsItsWholeFormInItsFirstFrame(t *testing.T) {
+	r := newRig(t, func(i *Init) { i.HandOver = true })
+	r.s.start()
+	if p := r.s.prompt.Reveal.Progress(); p != 1 {
+		t.Errorf("the form starts at %v of its reveal; over the default black fill that first frame is black between the splash and the greeter", p)
+	}
+}
+
+func TestAGreeterOnItsOwnRevealsItsForm(t *testing.T) {
+	r := newRig(t, nil)
+	r.s.start()
+	if p := r.s.prompt.Reveal.Progress(); p == 1 {
+		t.Error("a greeter that takes no screen over skipped its configured reveal")
+	}
+}

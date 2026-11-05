@@ -204,6 +204,9 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 // the password when the username is known, the username otherwise.
 func (s *screen) start() {
 	s.showPrompt()
+	if s.init.HandOver {
+		s.prompt.Reveal.Finish()
+	}
 	if s.init.LastUser != "" {
 		s.prompt.Username.SetText(s.init.LastUser)
 		s.d.focus(s.prompt.Entry)
