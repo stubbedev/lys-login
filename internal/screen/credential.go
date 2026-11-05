@@ -4,11 +4,10 @@
 // look and behave alike. A Mode adds only what genuinely differs: the
 // greeter's user list, username entry, session picker and power buttons.
 //
-// The credential prompt at its center (wayle-widgets' credential_box.rs)
-// floats the clock and the date over the background, above the centered
-// .lock-center column with an optional username entry, the secret entry,
-// the caps lock warning and the error line, all straight on the
-// background with no card around them.
+// The layout is the macOS lock screen's: the date over a large clock at
+// the top, and at the bottom the account being asked for, the password
+// pill under it, the caps lock warning and the error line, and under
+// all of it the greeter's power buttons.
 package screen
 
 import (
@@ -20,7 +19,7 @@ import (
 )
 
 // entryChars is the entries' width-chars.
-const entryChars = 24
+const entryChars = 18
 
 // The password entry's peek icons: the
 // eye reveals masked text, the crossed eye masks it again.
@@ -39,12 +38,15 @@ type Options struct {
 	// WithUsername adds a visible username entry above the secret one
 	// (the greeter; the lock screen authenticates the session user).
 	WithUsername bool
-	// Header goes above the entries in the card (the greeter's user
-	// list); Extra between the caps lock warning and the error line (the
-	// greeter's session picker). Either may be nil.
-	Header, Extra widget.Widget
-	// CapsLock is the caps lock warning's text.
-	CapsLock string
+	// Identity goes above the entries: the lock screen's account, the
+	// greeter's user list. Extra goes between the caps lock warning and
+	// the error line (the greeter's session picker), Footer at the
+	// bottom of the screen under all of it (the greeter's power
+	// buttons). Any may be nil.
+	Identity, Extra, Footer widget.Widget
+	// Password is the secret entry's placeholder, CapsLock the caps
+	// lock warning's text.
+	Password, CapsLock string
 	// Focus moves keyboard focus; the username entry's Enter uses it
 	// to move on to the secret entry.
 	Focus func(widget.Widget)
@@ -53,8 +55,8 @@ type Options struct {
 // Prompt is a built credential prompt and the handles its screen
 // drives.
 type Prompt struct {
-	// Reveal is the root: the centered card's reveal animation, hidden
-	// until the screen shows it (CredentialBox::reveal).
+	// Reveal is the root: everything over the background, hidden until
+	// the screen shows it (CredentialBox::reveal).
 	Reveal *widget.Revealer
 	// Username is the visible username entry; nil without
 	// WithUsername.
@@ -80,9 +82,9 @@ type Prompt struct {
 func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	textPx := widgets.TextPx(styling.Body, 1)
 	p := &Prompt{
-		Clock: label(o.Font, textPx*styling.Hero.Ratio(), "lock-clock", css.Heading, css.Numeric),
-		Date:  label(o.Font, textPx*styling.Subtitle.Ratio(), "lock-date"),
-		Entry: widget.NewEntry(o.Font, textPx, 0),
+		Clock: label(o.Font, textPx*styling.Poster.Ratio(), "lock-clock", css.Heading, css.Numeric),
+		Date:  label(o.Font, textPx*styling.Title.Ratio(), "lock-date"),
+		Entry: entry(o.Font, textPx, o.Password),
 		Caps:  label(o.Font, textPx, "lock-caps", css.Warning),
 		Error: label(o.Font, textPx, "lock-error", css.Error),
 	}
@@ -90,9 +92,8 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	p.Caps.SetVisible(false)
 	p.Clock.SetVisible(o.ShowClock)
 	p.Date.SetVisible(o.ShowClock)
-	p.Entry.AddClass("lock-entry")
+	p.Entry.AddClass("lock-secret")
 	p.Entry.SetEcho(widget.EchoPassword)
-	p.Entry.SetWidthChars(entryChars, 0)
 	p.iconPx = int(textPx)
 	p.Entry.SetTrailingIcon(peekReveal, textPx, p.togglePeek)
 	p.scaleWatch = widget.NewDrawingArea(0, 0)
@@ -102,43 +103,50 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	p.Error.SetVisible(false)
 
 	th := widget.Current()
-	card := widget.NewBox(widget.Column, th.Spacing, 2*th.Padding)
-	card.AddClass("lock-center")
-	card.SetHAlign(widget.AlignCenter)
-	if o.Header != nil {
-		card.Append(o.Header, false)
+	credentials := widget.NewBox(widget.Column, th.Spacing, 0)
+	credentials.AddClass("lock-credentials")
+	credentials.SetHAlign(widget.AlignCenter)
+	if o.Identity != nil {
+		credentials.AppendAligned(o.Identity, false, widget.AlignCenter)
 	}
 	if o.WithUsername {
-		p.Username = widget.NewEntry(o.Font, textPx, 0)
+		p.Username = entry(o.Font, textPx, "Username")
 		p.Username.AddClass("lock-user")
-		p.Username.SetPlaceholder("Username")
-		p.Username.SetWidthChars(entryChars, 0)
 		p.Username.OnActivate = func(string) {
 			if o.Focus != nil {
 				o.Focus(p.Entry)
 			}
 		}
-		card.Append(p.Username, false)
+		credentials.AppendAligned(p.Username, false, widget.AlignCenter)
 	}
-	card.Append(p.Entry, false).Append(p.Caps, false)
+	credentials.AppendAligned(p.Entry, false, widget.AlignCenter).Append(p.Caps, false)
 	if o.Extra != nil {
-		card.Append(o.Extra, false)
+		credentials.AppendAligned(o.Extra, false, widget.AlignCenter)
 	}
-	card.Append(p.Error, false).Append(p.scaleWatch, false)
+	credentials.Append(p.Error, false).Append(p.scaleWatch, false)
 
 	clock := widget.NewBox(widget.Column, 0, 0)
 	clock.AddClass("lock-time")
-	clock.Append(p.Clock, false).Append(p.Date, false)
-	stack := widget.NewBox(widget.Column, 3*th.Spacing, 0)
+	clock.Append(p.Date, false).Append(p.Clock, false)
+	stack := widget.NewBox(widget.Column, 2*th.Spacing, 0)
 	stack.AddClass("lock-stack")
-	stack.SetHAlign(widget.AlignCenter)
-	stack.SetVAlign(widget.AlignCenter)
-	stack.Append(clock, false).AppendAligned(card, false, widget.AlignCenter)
-
+	stack.Append(clock, false).Append(widget.NewBox(widget.Column, 0, 0), true)
+	stack.AppendAligned(credentials, false, widget.AlignCenter)
+	if o.Footer != nil {
+		stack.AppendAligned(o.Footer, false, widget.AlignCenter)
+	}
 	p.Reveal = widget.NewRevealer(stack)
-	p.Reveal.SetHAlign(widget.AlignCenter)
-	p.Reveal.SetVAlign(widget.AlignCenter)
 	return p
+}
+
+// entry is one of the prompt's pill entries, showing placeholder while
+// empty.
+func entry(font render.Font, px float64, placeholder string) *widget.Entry {
+	e := widget.NewEntry(font, px, 0)
+	e.AddClass("lock-entry")
+	e.SetPlaceholder(placeholder)
+	e.SetWidthChars(entryChars, 0)
+	return e
 }
 
 // label is a label in the column: it fills the row, its text

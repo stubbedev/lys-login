@@ -19,6 +19,7 @@ import (
 	"github.com/stubbedev/lys-shell/service/logind"
 	"github.com/stubbedev/lys-shell/shell/apptheme"
 	"github.com/stubbedev/lys-shell/shell/lockclient"
+	"github.com/stubbedev/lys-shell/useraccount"
 	"github.com/stubbedev/lys-ui/app"
 	"golang.org/x/sys/unix"
 
@@ -113,7 +114,14 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		},
 		SetLockedHint: hints.set,
 	}
-	s := New(cfg, app.FontFallback(base), apptheme.New(cfg).Sheet, deps)
+	account := sessionAccount()
+	s := New(cfg, account.RealName, app.FontFallback(base), apptheme.New(cfg).Sheet, deps)
+	scale := loginscreen.MaxScale(sess.Outputs())
+	go func() {
+		if img := loginscreen.AvatarPicture(imagedecode.Open, account.Avatar, scale); img != nil {
+			a.Invoke(func() { s.SetPicture(img) })
+		}
+	}()
 	go func() {
 		client := ld.wait()
 		if client == nil {
@@ -135,6 +143,19 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		return ErrRefused
 	}
 	return nil
+}
+
+// sessionAccount is the account the lock asks for. A lock must lock even
+// when the account cannot be looked up, so that shows the login name
+// with no picture.
+func sessionAccount() useraccount.Account {
+	account, err := useraccount.Current()
+	if err != nil {
+		name := auth.CurrentUsername()
+		log.Printf("lock: %v; showing the login name %q without a picture", err, name)
+		return useraccount.Account{Name: name, RealName: name}
+	}
+	return account
 }
 
 // pendingLogind is logind's client being connected off the way of the lock: a

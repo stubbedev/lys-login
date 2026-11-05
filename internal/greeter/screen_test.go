@@ -216,7 +216,7 @@ func TestGreeterStartsRevealedAndFocused(t *testing.T) {
 	r := newRig(t, nil)
 	r.s.start()
 	if !r.s.prompt.Reveal.Revealed() {
-		t.Error("the card does not reveal")
+		t.Error("the prompt does not reveal")
 	}
 	if r.focused != r.s.prompt.Username {
 		t.Error("with nobody remembered the username takes focus")
@@ -459,25 +459,20 @@ func TestGreeterUserRowAndPower(t *testing.T) {
 	if r := newRig(t, func(i *Init) { i.Config.Login.Greeter.ShowUserList = false }); len(r.s.users) != 0 {
 		t.Error("show-user-list off still listed users")
 	}
-	// The power buttons call systemctl's verbs.
+	// The power buttons call systemctl's verbs, each named under its
+	// button.
 	var buttons []*widget.Button
-	var walk func(widget.Widget)
-	walk = func(w widget.Widget) {
-		if b, ok := w.(*widget.Button); ok && b.TooltipText() != "" {
-			buttons = append(buttons, b)
-		}
-		if c, ok := w.(interface{ Children() []widget.Widget }); ok {
-			for _, k := range c.Children() {
-				walk(k)
-			}
-		}
+	for _, w := range treetest.WithClass(r.s.root, "lock-power-button") {
+		buttons = append(buttons, w.(*widget.Button))
 	}
-	walk(r.s.root)
 	for _, b := range buttons {
 		b.OnClick()
 	}
 	if got := r.powerVerbs(t, 2); !slices.Equal(got, []string{"poweroff", "reboot"}) {
 		t.Errorf("power verbs = %v", got)
+	}
+	if got := treetest.Labels(r.s.power); !slices.Equal(got, []string{"Shut down", "Restart"}) {
+		t.Errorf("power names = %q", got)
 	}
 	for _, b := range buttons {
 		if !slices.Contains(b.Classes(), css.Ghost) || !slices.Contains(b.Classes(), css.Icon) || slices.Contains(b.Classes(), "flat") {
@@ -496,7 +491,7 @@ func TestGreeterUserButtonsAreLysUi(t *testing.T) {
 			t.Errorf("user %d button classes = %v", i, ub.button.Classes())
 		}
 		want := ub.user.DisplayName[:1]
-		if got := r.s.avatar(ub.user, treetest.Font(t)).Initials(); got != want {
+		if got := ub.tile.Initials(); got != want {
 			t.Errorf("user %d avatar initials = %q, want %q", i, got, want)
 		}
 	}
@@ -532,15 +527,15 @@ func TestGreeterLeavesOnlyItsBackgroundBeforeTheSessionStarts(t *testing.T) {
 	r.s.prompt.Reveal.Finish()
 	left := 0
 	r.s.leave(func() { left++ })
-	if r.s.prompt.Reveal.Revealed() || r.s.power.Visible() {
-		t.Fatal("the card and the power buttons stay up as the session starts")
+	if r.s.prompt.Reveal.Revealed() || !treetest.Contains(r.s.prompt.Reveal, r.s.power) {
+		t.Fatal("the prompt and the power buttons stay up as the session starts")
 	}
 	if len(r.presented) != 0 {
-		t.Fatal("asked for the frame before the card finished fading out")
+		t.Fatal("asked for the frame before the prompt finished fading out")
 	}
 	r.s.prompt.Reveal.Finish()
 	if len(r.presented) != 1 || left != 0 {
-		t.Fatalf("%d presentation waits, left %d; want one wait for the frame without the card", len(r.presented), left)
+		t.Fatalf("%d presentation waits, left %d; want one wait for the frame without the prompt", len(r.presented), left)
 	}
 	r.presented[0]()
 	if left != 1 {
@@ -573,15 +568,15 @@ func TestGreeterHandingOverStaysUpAfterTheLogin(t *testing.T) {
 	}
 }
 
-func TestGreeterShowsTheCardAgainWhenTheSessionDoesNotStart(t *testing.T) {
+func TestGreeterShowsThePromptAgainWhenTheSessionDoesNotStart(t *testing.T) {
 	r := newRig(t, nil)
 	r.s.start()
 	r.s.prompt.Username.SetText("ada")
 	r.s.submit("hunter2")
 	r.s.leave(func() {})
 	r.conv(t).emit(auth.Event{Kind: auth.EventFailure, Reason: "no session"})
-	if !r.s.prompt.Reveal.Revealed() || !r.s.power.Visible() {
-		t.Error("a session that failed to start left the login card hidden")
+	if !r.s.prompt.Reveal.Revealed() {
+		t.Error("a session that failed to start left the login prompt hidden")
 	}
 }
 
@@ -649,7 +644,7 @@ func TestGreeterRevealsByTheConfiguredAnimation(t *testing.T) {
 	r := newRig(t, func(i *Init) { i.Config.Animations.Lock.Enter = &zoom })
 	r.s.start()
 	if got := r.s.prompt.Reveal.Transition(); got != widget.RevealZoom {
-		t.Errorf("the card reveals by %v, want the configured zoom", got)
+		t.Errorf("the prompt reveals by %v, want the configured zoom", got)
 	}
 	r = newRig(t, func(i *Init) {
 		i.Config.Animations.Lock.Enter = &zoom
@@ -657,7 +652,7 @@ func TestGreeterRevealsByTheConfiguredAnimation(t *testing.T) {
 	})
 	r.s.start()
 	if got := r.s.prompt.Reveal.Transition(); got != widget.RevealNone {
-		t.Errorf("with animations off the card reveals by %v", got)
+		t.Errorf("with animations off the prompt reveals by %v", got)
 	}
 }
 
@@ -745,7 +740,7 @@ func TestCoverIsTheBackgroundAlone(t *testing.T) {
 	if len(treetest.WithClass(cfg.Root, "lock-bg")) != 1 {
 		t.Error("the cover does not paint the background")
 	}
-	if len(treetest.All[*widget.Entry](cfg.Root)) != 0 || len(treetest.WithClass(cfg.Root, "lock-center")) != 0 {
+	if len(treetest.All[*widget.Entry](cfg.Root)) != 0 || len(treetest.WithClass(cfg.Root, "lock-credentials")) != 0 {
 		t.Error("a cover is no second form")
 	}
 }
@@ -852,7 +847,7 @@ func loopRig(t *testing.T, edit func(*Init)) (*rig, *atomic.Uint64) {
 	return r, &loop
 }
 
-func TestTheLoginIsSavedOffTheLoopBeforeTheCardLeaves(t *testing.T) {
+func TestTheLoginIsSavedOffTheLoopBeforeThePromptLeaves(t *testing.T) {
 	r, loop := loopRig(t, noAnimations)
 	r.s.prompt.Username.SetText(" ada ")
 	r.s.drop.OnSelect(1)
@@ -863,7 +858,7 @@ func TestTheLoginIsSavedOffTheLoopBeforeTheCardLeaves(t *testing.T) {
 			onLoop.Add(1)
 		}
 		if !r.s.prompt.Reveal.Revealed() {
-			t.Error("the card left before the login was saved")
+			t.Error("the prompt left before the login was saved")
 		}
 	}
 	r.s.start()
@@ -915,8 +910,8 @@ func TestAnAvatarKeepsOnlyWhatItsSlotShows(t *testing.T) {
 		if got == nil {
 			t.Fatalf("scale %d: the avatar shows no image", scale)
 		}
-		if b := got.Bounds(); b.Dx() > avatarPx*scale || b.Dy() > avatarPx*scale {
-			t.Errorf("scale %d: the avatar keeps %v, want at most %d on a side", scale, b, avatarPx*scale)
+		if b := got.Bounds(); b.Dx() > loginscreen.AvatarPx*scale || b.Dy() > loginscreen.AvatarPx*scale {
+			t.Errorf("scale %d: the avatar keeps %v, want at most %d on a side", scale, b, loginscreen.AvatarPx*scale)
 		}
 	}
 }

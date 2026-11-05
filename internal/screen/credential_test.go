@@ -61,30 +61,64 @@ func TestBuildShape(t *testing.T) {
 	}
 }
 
-// TestBuildTakesLysUiParts pins the prompt on lys-ui's parts: the
-// clock a numeric heading at the display scale of the theme's text size,
-// the error line lys-ui's error text; only the clock is a heading.
-func TestBuildTakesLysUiParts(t *testing.T) {
-	p := newPrompt(Options{Font: treetest.Font(t), ShowClock: true}, func(string) {})
-	cards := treetest.WithClass(p.Reveal, "lock-center")
-	if len(cards) != 1 {
-		t.Fatalf("%d .lock-center columns, want one", len(cards))
+// TestBuildIsTheMacOSLayout pins the layout on the macOS lock screen's:
+// the date over the clock at the top, then the account, the password
+// pill with its placeholder and the error line at the bottom, and the
+// footer under them; the clock a numeric heading at the poster scale of
+// the theme's text size, the error line lys-ui's error text.
+func TestBuildIsTheMacOSLayout(t *testing.T) {
+	identity := widget.NewBox(widget.Column, 0, 0)
+	footer := widget.NewBox(widget.Row, 0, 0)
+	p := newPrompt(Options{
+		Font: treetest.Font(t), ShowClock: true, Identity: identity, Footer: footer, Password: "Enter Password",
+	}, func(string) {})
+	rows := p.Reveal.Child().(*widget.Box).Children()
+	if len(rows) != 4 {
+		t.Fatalf("%d rows over the background, want the clock, the gap, the credentials and the footer", len(rows))
 	}
-	if treetest.Contains(cards[0], p.Clock) || treetest.Contains(cards[0], p.Date) {
-		t.Error("the clock and the date float over the background, outside the card")
+	clock, gap, credentials := rows[0].(*widget.Box), rows[1].(*widget.Box), rows[2].(*widget.Box)
+	if !slices.Contains(clock.Classes(), "lock-time") || !slices.Equal(clock.Children(), []widget.Widget{p.Date, p.Clock}) {
+		t.Error("the top row is the date over the clock")
 	}
-	if !treetest.Contains(cards[0], p.Entry) || !treetest.Contains(cards[0], p.Error) {
-		t.Error("the entry and the error line belong in the card")
+	if len(gap.Children()) != 0 {
+		t.Error("an empty gap pushes the credentials to the bottom")
+	}
+	if !slices.Contains(credentials.Classes(), "lock-credentials") || credentials.Children()[0] != identity {
+		t.Error("the credentials start with the account asked for")
+	}
+	for _, w := range []widget.Widget{p.Entry, p.Caps, p.Error} {
+		if !treetest.Contains(credentials, w) {
+			t.Errorf("%v is not among the credentials", w.(interface{ Classes() []string }).Classes())
+		}
+	}
+	if rows[3] != footer {
+		t.Error("the footer is the bottom row")
+	}
+	if p.Entry.Placeholder() != "Enter Password" {
+		t.Errorf("password placeholder = %q", p.Entry.Placeholder())
 	}
 	text := widgets.TextPx(styling.Body, 1)
-	if p.Clock.SizePx() != text*styling.Hero.Ratio() || !slices.Contains(p.Clock.Classes(), css.Heading) || !slices.Contains(p.Clock.Classes(), css.Numeric) {
-		t.Errorf("clock = %vpx %v, want %vpx numeric heading", p.Clock.SizePx(), p.Clock.Classes(), text*styling.Hero.Ratio())
+	if p.Clock.SizePx() != text*styling.Poster.Ratio() || !slices.Contains(p.Clock.Classes(), css.Heading) || !slices.Contains(p.Clock.Classes(), css.Numeric) {
+		t.Errorf("clock = %vpx %v, want %vpx numeric heading", p.Clock.SizePx(), p.Clock.Classes(), text*styling.Poster.Ratio())
 	}
-	if p.Date.SizePx() != text*styling.Subtitle.Ratio() || slices.Contains(p.Date.Classes(), css.Heading) {
-		t.Errorf("date = %vpx %v, want %vpx, no heading", p.Date.SizePx(), p.Date.Classes(), text*styling.Subtitle.Ratio())
+	if p.Date.SizePx() != text*styling.Title.Ratio() || slices.Contains(p.Date.Classes(), css.Heading) {
+		t.Errorf("date = %vpx %v, want %vpx, no heading", p.Date.SizePx(), p.Date.Classes(), text*styling.Title.Ratio())
 	}
 	if !slices.Contains(p.Error.Classes(), css.Error) || slices.Contains(p.Error.Classes(), css.Heading) {
 		t.Errorf("error line classes = %v", p.Error.Classes())
+	}
+}
+
+// Without an identity or a footer the credentials stand alone at the
+// bottom.
+func TestBuildWithoutIdentityOrFooter(t *testing.T) {
+	p := newPrompt(Options{Font: treetest.Font(t)}, func(string) {})
+	rows := p.Reveal.Child().(*widget.Box).Children()
+	if len(rows) != 3 {
+		t.Fatalf("%d rows, want the clock, the gap and the credentials", len(rows))
+	}
+	if first := rows[2].(*widget.Box).Children()[0]; first != p.Entry {
+		t.Errorf("the credentials start with %T, want the password entry", first)
 	}
 }
 
@@ -197,7 +231,7 @@ func TestThePromptSitsOnTheBackgroundWithNoCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	Window(widget.NewStylesheet(styling.BundleCSS(cfg, palette, theme), apptheme.Priority), p.Reveal)
-	card := treetest.WithClass(p.Reveal, "lock-center")[0]
+	card := treetest.WithClass(p.Reveal, "lock-credentials")[0]
 	for _, glass := range []string{css.LiquidGlass, css.Glass} {
 		if len(treetest.WithClass(card, glass)) != 0 {
 			t.Errorf("the prompt column holds a %q surface", glass)

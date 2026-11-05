@@ -37,7 +37,7 @@ only the greeter's account can reach.
    exchange JSON lines, and the daemon relays PAM's prompts to the greeter and its
    answers back.
 3. A wrong password ends that worker. The greeter shows PAM's reason and stays up.
-4. On success the greeter saves the session and the username, hides the login card and
+4. On success the greeter saves the session and the username, hides the login prompt and
    the power buttons, waits until that frame is presented (2 seconds at most), and asks
    for the session.
 5. The daemon stops the greeter's worker. It ends the compositor first, then the rest of

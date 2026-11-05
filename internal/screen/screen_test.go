@@ -42,29 +42,29 @@ func greeterRows() GreeterRows {
 		b.AddClass(class)
 		return b
 	}
-	return GreeterRows{Users: row("lock-users"), Session: row("lock-session"), Power: row("lock-power")}
+	return GreeterRows{Session: row("lock-session"), Power: row("lock-power")}
 }
 
-// Both modes build the same screen; the greeter adds its username entry
-// and its rows, nothing else.
+// Both modes build the same screen around the identity they are given;
+// the greeter adds its username entry and its rows, nothing else.
 func TestModesShareTheScreen(t *testing.T) {
 	cfg := config.DefaultsLogin()
 	rows := greeterRows()
-	spec := Spec{Config: cfg, Font: treetest.Font(t), CapsLock: "Caps Lock is on", Greeter: rows, OnSubmit: func(string) {}}
-	spec.Mode = Lock
+	spec := Spec{Config: cfg, Font: treetest.Font(t), Password: "Enter Password", CapsLock: "Caps Lock is on", Greeter: rows, OnSubmit: func(string) {}}
+	spec.Mode, spec.Identity = Lock, NewAccountTile(spec.Font, "Ada").Root
 	lock := Build(spec)
-	spec.Mode = Greeter
+	spec.Mode, spec.Identity = Greeter, NewAccountTile(spec.Font, "Ada").Root
 	greeter := Build(spec)
 
 	if greeter.Prompt.Username == nil || lock.Prompt.Username != nil {
 		t.Fatal("the username entry is the greeter's")
 	}
-	for _, row := range []widget.Widget{rows.Users, rows.Session, rows.Power} {
+	for _, row := range []widget.Widget{rows.Session, rows.Power} {
 		if !treetest.Contains(greeter.Root, row) || treetest.Contains(lock.Root, row) {
 			t.Errorf("%v is a greeter row: in the greeter, not in the lock", row.(interface{ Classes() []string }).Classes())
 		}
 	}
-	shared := shape(greeter.Root, greeter.Prompt.Username, rows.Users, rows.Session, rows.Power)
+	shared := shape(greeter.Root, greeter.Prompt.Username, rows.Session, rows.Power)
 	if lockShape := shape(lock.Root); !reflect.DeepEqual(shared, lockShape) {
 		t.Errorf("the shared parts differ:\ngreeter without its rows:\n%s\nlock:\n%s", strings.Join(shared, "\n"), strings.Join(lockShape, "\n"))
 	}
@@ -72,6 +72,15 @@ func TestModesShareTheScreen(t *testing.T) {
 		if s.Prompt.Caps.Text() != "Caps Lock is on" || s.Prompt.Caps.Visible() || s.Scrim.Visible() {
 			t.Error("each mode starts with the caps warning and the scrim hidden")
 		}
+		if s.Prompt.Entry.Placeholder() != "Enter Password" {
+			t.Error("each mode asks for the password in its entry")
+		}
+		if !treetest.Contains(s.Prompt.Reveal, s.Prompt.Entry) || len(treetest.WithClass(s.Prompt.Reveal, "lock-account")) != 1 {
+			t.Error("the account and the entry reveal together")
+		}
+	}
+	if !treetest.Contains(greeter.Prompt.Reveal, rows.Power) {
+		t.Error("the power buttons leave with the rest of the prompt")
 	}
 }
 

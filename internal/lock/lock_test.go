@@ -3,6 +3,8 @@ package lock
 import (
 	"errors"
 	"image"
+	"image/color"
+	"image/draw"
 	"slices"
 	"strings"
 	"testing"
@@ -149,7 +151,7 @@ func newHarness(t *testing.T, edit func(*config.LoginConfig)) *harness {
 		now:    time.Date(2026, 3, 5, 9, 7, 0, 0, time.Local),
 	}
 	h.wall = &fakeWall{h: h}
-	h.s = New(cfg, face, apptheme.New(cfg).Sheet, Deps{
+	h.s = New(cfg, "Ada Lovelace", face, apptheme.New(cfg).Sheet, Deps{
 		Locker: h.locker,
 		Loop:   h.loop,
 		Now:    func() time.Time { return h.now },
@@ -225,7 +227,7 @@ func TestLockCoversOutputsAndReportsTheHint(t *testing.T) {
 			t.Error("a fresh surface must take input with no message and no blackout")
 		}
 		if !f.prompt.Reveal.Revealed() || f.prompt.Reveal.Transition() != widget.RevealFade {
-			t.Errorf("the card: revealed %v, transition %v; want it entering with the lock transition",
+			t.Errorf("the prompt: revealed %v, transition %v; want it entering with the lock transition",
 				f.prompt.Reveal.Revealed(), f.prompt.Reveal.Transition())
 		}
 	})
@@ -679,7 +681,7 @@ func TestSurfaceIsTheStyledLockTree(t *testing.T) {
 	if !ok || !slices.Contains(win.Classes(), "lock-window") {
 		t.Fatalf("surface root %T, want the .lock-window node", root)
 	}
-	for _, class := range []string{"lock-bg", "lock-center", "lock-clock", "lock-date", "lock-entry", "lock-error", "lock-scrim"} {
+	for _, class := range []string{"lock-bg", "lock-account", "lock-avatar", "lock-credentials", "lock-clock", "lock-date", "lock-entry", "lock-error", "lock-scrim"} {
 		if len(treetest.WithClass(root, class)) != 1 {
 			t.Errorf("want one .%s node", class)
 		}
@@ -927,5 +929,38 @@ func TestTheCompositorEndingTheLockDuringTheExitEndsItOnce(t *testing.T) {
 	}
 	if h.locker.releases != 0 || ends != 1 {
 		t.Errorf("%d releases, %d ends; the compositor's end is the only one", h.locker.releases, ends)
+	}
+}
+
+// Every face asks the session user by name for their password, and their
+// picture shows on every face once it is decoded, on faces of outputs
+// plugged in after it too.
+func TestEveryFaceShowsTheSessionAccount(t *testing.T) {
+	h := newHarness(t, nil)
+	h.lock(t)
+	for _, f := range h.s.faces {
+		if !slices.Contains(treetest.Labels(f.account.Root), "Ada Lovelace") || f.account.Initials() != "AL" {
+			t.Errorf("a face shows %q, want Ada Lovelace", treetest.Labels(f.account.Root))
+		}
+		if f.prompt.Entry.Placeholder() != i18n.T("lock-password") {
+			t.Errorf("password placeholder = %q", f.prompt.Entry.Placeholder())
+		}
+	}
+	picture := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	draw.Draw(picture, picture.Rect, image.NewUniform(color.RGBA{R: 0xff, A: 0xff}), image.Point{}, draw.Src)
+	painted := func(f *face) bool {
+		a := treetest.First[*widget.Avatar](t, f.account.Root)
+		a.Arrange(render.Rect{W: 8, H: 8})
+		data := make([]byte, render.Stride(8)*8)
+		a.Paint(render.New(data, render.Stride(8), 8, 8))
+		center := data[4*(4*8+4):][:4]
+		return center[0] == 0 && center[1] == 0 && center[2] == 0xff
+	}
+	h.s.SetPicture(picture)
+	h.locker.plug()
+	for i, f := range h.s.faces {
+		if !painted(f) {
+			t.Errorf("face %d paints the initials over the picture", i)
+		}
 	}
 }

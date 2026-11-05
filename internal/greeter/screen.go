@@ -36,12 +36,8 @@ const handOverWait = 2 * time.Second
 // carries the load.
 const maxListedUsers = 8
 
-// The greeter's fixed metrics: widget properties, not styling.
-const (
-	avatarPx    = 64 // the avatar's size
-	powerIconPx = 16
-	nameChars   = 14 // the user name's max-width-chars
-)
+// powerIconPx is the power buttons' glyph size.
+const powerIconPx = 20
 
 // Init is what the greeter starts from (app.rs GreeterInit).
 type Init struct {
@@ -137,9 +133,10 @@ type screen struct {
 	saving sync.WaitGroup
 }
 
-// userButton is one avatar in the user list.
+// userButton is one account in the user list.
 type userButton struct {
 	user   User
+	tile   *loginscreen.AccountTile
 	button *widget.Button
 }
 
@@ -178,15 +175,16 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 	} else {
 		users.SetVisible(false)
 	}
-	rows := loginscreen.GreeterRows{Users: users, Session: s.drop}
+	rows := loginscreen.GreeterRows{Session: s.drop}
 	if g.Greeter.ShowPowerButtons {
-		s.power = s.powerRow()
+		s.power = s.powerRow(font)
 		rows.Power = s.power
 	}
 	s.bg = s.loadBackground()
 	surface := loginscreen.Build(loginscreen.Spec{
 		Mode: loginscreen.Greeter, Config: g, Font: font, Sheet: sheet, Backdrop: s.bg,
-		Greeter: rows, CapsLock: t("greeter-caps-lock"), Focus: d.focus, OnSubmit: s.submit,
+		Identity: users, Greeter: rows, Password: t("greeter-password"), CapsLock: t("greeter-caps-lock"),
+		Focus: d.focus, OnSubmit: s.submit,
 	})
 	s.prompt, s.root = surface.Prompt, surface.Root
 	s.prompt.Username.SetPlaceholder(t("greeter-username"))
@@ -268,22 +266,16 @@ func (s *screen) end() {
 	s.bg = nil
 }
 
-// populateUsers is populate_user_row: one avatar button per login user
+// populateUsers is populate_user_row: one account tile per login user
 // in the .lock-users row; a click fills the username, marks the button
 // selected, and focuses the password.
 func (s *screen) populateUsers(row *widget.Box, font render.Font) {
-	th := widget.Current()
 	for _, u := range s.init.Users {
-		ub := &userButton{user: u}
-		name := widget.NewLabel(font, widgets.TextPx(styling.Body, 1), u.DisplayName, 0)
-		name.AddClass("lock-user-name", css.DimLabel)
-		name.SetEllipsize(widget.EllipsizeEnd)
-		name.SetMaxWidthChars(nameChars)
-		name.SetAlignment(render.AlignCenter)
-		col := widget.NewBox(widget.Column, th.Spacing/2, th.Padding)
-		col.SetHAlign(widget.AlignCenter)
-		col.AppendAligned(s.avatar(u, font), false, widget.AlignCenter).Append(name, false)
-		ub.button = widget.NewButton(col, 0, 0)
+		ub := &userButton{user: u, tile: loginscreen.NewAccountTile(font, u.DisplayName)}
+		if img := s.avatarPicture(u); img != nil {
+			ub.tile.SetPicture(img)
+		}
+		ub.button = widget.NewButton(ub.tile.Root, 0, 0)
 		ub.button.AddClass("lock-user-button", css.Ghost)
 		if u.Name == s.init.LastUser {
 			ub.button.AddClass("selected")
@@ -313,50 +305,34 @@ func (s *screen) pickUser(picked *userButton) {
 	s.d.focus(s.prompt.Entry)
 }
 
-// avatar is build_user_button's avatar: lys-ui's Avatar, the user's
-// image when it reads, their initials otherwise.
-func (s *screen) avatar(u User, font render.Font) *widget.Avatar {
-	a := widget.NewAvatar(font, avatarPx, u.DisplayName)
-	a.AddClass("lock-avatar")
-	if img := s.avatarPicture(u); img != nil {
-		a.SetImage(img)
-	}
-	return a
-}
-
-// avatarPicture is the user's image at the size its slot shows it, nil when it does
-// not read: a photo keeps megabytes for a 64 pixel circle otherwise.
+// avatarPicture is the user's image at the size their tile shows it, nil
+// when they have none that reads.
 func (s *screen) avatarPicture(u User) image.Image {
-	if u.Icon == "" {
-		return nil
-	}
-	img, err := s.d.loadAvatar(u.Icon)
-	if err != nil {
-		return nil
-	}
-	return loginscreen.SquareThumbnail(img, avatarPx*s.d.outputScale())
+	return loginscreen.AvatarPicture(s.d.loadAvatar, u.Icon, s.d.outputScale())
 }
 
 // powerRow is build_power_box: shutdown and reboot in the .lock-power
-// row at the bottom center.
-func (s *screen) powerRow() *widget.Box {
+// row at the bottom center, each a round button over its name.
+func (s *screen) powerRow(font render.Font) *widget.Box {
 	th := widget.Current()
-	row := widget.NewBox(widget.Row, th.Spacing, 0)
-	row.SetMargin(render.Insets{Bottom: 4 * th.Padding})
+	row := widget.NewBox(widget.Row, 4*th.Spacing, 0)
 	row.AddClass("lock-power")
-	row.SetHAlign(widget.AlignCenter)
-	row.SetVAlign(widget.AlignEnd)
 	for _, b := range []struct {
-		icon    string
-		tooltip string
-		verb    string
+		icon string
+		name string
+		verb string
 	}{{"ld-power-symbolic", t("greeter-shutdown"), "poweroff"}, {"ld-rotate-ccw-symbolic", t("greeter-restart"), "reboot"}} {
 		btn := widget.NewButton(widget.NewThemeIcon(b.icon, powerIconPx), 0, 0)
 		btn.AddClass("lock-power-button", css.Ghost, css.Icon, css.Large)
-		btn.SetTooltip(b.tooltip)
+		btn.SetAccessibleName(b.name)
 		verb := b.verb
 		btn.OnClick = func() { go s.d.power(verb) }
-		row.Append(btn, false)
+		name := widget.NewLabel(font, widgets.TextPx(styling.Caption, 1), b.name, 0)
+		name.AddClass("lock-power-name")
+		name.SetAlignment(render.AlignCenter)
+		col := widget.NewBox(widget.Column, th.Spacing/2, 0)
+		col.AppendAligned(btn, false, widget.AlignCenter).Append(name, false)
+		row.Append(col, false)
 	}
 	return row
 }
@@ -553,14 +529,11 @@ func (s *screen) handOver() {
 	select {
 	case <-shown:
 	case <-deadline:
-		log.Printf("greeter: the frame without the login card was not presented within %v; starting the session over whatever is on screen", handOverWait)
+		log.Printf("greeter: the frame without the login prompt was not presented within %v; starting the session over whatever is on screen", handOverWait)
 	}
 }
 
 func (s *screen) leave(done func()) {
-	if s.power != nil {
-		s.power.SetVisible(false)
-	}
 	present := func() {
 		if err := s.d.whenPresented(done); err != nil {
 			log.Printf("greeter: %v", err)
@@ -572,9 +545,6 @@ func (s *screen) leave(done func()) {
 
 func (s *screen) show() {
 	s.prompt.Reveal.SetOnTransitionDone(nil)
-	if s.power != nil {
-		s.power.SetVisible(true)
-	}
 	s.showPrompt()
 }
 

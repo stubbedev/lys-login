@@ -103,17 +103,11 @@ func Run(init Init) error {
 				log.Printf("greeter: power action %s failed: %v", verb, err)
 			}
 		},
-		loadImage:  imagedecode.OpenOffHeap,
-		outputs:    func() []image.Point { return outputsize.Devices(sess.Outputs()) },
-		forget:     a.ForgetImage,
-		loadAvatar: imagedecode.Open,
-		outputScale: func() int {
-			scale := 1
-			for _, out := range sess.Outputs() {
-				scale = max(scale, out.Scale)
-			}
-			return scale
-		},
+		loadImage:   imagedecode.OpenOffHeap,
+		outputs:     func() []image.Point { return outputsize.Devices(sess.Outputs()) },
+		forget:      a.ForgetImage,
+		loadAvatar:  imagedecode.Open,
+		outputScale: func() int { return loginscreen.MaxScale(sess.Outputs()) },
 	})
 	defer s.end()
 	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented))

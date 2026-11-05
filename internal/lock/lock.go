@@ -109,10 +109,12 @@ type authHandle interface {
 	Cancel()
 }
 
-// face is one output's lock surface: the prompt and the blank scrim.
+// face is one output's lock surface: the account, the prompt and the
+// blank scrim.
 type face struct {
-	prompt *loginscreen.Prompt
-	scrim  *widget.Box
+	account *loginscreen.AccountTile
+	prompt  *loginscreen.Prompt
+	scrim   *widget.Box
 }
 
 // Screen is the lock screen component. Every method runs on the event
@@ -124,6 +126,10 @@ type Screen struct {
 	font      render.Font
 	sheet     *widget.Stylesheet
 	d         Deps
+	// account is the session user's name as the screen shows it, picture
+	// their avatar once it is decoded, nil until then.
+	account string
+	picture image.Image
 
 	faces []*face
 	// bg is the background made once per lock, shared by every
@@ -170,11 +176,12 @@ type Screen struct {
 	exitGen uint64
 }
 
-// New builds the screen over its collaborators.
+// New builds the screen over its collaborators, asking account, the
+// session user's name as the screen shows it, for the password.
 // The prompt shapes text with font; sheet (the shell's stylesheet)
 // styles the surfaces through the lock.css rules.
-func New(cfg *config.Config, font render.Font, sheet *widget.Stylesheet, d Deps) *Screen {
-	s := &Screen{cfg: cfg.Login, anims: cfg.Animations, wallpaper: cfg.Wallpaper.Wallpaper, font: font, sheet: sheet, d: d}
+func New(cfg *config.Config, account string, font render.Font, sheet *widget.Stylesheet, d Deps) *Screen {
+	s := &Screen{cfg: cfg.Login, anims: cfg.Animations, wallpaper: cfg.Wallpaper.Wallpaper, account: account, font: font, sheet: sheet, d: d}
 	var shown []func(time.Time) string
 	if s.cfg.ShowClock {
 		shown = append(shown, s.cfg.ClockFormat.Layout().Format, s.cfg.DateFormat.Layout().Format)
@@ -262,18 +269,23 @@ func (s *Screen) dropBackground() {
 // output at lock time and again for each output plugged in while
 // locked. A new face picks up the current state.
 func (s *Screen) buildFace(*app.Output) app.LockSurface {
+	account := loginscreen.NewAccountTile(s.font, s.account)
+	if s.picture != nil {
+		account.SetPicture(s.picture)
+	}
 	surface := loginscreen.Build(loginscreen.Spec{
 		Mode: loginscreen.Lock, Config: s.cfg, Font: s.font, Sheet: s.sheet, Backdrop: s.bg,
-		CapsLock: i18n.T("lock-caps-lock"), OnSubmit: s.Submit,
+		Identity: account.Root, Password: i18n.T("lock-password"), CapsLock: i18n.T("lock-caps-lock"),
+		OnSubmit: s.Submit,
 	})
-	f := &face{prompt: surface.Prompt, scrim: surface.Scrim}
+	f := &face{account: account, prompt: surface.Prompt, scrim: surface.Scrim}
 	f.prompt.SetCapsLock(s.caps)
 	f.prompt.Clock.SetText(s.clockText)
 	f.prompt.Date.SetText(s.dateText)
 	f.prompt.SetMessage(s.message)
 	f.prompt.Entry.SetEnabled(s.inputOn)
 	f.scrim.SetVisible(s.blanked)
-	// The background is opaque at once; the card reveals over it.
+	// The background is opaque at once; the prompt reveals over it.
 	reveal.Show(f.prompt.Reveal, s.anims, config.AnimLock)
 	s.faces = append(s.faces, f)
 	return app.LockSurface{
@@ -602,6 +614,15 @@ func (s *Screen) setBlanked(on bool) {
 		return
 	}
 	s.clock.Start()
+}
+
+// SetPicture shows img as the session user's avatar on every face, and
+// on every face built after.
+func (s *Screen) SetPicture(img image.Image) {
+	s.picture = img
+	for _, f := range s.faces {
+		f.account.SetPicture(img)
+	}
 }
 
 func (s *Screen) setCaps(on bool) {
