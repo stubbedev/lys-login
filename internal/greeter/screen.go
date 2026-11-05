@@ -340,7 +340,7 @@ func (s *screen) powerRow() *widget.Box {
 	th := widget.Current()
 	row := widget.NewBox(widget.Row, th.Spacing, 0)
 	row.SetMargin(render.Insets{Bottom: 4 * th.Padding})
-	row.AddClass(css.LiquidGlass, "lock-power")
+	row.AddClass("lock-power")
 	row.SetHAlign(widget.AlignCenter)
 	row.SetVAlign(widget.AlignEnd)
 	for _, b := range []struct {

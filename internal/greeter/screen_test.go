@@ -780,6 +780,18 @@ func goroutineID() uint64 {
 	return v
 }
 
+func TestThePowerRowHasNoGlass(t *testing.T) {
+	r := newRig(t, nil)
+	if len(treetest.WithClass(r.s.power, "lock-power")) != 1 {
+		t.Fatal("no .lock-power row")
+	}
+	for _, glass := range []string{css.LiquidGlass, css.Glass} {
+		if len(treetest.WithClass(r.s.power, glass)) != 0 {
+			t.Errorf("the power row holds a %q surface", glass)
+		}
+	}
+}
+
 func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 	r := newRig(t, nil)
 	loop := goroutineID()

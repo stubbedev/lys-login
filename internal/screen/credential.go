@@ -6,8 +6,9 @@
 //
 // The credential prompt at its center (wayle-widgets' credential_box.rs)
 // floats the clock and the date over the background, above the centered
-// .lock-center glass card with an optional username entry, the secret
-// entry, the caps lock warning and the error line.
+// .lock-center column with an optional username entry, the secret entry,
+// the caps lock warning and the error line, all straight on the
+// background with no card around them.
 package screen
 
 import (
@@ -102,7 +103,7 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 
 	th := widget.Current()
 	card := widget.NewBox(widget.Column, th.Spacing, 2*th.Padding)
-	card.AddClass(css.LiquidGlass, "lock-center")
+	card.AddClass("lock-center")
 	card.SetHAlign(widget.AlignCenter)
 	if o.Header != nil {
 		card.Append(o.Header, false)
@@ -160,7 +161,7 @@ func (p *Prompt) preloadAt(num, denom int) {
 	px := p.iconPx
 	go func() {
 		for _, name := range [...]string{peekReveal, peekConceal} {
-			widget.PreloadThemeIcon(name, px, num, denom)
+			_ = widget.PreloadThemeIcon(name, px, num, denom)
 		}
 	}()
 }

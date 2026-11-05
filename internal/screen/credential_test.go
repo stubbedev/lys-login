@@ -10,6 +10,7 @@ import (
 
 	"github.com/stubbedev/lys-lib/render"
 	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-shell/shell/apptheme"
 	"github.com/stubbedev/lys-shell/shell/treetest"
 	"github.com/stubbedev/lys-shell/shell/widgets"
 	"github.com/stubbedev/lys-shell/styling"
@@ -61,14 +62,13 @@ func TestBuildShape(t *testing.T) {
 }
 
 // TestBuildTakesLysUiParts pins the prompt on lys-ui's parts: the
-// card is lys-ui's liquid glass, the clock a numeric heading at the display
-// scale of the theme's text size, the error line lys-ui's error text;
-// only the clock is a heading.
+// clock a numeric heading at the display scale of the theme's text size,
+// the error line lys-ui's error text; only the clock is a heading.
 func TestBuildTakesLysUiParts(t *testing.T) {
 	p := newPrompt(Options{Font: treetest.Font(t), ShowClock: true}, func(string) {})
 	cards := treetest.WithClass(p.Reveal, "lock-center")
-	if len(cards) != 1 || len(treetest.WithClass(cards[0], css.LiquidGlass)) != 1 {
-		t.Fatal("the credential card must be lys-ui's liquid glass")
+	if len(cards) != 1 {
+		t.Fatalf("%d .lock-center columns, want one", len(cards))
 	}
 	if treetest.Contains(cards[0], p.Clock) || treetest.Contains(cards[0], p.Date) {
 		t.Error("the clock and the date float over the background, outside the card")
@@ -185,5 +185,25 @@ func TestThePeekIconsNeedNoDiskAfterThePromptIsBuilt(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+func TestThePromptSitsOnTheBackgroundWithNoCard(t *testing.T) {
+	p := newPrompt(Options{Font: treetest.Font(t), ShowClock: true}, func(string) {})
+	cfg := config.Defaults()
+	palette := cfg.Styling.ActivePalette()
+	theme, err := styling.PaletteFromHex(palette)
+	if err != nil {
+		t.Fatal(err)
+	}
+	Window(widget.NewStylesheet(styling.BundleCSS(cfg, palette, theme), apptheme.Priority), p.Reveal)
+	card := treetest.WithClass(p.Reveal, "lock-center")[0]
+	for _, glass := range []string{css.LiquidGlass, css.Glass} {
+		if len(treetest.WithClass(card, glass)) != 0 {
+			t.Errorf("the prompt column holds a %q surface", glass)
+		}
+	}
+	if bg := widget.StyleBackground(card); bg.A() != 0 {
+		t.Errorf("the prompt column paints background %#08x, want none", uint32(bg))
 	}
 }
