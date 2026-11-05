@@ -54,8 +54,8 @@ Releases carry x86_64 and aarch64 packages, and the flake builds for both.
   expired password, appear on screen, and so does the reason for a refusal. A
   wrong password keeps the greeter up for the next attempt.
 - **Caps Lock warning** under the password field.
-- **Shutdown and reboot buttons,** which run `systemctl poweroff` and
-  `systemctl reboot`.
+- **Sleep, restart and shut down buttons,** which run `systemctl suspend`,
+  `systemctl reboot` and `systemctl poweroff`.
 - **Localized labels,** in en-US and French, through lys-shell's translations.
 
 ## When something is wrong

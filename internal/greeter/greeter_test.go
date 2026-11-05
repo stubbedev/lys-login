@@ -343,7 +343,7 @@ func TestWriteIcons(t *testing.T) {
 	if err := writeIcons(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"ld-power-symbolic.svg", "ld-rotate-ccw-symbolic.svg", "ld-chevron-down-symbolic.svg", "object-select-symbolic.svg", "ld-eye-symbolic.svg", "ld-eye-off-symbolic.svg"} {
+	for _, name := range []string{"ld-power-symbolic.svg", "ld-moon-symbolic.svg", "ld-rotate-ccw-symbolic.svg", "ld-chevron-down-symbolic.svg", "object-select-symbolic.svg", "ld-eye-symbolic.svg", "ld-eye-off-symbolic.svg"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}

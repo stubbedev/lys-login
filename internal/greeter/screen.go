@@ -311,8 +311,8 @@ func (s *screen) avatarPicture(u User) image.Image {
 	return loginscreen.AvatarPicture(s.d.loadAvatar, u.Icon, s.d.outputScale())
 }
 
-// powerRow is build_power_box: shutdown and reboot in the .lock-power
-// row at the bottom center, each a round button over its name.
+// powerRow is build_power_box: sleep, restart and shut down in the
+// .lock-power row at the bottom center, each a round button over its name.
 func (s *screen) powerRow(font render.Font) *widget.Box {
 	th := widget.Current()
 	row := widget.NewBox(widget.Row, 4*th.Spacing, 0)
@@ -321,7 +321,11 @@ func (s *screen) powerRow(font render.Font) *widget.Box {
 		icon string
 		name string
 		verb string
-	}{{"ld-power-symbolic", t("greeter-shutdown"), "poweroff"}, {"ld-rotate-ccw-symbolic", t("greeter-restart"), "reboot"}} {
+	}{
+		{"ld-moon-symbolic", t("greeter-sleep"), "suspend"},
+		{"ld-rotate-ccw-symbolic", t("greeter-restart"), "reboot"},
+		{"ld-power-symbolic", t("greeter-shutdown"), "poweroff"},
+	} {
 		btn := widget.NewButton(widget.NewThemeIcon(b.icon, powerIconPx), 0, 0)
 		btn.AddClass("lock-power-button", css.Ghost, css.Icon, css.Large)
 		btn.SetAccessibleName(b.name)

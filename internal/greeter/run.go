@@ -97,7 +97,7 @@ func Run(init Init) error {
 		now:      wall.Now,
 		saveLast: SaveLast,
 		power: func(verb string) {
-			// logind allows both for the active local session without
+			// logind allows each for the active local session without
 			// extra polkit rules.
 			if err := exec.Command("systemctl", verb).Run(); err != nil { //nolint:gosec // a fixed verb
 				log.Printf("greeter: power action %s failed: %v", verb, err)

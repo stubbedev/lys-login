@@ -468,10 +468,10 @@ func TestGreeterUserRowAndPower(t *testing.T) {
 	for _, b := range buttons {
 		b.OnClick()
 	}
-	if got := r.powerVerbs(t, 2); !slices.Equal(got, []string{"poweroff", "reboot"}) {
+	if got := r.powerVerbs(t, 3); !slices.Equal(got, []string{"poweroff", "reboot", "suspend"}) {
 		t.Errorf("power verbs = %v", got)
 	}
-	if got := treetest.Labels(r.s.power); !slices.Equal(got, []string{"Shut down", "Restart"}) {
+	if got := treetest.Labels(r.s.power); !slices.Equal(got, []string{"Sleep", "Restart", "Shut down"}) {
 		t.Errorf("power names = %q", got)
 	}
 	for _, b := range buttons {
@@ -791,7 +791,7 @@ func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 	r := newRig(t, nil)
 	loop := goroutineID()
 	var onLoop atomic.Int32
-	entered, release := make(chan struct{}, 2), make(chan struct{})
+	entered, release := make(chan struct{}, 3), make(chan struct{})
 	r.onPower = func(string) {
 		if goroutineID() == loop {
 			onLoop.Add(1)
@@ -800,8 +800,8 @@ func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 		<-release
 	}
 	buttons := treetest.WithClass(r.s.power, "lock-power-button")
-	if len(buttons) != 2 {
-		t.Fatalf("%d power buttons", len(buttons))
+	if len(buttons) != 3 {
+		t.Fatalf("%d power buttons, want sleep, restart and shut down", len(buttons))
 	}
 	for _, b := range buttons {
 		btn, ok := b.(*widget.Button)
@@ -818,7 +818,7 @@ func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 		}
 	}
 	close(release)
-	r.powerVerbs(t, 2)
+	r.powerVerbs(t, 3)
 	if got := onLoop.Load(); got != 0 {
 		t.Errorf("%d power actions on the loop's goroutine", got)
 	}
