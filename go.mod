@@ -3,8 +3,7 @@ module github.com/stubbedev/lys-login
 go 1.27.3
 
 require (
-	github.com/ebitengine/purego v0.11.2
-	github.com/stubbedev/lys-lib v0.3.11-0.20261107173330-4002982d03ad
+	github.com/stubbedev/lys-lib v0.3.11-0.20261107185144-baa4ea83c867
 	github.com/stubbedev/lys-secrets v0.3.13-0.20261107155151-d2eee21a6bed
 	github.com/stubbedev/lys-shell v0.3.15-0.20261107173030-69bf74160c21
 	github.com/stubbedev/lys-ui v0.2.15-0.20261107174409-529b3699c222
@@ -15,6 +14,7 @@ require (
 
 require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/ebitengine/purego v0.11.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jfreymuth/pulse v0.1.3 // indirect
 	github.com/kettek/apng v0.0.0-20250827064933-2bb5f5fcf253 // indirect

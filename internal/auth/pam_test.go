@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stubbedev/lys-lib/pam"
 )
 
 // fakePAM is a scripted libpam: authenticate runs the conversation
@@ -359,12 +361,8 @@ func TestPAMEmptyUserIsSessionUser(t *testing.T) {
 // missing.
 func realPAM(t *testing.T, service, rules string) *PAM {
 	t.Helper()
-	l, err := loadLibpam()
-	if err != nil {
+	if err := pam.CheckLibrary(); err != nil {
 		t.Skipf("no libpam: %v", err)
-	}
-	if l.startConfdir == nil {
-		t.Skip("libpam lacks pam_start_confdir")
 	}
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, service), []byte(rules), 0o600); err != nil {

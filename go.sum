@@ -20,8 +20,8 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
-github.com/stubbedev/lys-lib v0.3.11-0.20261107173330-4002982d03ad h1:fYJDXHRz6ja5mKjhiwgYQp+ybvRqy8aoiBFrC224UJ0=
-github.com/stubbedev/lys-lib v0.3.11-0.20261107173330-4002982d03ad/go.mod h1:uMuMAmarcuddaEYxIM6QNtMM/fDbM0DVS31U/iSq7/o=
+github.com/stubbedev/lys-lib v0.3.11-0.20261107185144-baa4ea83c867 h1:AXPrB02/brzAk3CfsKYcxX/iNPilf1pLll9p3G3HUUg=
+github.com/stubbedev/lys-lib v0.3.11-0.20261107185144-baa4ea83c867/go.mod h1:uMuMAmarcuddaEYxIM6QNtMM/fDbM0DVS31U/iSq7/o=
 github.com/stubbedev/lys-secrets v0.3.13-0.20261107155151-d2eee21a6bed h1:htQP9EslLdJ04BSd4yfUilshJO994Rw3EI9ZOVDSmBE=
 github.com/stubbedev/lys-secrets v0.3.13-0.20261107155151-d2eee21a6bed/go.mod h1:vYb25fjQLeMCWsEsLTVa5mW9acBSGMXwzv/jIKGC7dU=
 github.com/stubbedev/lys-shell v0.3.15-0.20261107173030-69bf74160c21 h1:L6XrvfInv7xyXhXFcj6PxHyL8bVok02yMeldfKHNE8c=
