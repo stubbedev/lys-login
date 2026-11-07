@@ -86,6 +86,12 @@ greetd-vm:
 keyboard-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.keyboard-vm
 
+# The lock screen's status row and fingerprint in a NixOS VM (needs KVM): a
+# fake player shown, a Caps Lock layout switch while locked, and a fake fprintd
+# whose no-match counts and whose match unlocks without a password.
+lock-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.lock-vm
+
 # An X11 session through the display manager in a NixOS VM (needs KVM): logind
 # holds it as Type=x11, and the greeter before it stays wayland.
 x11-session-vm:
