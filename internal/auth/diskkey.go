@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -37,7 +38,7 @@ func requestUserKey(name string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	id, _, errno := unix.Syscall6(unix.SYS_REQUEST_KEY, uintptr(unsafe.Pointer(keyType)), uintptr(unsafe.Pointer(description)), 0, 0, 0, 0)
+	id, _, errno := unix.Syscall6(unix.SYS_REQUEST_KEY, uintptr(unsafe.Pointer(keyType)), uintptr(unsafe.Pointer(description)), 0, 0, 0, 0) //nolint:gosec // audited: request_key(2) reads the two NUL-terminated strings BytePtrFromString returned, alive for the call
 	if errno != 0 {
 		return 0, errno
 	}
@@ -67,9 +68,9 @@ func readKey(id int) ([]byte, error) {
 func lastPassword(payload []byte) []byte {
 	defer clear(payload)
 	passwords := bytes.Split(payload, []byte{0})
-	for i := len(passwords) - 1; i >= 0; i-- {
-		if len(passwords[i]) > 0 {
-			return bytes.Clone(passwords[i])
+	for _, password := range slices.Backward(passwords) {
+		if len(password) > 0 {
+			return bytes.Clone(password)
 		}
 	}
 	return nil
