@@ -145,7 +145,7 @@
     touch /tmp/lys-login/session-ready
     until [ -e /tmp/lys-login/end-session ]; do
       if [ -e /tmp/lys-login/lock-now ]; then
-        rm /tmp/lys-login/lock-now
+        rm -f /tmp/lys-login/lock-now
         lys-login lock > /tmp/lys-login/lock.out 2> /tmp/lys-login/lock.err
         echo $? > /tmp/lys-login/lock.rc
       fi

@@ -42,7 +42,7 @@
     echo "$XDG_SESSION_ID $XDG_VTNR" > /tmp/lys-login/$me-session
     until [ -e /tmp/lys-login/stop-agents ]; do
       if [ -e /tmp/lys-login/$me-lock ]; then
-        rm /tmp/lys-login/$me-lock
+        rm -f /tmp/lys-login/$me-lock
         lys-login lock > /tmp/lys-login/$me-lock.out 2> /tmp/lys-login/$me-lock.err &
       fi
       sleep 0.1

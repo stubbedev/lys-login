@@ -1,7 +1,7 @@
 # A password changed through lys-login moves lys-secrets' login collection
 # with it (stubbedev/lys-secrets#12), in a NixOS VM. alice logs in once, which
 # makes her login collection on her password, and stores a secret. Her password
-# is then expired: the next login asks her for a new one, PAM changes it, and
+# is then expired: the next login asks for her current password and a new one, PAM changes it, and
 # the worker re-keys the collection from the old password to the new one, so
 # `secret-tool lookup` answers at once. The login after that, with the new
 # password, opens the collection with no warning.
@@ -20,7 +20,7 @@
   session = pkgs.writeShellScript "lys-login-rekey-vm-session" ''
     echo "$XDG_SESSION_ID" > /tmp/lys-login/session
     until [ -e /tmp/lys-login/end-session ]; do sleep 0.2; done
-    rm /tmp/lys-login/end-session /tmp/lys-login/session
+    rm -f /tmp/lys-login/end-session /tmp/lys-login/session
   '';
 in
   pkgs.testers.nixosTest {
@@ -81,9 +81,9 @@ in
           machine.succeed("chage -d 0 alice")
           await_ready(machine, "password", 1)
           machine.send_chars("${password}\n")
-          for _ in range(2):
+          for answer in ("${password}", "${newPassword}", "${newPassword}"):
               machine.sleep(4)
-              machine.send_chars("${newPassword}\n")
+              machine.send_chars(answer + "\n")
           machine.wait_until_succeeds("test -s /tmp/lys-login/session", timeout=90)
           if "password changed for alice" not in journal():
               raise Exception("PAM did not change alice's password")
