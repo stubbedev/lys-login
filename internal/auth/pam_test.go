@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -31,7 +30,6 @@ type fakePAM struct {
 	endStatus     int32
 	openRC        int32
 	env           []string
-	authtok       []byte
 	permit        bool
 	changeBatches [][]pamMessage
 	chauthtokRC   int32
@@ -123,8 +121,6 @@ func (t *fakeTxn) end(status int32) {
 	t.f.calls = append(t.f.calls, "end")
 	t.f.endStatus = status
 }
-
-func (t *fakeTxn) authtok() []byte { return bytes.Clone(t.f.authtok) }
 
 func (t *fakeTxn) strerror(code int32) string {
 	switch code {

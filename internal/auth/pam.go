@@ -58,7 +58,6 @@ type pamTxn interface {
 	getenvlist() []string
 	end(status int32)
 	strerror(code int32) string
-	authtok() []byte
 }
 
 // pam_setcred flags (security/_pam_types.h).

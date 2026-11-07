@@ -34,7 +34,7 @@
     echo "$XDG_SESSION_ID" > /tmp/lys-login/session
     until [ -e /tmp/lys-login/session-over ]; do
       if [ -e /tmp/lys-login/lock-now ]; then
-        rm /tmp/lys-login/lock-now
+        rm -f /tmp/lys-login/lock-now
         lys-login lock > /tmp/lys-login/lock.out 2> /tmp/lys-login/lock.err
         echo $? > /tmp/lys-login/lock.rc
       fi
@@ -72,7 +72,8 @@ in
         mountHostNixStore = true;
       };
       boot.loader.systemd-boot.enable = true;
-      environment.systemPackages = [pkgs.cryptsetup pkgs.libsecret];
+      boot.tmp.cleanOnBoot = true;
+      environment.systemPackages = [pkgs.cryptsetup pkgs.keyutils pkgs.libsecret];
       programs.lys-wm.enable = true;
       services.lys-secrets.enable = true;
       programs.lys-login = {
@@ -94,11 +95,12 @@ in
       specialisation.luks.configuration = {
         boot.initrd.luks.devices = lib.mkVMOverride {cryptroot.device = "/dev/vdb";};
         virtualisation.rootDevice = "/dev/mapper/cryptroot";
-        virtualisation.fileSystems."/".autoFormat = true;
       };
     };
 
-    testScript = ''
+    testScript = {nodes, ...}: ''
+      import datetime
+      import shlex
       import time
 
       ${greeterVm.script "-t lys-login"}
@@ -109,7 +111,7 @@ in
           return machine.succeed("journalctl -b -o cat --no-pager")
 
       def as_alice(command):
-          return f"su alice -s /bin/sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u alice); {command}'"
+          return "su alice -s /bin/sh -c " + shlex.quote(f"export XDG_RUNTIME_DIR=/run/user/$(id -u alice); {command}")
 
       def await_session():
           machine.wait_until_succeeds("test -s /tmp/lys-login/session", timeout=120)
@@ -136,11 +138,10 @@ in
                   raise Exception(f"a passphrase is in {hits}")
 
       def boot_luks(passphrase):
-          machine.succeed("bootctl set-oneshot nixos-generation-1-specialisation-luks.conf")
           machine.succeed("sync")
           machine.crash()
           machine.start()
-          machine.wait_for_console_text("Please enter passphrase for disk cryptroot")
+          machine.wait_for_console_text("Please enter passphrase for disk cryptroot", timeout=datetime.timedelta(minutes=3))
           machine.send_console(passphrase + "\n")
           machine.wait_for_unit("multi-user.target")
           machine.succeed("install -D -o alice -m 0644 ${lockConfig} /home/alice/.config/lys-shell/config.yaml")
@@ -163,6 +164,9 @@ in
 
           machine.succeed("echo -n ${password} | cryptsetup luksFormat -q --iter-time=1 /dev/vdb -")
           machine.succeed("echo -n ${otherPassphrase} > /tmp/other && echo -n ${password} | cryptsetup luksAddKey -q --iter-time=1 --key-file=- /dev/vdb /tmp/other && rm /tmp/other")
+          machine.succeed("echo -n ${password} | cryptsetup luksOpen -q /dev/vdb cryptroot")
+          machine.succeed("mkfs.ext4 -q /dev/mapper/cryptroot && cryptsetup luksClose cryptroot")
+          machine.succeed("${nodes.machine.specialisation.luks.configuration.system.build.toplevel}/bin/switch-to-configuration boot")
 
           boot_luks("${password}")
           await_session()

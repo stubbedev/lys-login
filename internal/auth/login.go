@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -32,15 +33,19 @@ func Authenticate(service, user string, ask Ask) (*Login, error) {
 }
 
 func Autologin(service, user string) (*Login, error) {
-	return autologin(systemPAM{}, service, user)
+	return autologin(systemPAM{}, service, user, diskPassphrase)
 }
 
-func autologin(lib pamLib, service, user string) (*Login, error) {
+func autologin(lib pamLib, service, user string, disk diskPassphraseFunc) (*Login, error) {
 	l, err := authenticate(lib, service, user, &pamConversation{ask: refuseAutologinPrompt})
 	if err != nil {
 		return nil, err
 	}
-	l.secret = l.txn.authtok()
+	secret, err := disk()
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("autologin of %s: %w", user, err), l.Close())
+	}
+	l.secret = secret
 	return l, nil
 }
 

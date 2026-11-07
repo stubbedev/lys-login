@@ -39,4 +39,3 @@ func (s systemTxn) putenv(kv string) int32      { return s.t.Putenv(kv) }
 func (s systemTxn) getenvlist() []string        { return s.t.Getenvlist() }
 func (s systemTxn) end(status int32)            { s.t.End(status) }
 func (s systemTxn) strerror(code int32) string  { return s.t.Strerror(code) }
-func (s systemTxn) authtok() []byte             { return s.t.Authtok() }
