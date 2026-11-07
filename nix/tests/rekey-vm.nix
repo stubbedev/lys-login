@@ -59,7 +59,7 @@ in
           return machine.succeed("journalctl -b -o cat --no-pager")
 
       def as_alice(command):
-          return f"su alice -s /bin/sh -c 'XDG_RUNTIME_DIR=/run/user/$(id -u alice) {command}'"
+          return f"su alice -s /bin/sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u alice); {command}'"
 
       def unlocked():
           machine.wait_until_succeeds(as_alice("busctl --user get-property org.freedesktop.secrets /org/freedesktop/secrets/collection/login org.freedesktop.Secret.Collection Locked | grep -qx \"b false\""), timeout=60)

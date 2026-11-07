@@ -40,7 +40,7 @@
   sessionAgent = pkgs.writeShellScript "lys-login-switch-vm-agent" ''
     me=$(id -un)
     echo "$XDG_SESSION_ID $XDG_VTNR" > /tmp/lys-login/$me-session
-    while :; do
+    until [ -e /tmp/lys-login/stop-agents ]; do
       if [ -e /tmp/lys-login/$me-lock ]; then
         rm /tmp/lys-login/$me-lock
         lys-login lock > /tmp/lys-login/$me-lock.out 2> /tmp/lys-login/$me-lock.err &
@@ -220,6 +220,8 @@ in
           bob_sid, bob_vt = session_of("bob")
           if len(workers()) != 2:
               raise Exception(f"{workers()} after bob's second login")
+          machine.succeed("touch /tmp/lys-login/stop-agents")
+          machine.execute("pkill -u alice -f 'lys-login lock'")
           begun = time.monotonic()
           machine.succeed("systemctl stop lys-login.service")
           took = time.monotonic() - begun

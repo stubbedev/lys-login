@@ -32,7 +32,7 @@
   sessionAgent = pkgs.writeShellScript "lys-login-autologin-vm-agent" ''
     env | sort > /tmp/lys-login/session-env
     echo "$XDG_SESSION_ID" > /tmp/lys-login/session
-    while :; do
+    until [ -e /tmp/lys-login/session-over ]; do
       if [ -e /tmp/lys-login/lock-now ]; then
         rm /tmp/lys-login/lock-now
         lys-login lock > /tmp/lys-login/lock.out 2> /tmp/lys-login/lock.err
@@ -109,7 +109,7 @@ in
           return machine.succeed("journalctl -b -o cat --no-pager")
 
       def as_alice(command):
-          return f"su alice -s /bin/sh -c 'XDG_RUNTIME_DIR=/run/user/$(id -u alice) {command}'"
+          return f"su alice -s /bin/sh -c 'export XDG_RUNTIME_DIR=/run/user/$(id -u alice); {command}'"
 
       def await_session():
           machine.wait_until_succeeds("test -s /tmp/lys-login/session", timeout=120)
@@ -153,6 +153,7 @@ in
           if "no disk passphrase in the kernel keyring" not in journal():
               raise Exception("the worker did not say the keyring stays locked without a passphrase")
           machine.screenshot("01-autologin")
+          machine.succeed("touch /tmp/lys-login/session-over")
           machine.succeed("kill -TERM $(pgrep -u alice -x lys-wm || pgrep -u alice -f 'lys-wm --config')")
           machine.wait_until_succeeds(f"! loginctl show-session {sid}", timeout=60)
           await_ready(machine, "username", 1)
