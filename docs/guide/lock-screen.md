@@ -30,11 +30,33 @@ starts it again if it dies with the session still locked.
 The screen reports its state to logind with `SetLockedHint`. It unlocks by
 password or on logind's Unlock signal.
 
+## What the screen shows
+
+Under the clock, the track a media player is playing (MPRIS on the session bus),
+with play/pause and next; only the player's local cover art is drawn, nothing is
+fetched while locked. In the top right corner, the battery's charge from UPower,
+absent on a machine without a battery, and the keyboard layout chip when the
+keymap has more than one layout: a click or the compositor's layout keys switch
+it, so the password can be typed in the right layout. `login.lock.show-media` and
+`login.lock.show-battery` turn the first two off. None of it repaints while
+nothing changes.
+
+## Fingerprint
+
+With fprintd and a finger enrolled for the session user, the lock asks fprintd to
+verify alongside the password prompt, and a matching finger unlocks without the
+password. Typing the password while the reader waits works as before and stops
+the reader. A finger that does not match counts as a failed attempt, and the
+reader waits for the next one until `login.max-attempts` is reached. Without
+fprintd or an enrolled finger nothing changes; `login.lock.fingerprint` turns it
+off. A fingerprint opens no keyring, since no password was typed.
+
 ## Failed attempts
 
 `login.show-failed-attempts` shows the count. `login.max-attempts` blocks further
 input once reached, and the session stays locked; `0` means no limit. These two
-keys belong to the lock screen: the greeter ignores them.
+keys belong to the lock screen: the greeter ignores them. A fingerprint that does
+not match counts as an attempt.
 
 ## What an unlock opens
 

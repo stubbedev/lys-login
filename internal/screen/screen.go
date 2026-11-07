@@ -22,6 +22,10 @@ type GreeterRows struct {
 	Session, Power widget.Widget
 }
 
+type LockRows struct {
+	Status, Corner widget.Widget
+}
+
 // Spec is one login screen surface.
 type Spec struct {
 	Mode   Mode
@@ -36,6 +40,7 @@ type Spec struct {
 	// Greeter holds the greeter's own rows; Build reads it in greeter
 	// mode only.
 	Greeter GreeterRows
+	Lock    LockRows
 	// Password is the password entry's placeholder and CapsLock the caps
 	// lock warning's text, in the mode's locale.
 	Password, CapsLock string
@@ -67,9 +72,12 @@ func Build(s Spec) *Surface {
 		Font: s.Font, ShowClock: s.Config.ShowClock, Identity: s.Identity,
 		Password: s.Password, CapsLock: s.CapsLock, Focus: s.Focus, NextLayout: s.NextLayout,
 	}
-	if s.Mode == Greeter {
+	switch s.Mode {
+	case Greeter:
 		o.WithUsername = true
 		o.Extra, o.Footer = s.Greeter.Session, s.Greeter.Power
+	case Lock:
+		o.Status, o.Corner = s.Lock.Status, s.Lock.Corner
 	}
 	surface := &Surface{Prompt: newPrompt(o, s.OnSubmit), Scrim: Scrim()}
 	surface.Root = Window(s.Sheet,

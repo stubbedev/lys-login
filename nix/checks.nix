@@ -57,6 +57,11 @@
           inherit self;
           inherit (inputs) lys-wm;
         };
+        # The lock screen's status row and fingerprint; see nix/tests/lock-vm.nix.
+        lock-vm = pkgs.callPackage ./tests/lock-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm;
+        };
         # An X11 session reaches logind as x11; see nix/tests/x11-session-vm.nix.
         x11-session-vm = pkgs.callPackage ./tests/x11-session-vm.nix {
           inherit self;

@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/layouts"
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
@@ -91,6 +92,8 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		}
 	})
 	defer func() { hints.drain(time.After(drainWait)) }()
+	watches := &busWatches{invoke: a.Invoke}
+	defer watches.wait()
 	deps := Deps{
 		Locker: appLocker{a: a},
 		Loop:   a,
@@ -112,10 +115,17 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		OnCapsLock: func(fn func(on bool)) func() {
 			return a.OnLocks(func(l app.Locks) { fn(l.Caps) })
 		},
-		SetLockedHint: hints.set,
+		SetLockedHint:    hints.set,
+		Media:            newSessionMedia(watches, cfg.Media),
+		Battery:          watches.battery,
+		Fingerprint:      watches.fingerprint(auth.CurrentUsername()),
+		OnKeyboardLayout: a.OnKeyboardLayout,
+		NextLayout:       layouts.Switcher("lock"),
+		LabelLayouts:     layouts.LabeledOnSystem,
 	}
 	account := sessionAccount()
 	s := New(cfg, account.RealName, app.FontFallback(base), apptheme.New(cfg).Sheet, deps)
+	defer s.stopWatches()
 	scale := loginscreen.MaxScale(sess.Outputs())
 	go func() {
 		if img := loginscreen.AvatarPicture(imagedecode.Open, account.Avatar, scale); img != nil {

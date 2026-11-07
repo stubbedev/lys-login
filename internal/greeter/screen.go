@@ -133,11 +133,7 @@ type screen struct {
 
 	clock *loginscreen.ClockTicker
 
-	keyboard     app.KeyboardLayout
-	labeled      []layouts.Layout
-	pendingSteps int
-	wantLayout   string
-	logged       string
+	layouts *loginscreen.KeyboardLayouts
 
 	// saving is the write handOver may have stopped waiting for.
 	saving sync.WaitGroup
@@ -196,8 +192,12 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 		Identity: users, Greeter: rows, Password: t("greeter-password"), CapsLock: t("greeter-caps-lock"),
 		Focus: d.focus, OnSubmit: s.submit,
 	}
-	if d.nextLayout != nil {
-		spec.NextLayout = s.cycleLayout
+	s.layouts = loginscreen.NewKeyboardLayouts(loginscreen.LayoutDeps{
+		Invoke: d.invoke, Label: d.labelLayouts, Next: d.nextLayout, Mode: "greeter",
+		Show: func([]layouts.Layout, uint32) { s.layouts.ShowOn(s.prompt) },
+	})
+	if s.layouts.CanSwitch() {
+		spec.NextLayout = s.layouts.Cycle
 	}
 	surface := loginscreen.Build(spec)
 	s.prompt, s.root = surface.Prompt, surface.Root
@@ -488,7 +488,7 @@ type rememberedLogin struct {
 
 // loginToRemember reads what it needs on the loop.
 func (s *screen) loginToRemember() rememberedLogin {
-	return rememberedLogin{session: s.selectedSession().ID, user: strings.TrimSpace(s.prompt.Username.Text()), layout: s.activeLayout()}
+	return rememberedLogin{session: s.selectedSession().ID, user: strings.TrimSpace(s.prompt.Username.Text()), layout: s.layouts.Active()}
 }
 
 // remember persists the session and the username for next time.

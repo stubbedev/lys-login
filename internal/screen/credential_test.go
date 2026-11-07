@@ -245,8 +245,11 @@ func TestThePromptSitsOnTheBackgroundWithNoCard(t *testing.T) {
 func promptStack(t *testing.T, p *Prompt) *widget.Box {
 	t.Helper()
 	layers := p.Reveal.Child().(*widget.Overlay).Children()
-	if len(layers) != 2 || layers[1] != p.Layout {
-		t.Fatalf("the prompt reveals %d layers, want the screen's column under the layout chip", len(layers))
+	if len(layers) != 2 {
+		t.Fatalf("the prompt reveals %d layers, want the screen's column under the corner", len(layers))
+	}
+	if corner := layers[1].(*widget.Box).Children(); corner[len(corner)-1] != p.Layout {
+		t.Fatal("the corner does not end in the layout chip")
 	}
 	return layers[0].(*widget.Box)
 }

@@ -140,6 +140,11 @@ func (w *fakeWall) fire() {
 
 func newHarness(t *testing.T, edit func(*config.LoginConfig)) *harness {
 	t.Helper()
+	return newHarnessWith(t, edit, nil)
+}
+
+func newHarnessWith(t *testing.T, edit func(*config.LoginConfig), deps func(*Deps)) *harness {
+	t.Helper()
 	face := treetest.Font(t)
 	cfg := config.Defaults()
 	if edit != nil {
@@ -151,7 +156,7 @@ func newHarness(t *testing.T, edit func(*config.LoginConfig)) *harness {
 		now:    time.Date(2026, 3, 5, 9, 7, 0, 0, time.Local),
 	}
 	h.wall = &fakeWall{h: h}
-	h.s = New(cfg, "Ada Lovelace", face, apptheme.New(cfg).Sheet, Deps{
+	d := Deps{
 		Locker: h.locker,
 		Loop:   h.loop,
 		Now:    func() time.Time { return h.now },
@@ -175,7 +180,11 @@ func newHarness(t *testing.T, edit func(*config.LoginConfig)) *harness {
 		Outputs:  func() []image.Point { return []image.Point{{1920, 1080}, {1080, 1920}} },
 		Forget:   func(id render.ImageID) { h.forgotten = append(h.forgotten, id) },
 		OnLocked: func(struct{}) { h.locked++ },
-	})
+	}
+	if deps != nil {
+		deps(&d)
+	}
+	h.s = New(cfg, "Ada Lovelace", face, apptheme.New(cfg).Sheet, d)
 	return h
 }
 

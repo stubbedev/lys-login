@@ -30,6 +30,8 @@ import (
 	"github.com/stubbedev/memory-go"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/fprint"
+	"github.com/stubbedev/lys-login/internal/layouts"
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
@@ -92,7 +94,13 @@ type Deps struct {
 	OnCapsLock func(fn func(on bool)) (stop func())
 	// OnEnded runs on the loop when a lock ends: unlocked, refused, or
 	// ended by the compositor; nil for nothing.
-	OnEnded func()
+	OnEnded          func()
+	Media            mediaSource
+	Battery          func(onChange func(batteryLevel, bool)) (stop func())
+	Fingerprint      func(onResult func(fprint.Result)) (stop func())
+	OnKeyboardLayout func(fn func(app.KeyboardLayout)) (stop func())
+	NextLayout       func(steps int)
+	LabelLayouts     func(names []string) ([]layouts.Layout, error)
 }
 
 // Timer runs the function it was made with on the loop, once per Reset. A firing
@@ -104,6 +112,12 @@ type Timer interface {
 }
 
 // authHandle is the running conversation's reply side.
+type mediaSource interface {
+	Watch(onChange func(nowPlaying, bool)) (stop func())
+	PlayPause(bus string)
+	Next(bus string)
+}
+
 type authHandle interface {
 	Answer(string)
 	Cancel()
@@ -115,17 +129,20 @@ type face struct {
 	account *loginscreen.AccountTile
 	prompt  *loginscreen.Prompt
 	scrim   *widget.Box
+	media   *mediaRow
+	battery *batteryChip
 }
 
 // Screen is the lock screen component. Every method runs on the event
 // loop; auth events and signals cross into it through Loop.Invoke.
 type Screen struct {
-	cfg       config.LoginConfig
-	anims     config.AnimationsConfig
-	wallpaper string
-	font      render.Font
-	sheet     *widget.Stylesheet
-	d         Deps
+	cfg          config.LoginConfig
+	chargingIcon string
+	anims        config.AnimationsConfig
+	wallpaper    string
+	font         render.Font
+	sheet        *widget.Stylesheet
+	d            Deps
 	// account is the session user's name as the screen shows it, picture
 	// their avatar once it is decoded, nil until then.
 	account string
@@ -157,7 +174,14 @@ type Screen struct {
 	message   string
 	blanked   bool
 	caps      bool
-	capsStop  func()
+	watching  bool
+	stops     []func()
+	fpStop    func()
+	layouts   *loginscreen.KeyboardLayouts
+	media     nowPlaying
+	mediaOK   bool
+	battery   batteryLevel
+	batteryOK bool
 	blank     Timer
 	blankDue  time.Time
 	clock     *loginscreen.ClockTicker
@@ -181,12 +205,20 @@ type Screen struct {
 // The prompt shapes text with font; sheet (the shell's stylesheet)
 // styles the surfaces through the lock.css rules.
 func New(cfg *config.Config, account string, font render.Font, sheet *widget.Stylesheet, d Deps) *Screen {
-	s := &Screen{cfg: cfg.Login, anims: cfg.Animations, wallpaper: cfg.Wallpaper.Wallpaper, account: account, font: font, sheet: sheet, d: d}
+	s := &Screen{cfg: cfg.Login, chargingIcon: cfg.Battery.ChargingIcon, anims: cfg.Animations, wallpaper: cfg.Wallpaper.Wallpaper, account: account, font: font, sheet: sheet, d: d}
 	var shown []func(time.Time) string
 	if s.cfg.ShowClock {
 		shown = append(shown, s.cfg.ClockFormat.Layout().Format, s.cfg.DateFormat.Layout().Format)
 	}
 	s.clock = loginscreen.NewClockTicker(d.Wall, s.refreshClock, shown...)
+	s.layouts = loginscreen.NewKeyboardLayouts(loginscreen.LayoutDeps{
+		Invoke: d.Loop.Invoke, Label: d.LabelLayouts, Next: d.NextLayout, Mode: "lock",
+		Show: func([]layouts.Layout, uint32) {
+			for _, f := range s.faces {
+				s.layouts.ShowOn(f.prompt)
+			}
+		},
+	})
 	return s
 }
 
@@ -230,15 +262,91 @@ func (s *Screen) Lock() error {
 		s.dropBackground()
 		return fmt.Errorf("lock: cannot lock the session: %w", err)
 	}
-	s.watchCapsLock()
+	s.startWatches()
 	s.armBlank()
 	return nil
 }
 
-func (s *Screen) watchCapsLock() {
-	if s.d.OnCapsLock != nil && s.capsStop == nil {
-		s.capsStop = s.d.OnCapsLock(s.setCaps)
+func (s *Screen) showMedia() bool   { return s.cfg.Lock.ShowMedia && s.d.Media != nil }
+func (s *Screen) showBattery() bool { return s.cfg.Lock.ShowBattery && s.d.Battery != nil }
+
+func (s *Screen) startWatches() {
+	if s.watching {
+		return
 	}
+	s.watching = true
+	if s.d.OnCapsLock != nil {
+		s.stops = append(s.stops, s.d.OnCapsLock(s.setCaps))
+	}
+	if s.d.OnKeyboardLayout != nil {
+		s.stops = append(s.stops, s.d.OnKeyboardLayout(s.layouts.Set))
+	}
+	if s.showMedia() {
+		s.stops = append(s.stops, s.d.Media.Watch(s.setMedia))
+	}
+	if s.showBattery() {
+		s.stops = append(s.stops, s.d.Battery(s.setBattery))
+	}
+	s.startFingerprint()
+}
+
+func (s *Screen) stopWatches() {
+	for _, stop := range s.stops {
+		stop()
+	}
+	s.stops = nil
+	s.watching = false
+	s.stopFingerprint()
+}
+
+func (s *Screen) startFingerprint() {
+	if s.fpStop != nil || s.d.Fingerprint == nil || !s.cfg.Lock.Fingerprint || s.exhausted() {
+		return
+	}
+	s.fpStop = s.d.Fingerprint(s.onFingerprint)
+}
+
+func (s *Screen) stopFingerprint() {
+	if s.fpStop != nil {
+		s.fpStop()
+		s.fpStop = nil
+	}
+}
+
+func (s *Screen) onFingerprint(r fprint.Result) {
+	if s.fpStop == nil {
+		return
+	}
+	s.Activity()
+	switch r {
+	case fprint.Match:
+		log.Printf("lock: fingerprint matched")
+		s.release()
+	case fprint.NoMatch:
+		s.countFailure()
+		log.Printf("lock: fingerprint did not match (attempts %d)", s.attempts)
+		if s.exhausted() {
+			s.lockOut()
+			return
+		}
+		s.setMessage(i18n.T("lock-fingerprint-no-match"))
+	case fprint.Retry:
+		s.setMessage(i18n.T("lock-fingerprint-retry"))
+	}
+}
+
+func (s *Screen) countFailure() {
+	if s.attempts < ^uint32(0) {
+		s.attempts++
+	}
+}
+
+func (s *Screen) lockOut() {
+	s.stopFingerprint()
+	s.resetAuth()
+	s.setInput(false)
+	s.setMessage(i18n.T("lock-locked-out"))
+	s.clearEntries()
 }
 
 // loadBackground resolves the configured background and makes it at
@@ -273,12 +381,28 @@ func (s *Screen) buildFace(*app.Output) app.LockSurface {
 	if s.picture != nil {
 		account.SetPicture(s.picture)
 	}
-	surface := loginscreen.Build(loginscreen.Spec{
+	f := &face{account: account}
+	spec := loginscreen.Spec{
 		Mode: loginscreen.Lock, Config: s.cfg, Font: s.font, Sheet: s.sheet, Backdrop: s.bg,
 		Identity: account.Root, Password: i18n.T("lock-password"), CapsLock: i18n.T("lock-caps-lock"),
 		OnSubmit: s.Submit,
-	})
-	f := &face{account: account, prompt: surface.Prompt, scrim: surface.Scrim}
+	}
+	if s.showMedia() {
+		f.media = newMediaRow(s.font, s.playPause, s.nextTrack)
+		f.media.set(s.media, s.mediaOK)
+		spec.Lock.Status = f.media.root
+	}
+	if s.showBattery() {
+		f.battery = newBatteryChip(s.font, s.chargingIcon)
+		f.battery.set(s.battery, s.batteryOK)
+		spec.Lock.Corner = f.battery.root
+	}
+	if s.layouts.CanSwitch() {
+		spec.NextLayout = s.layouts.Cycle
+	}
+	surface := loginscreen.Build(spec)
+	f.prompt, f.scrim = surface.Prompt, surface.Scrim
+	s.layouts.ShowOn(f.prompt)
 	f.prompt.SetCapsLock(s.caps)
 	f.prompt.Clock.SetText(s.clockText)
 	f.prompt.Date.SetText(s.dateText)
@@ -440,10 +564,11 @@ func (s *Screen) onPrompt(p auth.Prompt) {
 // reached.
 func (s *Screen) onFailure(ev auth.Event) {
 	s.resetAuth()
-	if s.attempts < ^uint32(0) {
-		s.attempts++
-	}
+	s.countFailure()
 	log.Printf("lock: authentication failed (attempts %d): %s", s.attempts, ev.Reason)
+	if s.exhausted() {
+		s.stopFingerprint()
+	}
 	s.setInput(!s.exhausted())
 	s.setMessage(s.failureText(ev.Refusal))
 	s.moduleError = ""
@@ -538,7 +663,7 @@ func (s *Screen) cancelExit() {
 	}
 	s.setInput(true)
 	s.clock.Start()
-	s.watchCapsLock()
+	s.startWatches()
 	s.armBlank()
 	s.focusEntry()
 }
@@ -625,6 +750,38 @@ func (s *Screen) SetPicture(img image.Image) {
 	}
 }
 
+func (s *Screen) setMedia(np nowPlaying, ok bool) {
+	if np == s.media && ok == s.mediaOK {
+		return
+	}
+	s.media, s.mediaOK = np, ok
+	for _, f := range s.faces {
+		f.media.set(np, ok)
+	}
+}
+
+func (s *Screen) playPause() {
+	if s.mediaOK {
+		s.d.Media.PlayPause(s.media.bus)
+	}
+}
+
+func (s *Screen) nextTrack() {
+	if s.mediaOK {
+		s.d.Media.Next(s.media.bus)
+	}
+}
+
+func (s *Screen) setBattery(l batteryLevel, ok bool) {
+	if l == s.battery && ok == s.batteryOK {
+		return
+	}
+	s.battery, s.batteryOK = l, ok
+	for _, f := range s.faces {
+		f.battery.set(l, ok)
+	}
+}
+
 func (s *Screen) setCaps(on bool) {
 	s.caps = on
 	for _, f := range s.faces {
@@ -644,10 +801,7 @@ func (s *Screen) refreshClock() {
 
 func (s *Screen) stopTimers() {
 	s.clock.Stop()
-	if s.capsStop != nil {
-		s.capsStop()
-		s.capsStop = nil
-	}
+	s.stopWatches()
 	s.stopBlank()
 	s.blanked = false
 }

@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-ui/app"
-
-	"github.com/stubbedev/lys-login/internal/layouts"
 )
 
 var usDE = []string{"English (US)", "German"}
@@ -18,59 +16,14 @@ func (r *rig) queueInvokes() func() {
 	return func() { (<-queued)() }
 }
 
-func TestTheChipShowsOnceTheLayoutsAreLabeled(t *testing.T) {
+func TestTheGreetersChipShowsAndSwitchesTheLayout(t *testing.T) {
 	r := newRig(t, nil)
 	run := r.queueInvokes()
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE[:1]})
-	if r.s.prompt.Layout.Visible() {
-		t.Error("one layout shows the chip")
-	}
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE, Active: 1})
-	if r.s.prompt.Layout.Visible() {
-		t.Error("the chip shows before its labels")
-	}
+	r.s.layouts.Set(app.KeyboardLayout{Names: usDE, Active: 1})
 	run()
-	if !r.s.prompt.Layout.Visible() || !slices.Contains(labelsOf(r), "GE") {
-		t.Errorf("two layouts, labeled: chip shown %v, labels %v", r.s.prompt.Layout.Visible(), labelsOf(r))
+	if !r.s.prompt.Layout.Visible() || r.s.prompt.Layout.AccessibleName() != "German" {
+		t.Errorf("two layouts, German active: chip shown %v naming %q", r.s.prompt.Layout.Visible(), r.s.prompt.Layout.AccessibleName())
 	}
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE[:1]})
-	if r.s.prompt.Layout.Visible() {
-		t.Error("a keymap of one layout left the chip up")
-	}
-}
-
-func labelsOf(r *rig) []string {
-	out := make([]string, len(r.s.labeled))
-	for i, l := range r.s.labeled {
-		out[i] = l.Label
-	}
-	return out
-}
-
-func TestLabelsForAnOlderKeymapAreDropped(t *testing.T) {
-	r := newRig(t, nil)
-	run := r.queueInvokes()
-	label, older := r.s.d.labelLayouts, make(chan struct{})
-	r.s.d.labelLayouts = func(names []string) ([]layouts.Layout, error) {
-		if names[0] == usDE[0] {
-			<-older
-		}
-		return label(names)
-	}
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE})
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: []string{"French", "German"}})
-	run()
-	close(older)
-	run()
-	if got := labelsOf(r); !slices.Equal(got, []string{"FR", "GE"}) {
-		t.Errorf("labels = %v", got)
-	}
-}
-
-func TestClickingTheChipSwitchesToTheNextLayout(t *testing.T) {
-	r := newRig(t, nil)
-	r.queueInvokes()
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE})
 	r.s.prompt.Layout.OnClick()
 	if !slices.Equal(r.steps, []int{1}) {
 		t.Errorf("a click asked for %v steps", r.steps)
@@ -84,7 +37,7 @@ func TestWithoutLysWMTheChipTakesNoClick(t *testing.T) {
 		t.Error("the chip takes clicks with nothing to switch layouts")
 	}
 	r.s.init.Layouts = map[string]string{"ada": "German"}
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE})
+	r.s.layouts.Set(app.KeyboardLayout{Names: usDE})
 	r.s.wantLayoutOf("ada")
 }
 
@@ -98,7 +51,7 @@ func TestTheRememberedUsersLayoutComesFirst(t *testing.T) {
 	if len(r.steps) != 0 {
 		t.Fatalf("switched %v before any keymap", r.steps)
 	}
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE})
+	r.s.layouts.Set(app.KeyboardLayout{Names: usDE})
 	if !slices.Equal(r.steps, []int{1}) {
 		t.Fatalf("the remembered user's German took %v steps from US, want one", r.steps)
 	}
@@ -106,8 +59,8 @@ func TestTheRememberedUsersLayoutComesFirst(t *testing.T) {
 	if !slices.Equal(r.steps, []int{1, 1}) {
 		t.Errorf("picking bob while ada's switch is under way took %v, want one more step back to US", r.steps)
 	}
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE, Active: 1})
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE, Active: 0})
+	r.s.layouts.Set(app.KeyboardLayout{Names: usDE, Active: 1})
+	r.s.layouts.Set(app.KeyboardLayout{Names: usDE, Active: 0})
 	r.s.pickUser(r.s.users[1])
 	r.s.pickUser(r.s.users[1])
 	if !slices.Equal(r.steps, []int{1, 1}) {
@@ -122,8 +75,8 @@ func TestALayoutNoLongerConfiguredIsLeftAlone(t *testing.T) {
 	})
 	r.queueInvokes()
 	r.s.start()
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE})
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: []string{"Dvorak", "German"}})
+	r.s.layouts.Set(app.KeyboardLayout{Names: usDE})
+	r.s.layouts.Set(app.KeyboardLayout{Names: []string{"Dvorak", "German"}})
 	if len(r.steps) != 0 {
 		t.Errorf("switched %v for a layout the keymap did not have when the user was chosen", r.steps)
 	}
@@ -132,7 +85,7 @@ func TestALayoutNoLongerConfiguredIsLeftAlone(t *testing.T) {
 func TestTheLoginRemembersTheLayoutItWasTypedIn(t *testing.T) {
 	r := newRig(t, nil)
 	r.queueInvokes()
-	r.s.setKeyboardLayout(app.KeyboardLayout{Names: usDE, Active: 1})
+	r.s.layouts.Set(app.KeyboardLayout{Names: usDE, Active: 1})
 	r.s.prompt.Username.SetText("ada")
 	r.s.remember(r.s.loginToRemember())
 	if got := LoadLayouts(r.s.init.StatePath); got["ada"] != "German" || len(got) != 1 {

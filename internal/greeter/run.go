@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-lib/render"
-	"github.com/stubbedev/lys-lib/xkb"
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/imagedecode"
 	"github.com/stubbedev/lys-shell/logging"
@@ -105,15 +104,13 @@ func Run(init Init) error {
 				log.Printf("greeter: power action %s failed: %v", verb, err)
 			}
 		},
-		loadImage:   imagedecode.OpenOffHeap,
-		outputs:     func() []image.Point { return outputsize.Devices(sess.Outputs()) },
-		forget:      a.ForgetImage,
-		loadAvatar:  imagedecode.Open,
-		outputScale: func() int { return loginscreen.MaxScale(sess.Outputs()) },
-		nextLayout:  layoutSwitch(),
-		labelLayouts: func(names []string) ([]layouts.Layout, error) {
-			return layouts.Labeled(names, xkb.NewContext(os.Getenv).IncludePaths())
-		},
+		loadImage:    imagedecode.OpenOffHeap,
+		outputs:      func() []image.Point { return outputsize.Devices(sess.Outputs()) },
+		forget:       a.ForgetImage,
+		loadAvatar:   imagedecode.Open,
+		outputScale:  func() int { return loginscreen.MaxScale(sess.Outputs()) },
+		nextLayout:   layouts.Switcher("greeter"),
+		labelLayouts: layouts.LabeledOnSystem,
 	})
 	defer s.end()
 	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented))
@@ -144,7 +141,7 @@ func Run(init Init) error {
 		}
 	})
 	a.OnLocks(func(l app.Locks) { s.setCapsLock(l.Caps) })
-	a.OnKeyboardLayout(s.setKeyboardLayout)
+	a.OnKeyboardLayout(s.layouts.Set)
 	s.applyDebugOps(os.Getenv("LYS_SHELL_GREETER_DEBUG"), func(d time.Duration, fn func()) {
 		time.AfterFunc(d, func() { a.Invoke(fn) })
 	})

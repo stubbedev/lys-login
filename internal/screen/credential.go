@@ -49,6 +49,7 @@ type Options struct {
 	// bottom of the screen under all of it (the greeter's power
 	// buttons). Any may be nil.
 	Identity, Extra, Footer widget.Widget
+	Status, Corner          widget.Widget
 	// Password is the secret entry's placeholder, CapsLock the caps
 	// lock warning's text.
 	Password, CapsLock string
@@ -145,6 +146,9 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	clock := widget.NewBox(widget.Column, 0, 0)
 	clock.AddClass("lock-time")
 	clock.Append(p.Date, false).Append(p.Clock, false)
+	if o.Status != nil {
+		clock.AppendAligned(o.Status, false, widget.AlignCenter)
+	}
 	stack := widget.NewBox(widget.Column, 2*th.Spacing, 0)
 	stack.AddClass("lock-stack")
 	stack.Append(clock, false).Append(widget.NewBox(widget.Column, 0, 0), true)
@@ -152,8 +156,14 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	if o.Footer != nil {
 		stack.AppendAligned(o.Footer, false, widget.AlignCenter)
 	}
-	p.Layout.SetMargin(render.Insets{Top: 2 * th.Spacing, Right: 2 * th.Spacing})
-	p.Reveal = widget.NewRevealer(widget.NewOverlay().Append(stack).AppendAligned(p.Layout, widget.AlignEnd, widget.AlignStart))
+	corner := widget.NewBox(widget.Row, th.Spacing, 0)
+	corner.AddClass("lock-corner")
+	if o.Corner != nil {
+		corner.AppendAligned(o.Corner, false, widget.AlignCenter)
+	}
+	corner.AppendAligned(p.Layout, false, widget.AlignCenter)
+	corner.SetMargin(render.Insets{Top: 2 * th.Spacing, Right: 2 * th.Spacing})
+	p.Reveal = widget.NewRevealer(widget.NewOverlay().Append(stack).AppendAligned(corner, widget.AlignEnd, widget.AlignStart))
 	return p
 }
 
