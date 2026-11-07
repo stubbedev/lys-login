@@ -62,6 +62,11 @@
           inherit self;
           inherit (inputs) lys-wm;
         };
+        # Fast user switching; see nix/tests/switch-vm.nix.
+        switch-vm = pkgs.callPackage ./tests/switch-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm;
+        };
         # The lock screen's status row and fingerprint; see nix/tests/lock-vm.nix.
         lock-vm = pkgs.callPackage ./tests/lock-vm.nix {
           inherit self;

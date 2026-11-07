@@ -379,7 +379,7 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	}
 	env := a.environ(pamEnv, req.Env)
 	argv := append([]string{"/bin/sh", "-c", profileScript, "sh"}, req.Cmd...)
-	held, err := holdSessionLock(o.RuntimeDir)
+	held, err := holdSessionLock(o.RuntimeDir, o.VT)
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}
@@ -391,7 +391,7 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 	if err != nil {
 		return ch.send(event{Kind: evFailed, Text: err.Error()})
 	}
-	if err := ch.send(event{Kind: evStarted, UID: a.uid}); err != nil {
+	if err := ch.send(event{Kind: evStarted, UID: a.uid, SessionID: lookupIn(pamEnv)("XDG_SESSION_ID")}); err != nil {
 		log.Printf("dm: tell the daemon the session started: %v", err)
 	}
 	if secret != nil {

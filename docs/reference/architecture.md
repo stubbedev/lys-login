@@ -15,11 +15,11 @@ worker stays on one OS thread for its whole life.
 
 | Process | Runs as | Job |
 | --- | --- | --- |
-| `lys-login daemon` | root | Owns the VT and the sockets, starts the workers, loops from greeter to session and back. |
+| `lys-login daemon` | root | Owns the VTs and the sockets, starts the workers, and keeps a session per user, each on its own VT, with a greeter whenever one is asked for or none runs. |
 | `lys-login worker greeter` | root | Opens the greeter account's session and runs the compositor in it. |
 | `lys-wm`, in a kiosk config | `lys-greeter` | Shows the greeter. No binds, so keys reach only the greeter, and no borders. |
 | `lys-login greet --hand-over` | `lys-greeter` | The login screen. Speaks the greetd protocol to the daemon. |
-| `lys-login worker session` | root, one per login attempt | Authenticates, then opens the session and runs it. Stops it on SIGTERM, and holds `session.lock` in the runtime directory while it runs, so a daemon restarted after a crash waits for it instead of starting a greeter on top. |
+| `lys-login worker session` | root, one per login attempt | Authenticates, then opens the session and runs it. Stops it on SIGTERM, and holds `session.<vt>.lock` in the runtime directory while it runs, so a daemon restarted after a crash waits for it instead of starting a greeter on top. |
 | Your compositor | you | The session. |
 
 The greeter uses the same protocol under greetd, on the socket `GREETD_SOCK` names, so
@@ -48,7 +48,22 @@ only the greeter's account can reach.
    session of its own with the VT as its controlling terminal, through
    `/bin/sh`, which sources `/etc/profile` and `~/.profile` first. Under that worker the
    session is registered with logind as `wayland`, class `user`.
-7. When the session ends, the worker closes the PAM session and the greeter comes back.
+7. When the session ends, the worker closes the PAM session. If another user's session
+   still runs, the daemon switches to it; otherwise the greeter comes back.
+
+## Switching users
+
+`lys-login switch-user`, and the lock screen's Switch User button, ask the daemon on
+`switch.sock` for a greeter. The daemon locks the running sessions through logind
+(`LockSession`), so each one's own lock screen guards it, finds a free VT
+(`VT_OPENQRY`), holds it open so logind spawns no getty there, and starts a greeter on it.
+A user who logs in there gets a session on that VT beside the others.
+
+Picking a user whose session already runs authenticates nobody: the daemon answers the
+greeter's login at once, stops the greeter, frees its VT and activates that session
+(`ActivateSession`), whose lock screen is then the gate. When a session ends, its VT is
+freed and the daemon switches to the session used before it, or shows the greeter when
+none is left. Stopping the daemon ends every session.
 
 ## The keyring
 
@@ -95,12 +110,12 @@ wallet open.
 
 `lys-login upgrade`, run from a new build, asks the running daemon on `upgrade.sock` to
 become that build. The daemon replaces its program with `execve`: the pid stays, so
-systemd's main pid and the daemon's children stay too. An upgrade never touches a session.
+systemd's main pid and the daemon's children stay too. An upgrade never touches a session, however many run.
 
 | What | During an upgrade |
 | --- | --- |
 | Your compositor and everything in the session | Keeps running. |
-| The session's worker | Stays on its old build until the session ends, as a PAM handle cannot cross an exec. The new daemon follows it, and the worker closes the PAM session at logout as usual. |
+| Each session's worker | Stays on its old build until the session ends, as a PAM handle cannot cross an exec. The new daemon follows it, and the worker closes the PAM session at logout as usual. |
 | A lock screen that is up | Keeps running on its old build until it unlocks. The daemon has no part in the lock. |
 | The password at that lock screen | Reaches lys-secrets as before: the lock screen talks to its control socket itself. |
 | The next lock screen | The new build, once `lys-login` on the PATH is. |
@@ -110,8 +125,8 @@ systemd's main pid and the daemon's children stay too. An upgrade never touches 
 | The sockets | The listening sockets pass through the exec, so a request waiting in one still gets its answer. |
 
 The state goes over in a memfd whose descriptor the new program is told on its command
-line: JSON with a version, the descriptors, the session's worker and channel, and what the
-old daemon had read from that channel and not yet handled. A new build that does not know
+line: JSON with a version, the descriptors, each session's worker, VT, user, logind session and
+channel, and what the old daemon had read from each channel and not yet handled. A new build that does not know
 the version, or the protocol of a worker it would have to follow, refuses it.
 
 An upgrade fails in one of three places, each leaving the old daemon running:
@@ -139,15 +154,16 @@ seconds, as at boot.
 | Path | Who may use it | What for |
 | --- | --- | --- |
 | `/run/lys-login/greeter.sock` | The greeter's account (`0600`) | The greetd protocol. |
-| `/run/lys-login/apply.sock` | Root and the user whose session runs | [`apply-config`](/guide/configuration#change-the-login-screen-from-your-session). |
-| `/run/lys-login/cursor.sock` | The user whose session runs | [`record-cursor`](/guide/configuration#the-cursor). |
+| `/run/lys-login/apply.sock` | Root and the users whose sessions run | [`apply-config`](/guide/configuration#change-the-login-screen-from-your-session). |
+| `/run/lys-login/cursor.sock` | The users whose sessions run | [`record-cursor`](/guide/configuration#the-cursor). |
 | `/run/lys-login/splash.sock` | Root and the greeter's account | The greeter's first frame, which quits lys-splash. |
 | `/run/lys-login/upgrade.sock` | Root | [`upgrade`](/reference/cli#lys-login-upgrade). |
+| `/run/lys-login/switch.sock` | Root and the users whose sessions run | [`switch-user`](/reference/cli#lys-login-switch-user). |
 | `/run/lys-login/kiosk.yaml` | Read by the greeter's account | The generated lys-wm config. |
 | `/var/lib/lys-greeter/` | The greeter's account (`0700`) | The last session and username. |
 | `/var/lib/lys-login/cursor/<uid>` | World-readable, written by the daemon | Each user's cursor record. |
 | `/etc/lys-shell/config.yaml` | Read by the greeter | The system config. |
 | `/etc/lys-shell/runtime.yaml` | Written by `apply-config` | The overlay on it. |
 
-`apply.sock`, `cursor.sock`, `splash.sock` and `upgrade.sock` are open to every local user (`0666`).
+`apply.sock`, `cursor.sock`, `splash.sock`, `switch.sock` and `upgrade.sock` are open to every local user (`0666`).
 The daemon checks the peer's uid on each request and answers a refusal with its reason.

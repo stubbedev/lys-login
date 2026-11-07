@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -54,9 +53,12 @@ var (
 	CursorSocket  = Socket[cursorrecord.Cursor]{name: "cursor.sock", maxRequest: 4096, exchange: exchangeTimeout}
 	SplashSocket  = Socket[Presented]{name: "splash.sock", maxRequest: 64, exchange: exchangeTimeout}
 	UpgradeSocket = Socket[UpgradeRequest]{name: "upgrade.sock", maxRequest: 1 << 20, exchange: upgradeExchange}
+	SwitchSocket  = Socket[SwitchRequest]{name: "switch.sock", maxRequest: 64, exchange: exchangeTimeout}
 )
 
 type Presented struct{}
+
+type SwitchRequest struct{}
 
 const RuntimeDirEnv = "LYS_LOGIN_RUNTIME_DIR"
 
@@ -76,28 +78,38 @@ type reply struct {
 	Error string `json:"error,omitempty"`
 }
 
-// noOwner is a sessionOwner with no session running.
-const noOwner = -1
-
-// sessionOwner is the uid of the session the daemon runs, noOwner while
-// the greeter is up.
-type sessionOwner struct{ uid atomic.Int64 }
-
-func newSessionOwner() *sessionOwner {
-	o := &sessionOwner{}
-	o.uid.Store(noOwner)
-	return o
+type sessionOwners struct {
+	mu   sync.Mutex
+	uids map[uint32]int
 }
 
-func (o *sessionOwner) set(uid uint32) { o.uid.Store(int64(uid)) }
-func (o *sessionOwner) clear()         { o.uid.Store(noOwner) }
+func newSessionOwners() *sessionOwners { return &sessionOwners{uids: map[uint32]int{}} }
 
-// runs is whether uid's session runs.
-func (o *sessionOwner) runs(uid uint32) bool { return int64(uid) == o.uid.Load() }
+func (o *sessionOwners) add(uid uint32) {
+	o.mu.Lock()
+	o.uids[uid]++
+	o.mu.Unlock()
+}
+
+func (o *sessionOwners) remove(uid uint32) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.uids[uid] <= 1 {
+		delete(o.uids, uid)
+		return
+	}
+	o.uids[uid]--
+}
+
+func (o *sessionOwners) runs(uid uint32) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.uids[uid] > 0
+}
 
 // mayApply is whether uid may change the login screen: root, and the
 // user whose session runs.
-func (o *sessionOwner) mayApply(uid uint32) bool { return uid == 0 || o.runs(uid) }
+func (o *sessionOwners) mayApply(uid uint32) bool { return uid == 0 || o.runs(uid) }
 
 // listen binds the socket in runtimeDir, open to every local user;
 // serve's handler decides who may do anything.
@@ -196,7 +208,7 @@ func (s Socket[T]) Send(runtimeDir string, req T) (string, error) {
 
 // applyChange writes the changes owner allows to the greeter's config
 // at configPath, one at a time.
-func applyChange(owner *sessionOwner, configPath string) handler[greeterconfig.Change] {
+func applyChange(owner *sessionOwners, configPath string) handler[greeterconfig.Change] {
 	var mu sync.Mutex
 	return func(uid uint32, c greeterconfig.Change) (string, error) {
 		if !owner.mayApply(uid) {
@@ -266,11 +278,28 @@ func quitSplash(splash string) func() error {
 
 // recordCursor writes the cursor of the session owner runs to its
 // user's record under dir.
-func recordCursor(owner *sessionOwner, dir string) handler[cursorrecord.Cursor] {
+func recordCursor(owner *sessionOwners, dir string) handler[cursorrecord.Cursor] {
 	return func(uid uint32, c cursorrecord.Cursor) (string, error) {
 		if !owner.runs(uid) {
 			return "", errors.New("only the user logged in here may record their session's cursor")
 		}
 		return cursorrecord.Write(dir, uid, c)
+	}
+}
+
+const switchQueueWait = 5 * time.Second
+
+func askSwitch(owner *sessionOwners, switches chan<- struct{}) handler[SwitchRequest] {
+	return func(uid uint32, _ SwitchRequest) (string, error) {
+		if uid != 0 && !owner.runs(uid) {
+			return "", errors.New("only root and the users logged in here may switch users")
+		}
+		select {
+		case switches <- struct{}{}:
+			log.Printf("dm: uid %d asked to switch users", uid)
+			return "", nil
+		case <-time.After(switchQueueWait):
+			return "", fmt.Errorf("the daemon took no switch in %s", switchQueueWait)
+		}
 	}
 }

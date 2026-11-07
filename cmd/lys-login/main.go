@@ -8,6 +8,7 @@
 //	                 [-- <greet args...>]
 //	lys-login apply-config [--config PATH] <STAGED.yaml>
 //	lys-login record-cursor
+//	lys-login switch-user
 //	lys-login upgrade [-- <daemon args...>]
 //
 // greet is the greetd greeter: the credential prompt over a session
@@ -22,7 +23,10 @@
 // through daemon it hands the change to the daemon, run as root it
 // writes it itself. record-cursor hands the cursor of the session it
 // runs in (XCURSOR_THEME, XCURSOR_SIZE) to daemon, which keeps it for
-// the next greeter. upgrade, run as root from the new build, moves the
+// the next greeter. switch-user, run in a session started through daemon,
+// locks the sessions and shows a greeter on a free VT for another user,
+// whose own session, if it runs, the greeter switches to without a
+// password. upgrade, run as root from the new build, moves the
 // running daemon to that build in place: its sessions keep running on the
 // workers they have, and a failure leaves the old daemon running and says
 // why.
@@ -52,7 +56,7 @@ import (
 	"github.com/stubbedev/lys-login/internal/lock"
 )
 
-const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml> | lys-login record-cursor | lys-login upgrade [-- <daemon args...>]"
+const usage = "usage: lys-login greet [options] [-- <session argv...>] | lys-login lock | lys-login daemon [options] [-- <greet args...>] | lys-login apply-config [--config PATH] <STAGED.yaml> | lys-login record-cursor | lys-login switch-user | lys-login upgrade [-- <daemon args...>]"
 
 func init() { runtime.LockOSThread() }
 
@@ -88,6 +92,8 @@ func main() {
 		os.Exit(applyConfig(args))
 	case "record-cursor":
 		os.Exit(recordCursor(args))
+	case "switch-user":
+		os.Exit(switchUser(args))
 	default:
 		fmt.Fprintf(os.Stderr, "lys-login: unknown mode %q\n%s\n", os.Args[1], usage)
 		os.Exit(2)
@@ -248,6 +254,18 @@ func recordCursor(args []string) int {
 		return 1
 	}
 	fmt.Println("wrote", dest)
+	return 0
+}
+
+func switchUser(args []string) int {
+	if len(args) != 0 {
+		fmt.Fprintf(os.Stderr, "lys-login switch-user: unexpected argument %q\n", args[0])
+		return 2
+	}
+	if _, err := dm.SwitchSocket.Send(dm.DefaultRuntimeDir, dm.SwitchRequest{}); err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login switch-user:", err)
+		return 1
+	}
 	return 0
 }
 

@@ -101,6 +101,7 @@ type Deps struct {
 	OnKeyboardLayout func(fn func(app.KeyboardLayout)) (stop func())
 	NextLayout       func(steps int)
 	LabelLayouts     func(names []string) ([]layouts.Layout, error)
+	SwitchUser       func()
 }
 
 // Timer runs the function it was made with on the loop, once per Reset. A firing
@@ -396,6 +397,9 @@ func (s *Screen) buildFace(*app.Output) app.LockSurface {
 		f.battery = newBatteryChip(s.font, s.chargingIcon)
 		f.battery.set(s.battery, s.batteryOK)
 		spec.Lock.Corner = f.battery.root
+	}
+	if s.d.SwitchUser != nil {
+		spec.Lock.Footer = switchUserButton(s.font, s.d.SwitchUser)
 	}
 	if s.layouts.CanSwitch() {
 		spec.NextLayout = s.layouts.Cycle

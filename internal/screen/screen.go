@@ -23,7 +23,7 @@ type GreeterRows struct {
 }
 
 type LockRows struct {
-	Status, Corner widget.Widget
+	Status, Corner, Footer widget.Widget
 }
 
 // Spec is one login screen surface.
@@ -77,7 +77,7 @@ func Build(s Spec) *Surface {
 		o.WithUsername = true
 		o.Extra, o.Footer = s.Greeter.Session, s.Greeter.Power
 	case Lock:
-		o.Status, o.Corner = s.Lock.Status, s.Lock.Corner
+		o.Status, o.Corner, o.Footer = s.Lock.Status, s.Lock.Corner, s.Lock.Footer
 	}
 	surface := &Surface{Prompt: newPrompt(o, s.OnSubmit), Scrim: Scrim()}
 	surface.Root = Window(s.Sheet,

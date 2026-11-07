@@ -142,7 +142,7 @@ func fakeDaemon() int {
 	defer stop()
 	c := fakeConsole(dir)
 	if os.Getenv(fakeLiveSessionEnv) != "" {
-		held, err := holdSessionLock(runtime)
+		held, err := holdSessionLock(runtime, 7)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "fake daemon:", err)
 			return 1
@@ -817,10 +817,13 @@ func goodHandover() handover {
 		From:       "/nix/store/old/bin/lys-login",
 		RuntimeDir: "/run/lys-login",
 		Client:     3,
-		Listeners:  handedListeners{Apply: 4, Cursor: 5, Splash: 6, Upgrade: 7},
+		Listeners:  handedListeners{Apply: 4, Cursor: 5, Splash: 6, Upgrade: 7, Switch: 11},
 		Cards:      []handedCard{{Path: "/dev/dri/card0", FD: 8}},
-		Session:    &handedSession{WorkerPID: 42, Channel: 9, Protocol: workerProtocol, Unread: []byte("{\"kind\":"), UID: &uid, Cmd: []string{"niri"}},
-		Rollback:   rollback{Exe: 10, Args: []string{"--vt", "1"}, Env: []string{"A=b"}},
+		Sessions: []handedSession{
+			{WorkerPID: 42, VT: 1, User: "alice", ID: "3", Channel: 9, Protocol: workerProtocol, Unread: []byte("{\"kind\":"), UID: &uid, Cmd: []string{"niri"}},
+			{WorkerPID: 43, VT: 2, User: "bob", ID: "5", Channel: 12, Protocol: workerProtocol, Cmd: []string{"sway"}},
+		},
+		Rollback: rollback{Exe: 10, Args: []string{"--vt", "1"}, Env: []string{"A=b"}},
 	}
 }
 
@@ -840,7 +843,7 @@ func TestHandoverRoundTrips(t *testing.T) {
 		t.Errorf("round trip =\n%s\nwant\n%s", gotJSON, wantJSON)
 	}
 	noSession := goodHandover()
-	noSession.Session = nil
+	noSession.Sessions = nil
 	if _, err := noSession.encode(); err != nil {
 		t.Errorf("no session: %v", err)
 	}
@@ -874,14 +877,17 @@ func TestHandoverRefusesWhatItCannotTrust(t *testing.T) {
 		"bad rollback env": {mutate(func(h *handover) { h.Rollback.Env = []string{"A"} }), "KEY=value"},
 		"relative runtime": {mutate(func(h *handover) { h.RuntimeDir = "run" }), "runtime directory"},
 		"relative card":    {mutate(func(h *handover) { h.Cards[0].Path = "card0" }), "absolute"},
-		"init as worker":   {mutate(func(h *handover) { h.Session.WorkerPID = 1 }), "pid 1"},
-		"other protocol":   {mutate(func(h *handover) { h.Session.Protocol = workerProtocol + 1 }), "protocol"},
-		"no session cmd":   {mutate(func(h *handover) { h.Session.Cmd = nil }), "no command"},
+		"init as worker":   {mutate(func(h *handover) { h.Sessions[0].WorkerPID = 1 }), "pid 1"},
+		"other protocol":   {mutate(func(h *handover) { h.Sessions[0].Protocol = workerProtocol + 1 }), "protocol"},
+		"no session cmd":   {mutate(func(h *handover) { h.Sessions[0].Cmd = nil }), "no command"},
 		"stdin as client":  {mutate(func(h *handover) { h.Client = 0 }), "below 3"},
 		"a shared card fd": {mutate(func(h *handover) { h.Cards[0].FD = h.Client }), "both on descriptor"},
 		"missing listener": {mutate(func(h *handover) { h.Listeners.Splash = 0 }), "splash.sock"},
-		"a shared channel": {mutate(func(h *handover) { h.Session.Channel = h.Listeners.Apply }), "both on descriptor"},
+		"a shared channel": {mutate(func(h *handover) { h.Sessions[0].Channel = h.Listeners.Apply }), "both on descriptor"},
 		"rollback exe low": {mutate(func(h *handover) { h.Rollback.Exe = 2 }), "the old program"},
+		"two on one VT":    {mutate(func(h *handover) { h.Sessions[1].VT = 1 }), "another session's"},
+		"a nameless user":  {mutate(func(h *handover) { h.Sessions[1].User = "" }), "names no user"},
+		"no switch socket": {mutate(func(h *handover) { h.Listeners.Switch = 0 }), "switch.sock"},
 		"two cards one fd": {mutate(func(h *handover) { h.Cards = append(h.Cards, handedCard{"/dev/dri/card1", 8}) }), "both on descriptor"},
 	} {
 		if _, err := parseHandover(tc.data); err == nil || !strings.Contains(err.Error(), tc.says) {
@@ -1052,7 +1058,7 @@ func TestTheSessionRunsOnUntilTheDaemonStops(t *testing.T) {
 // of it, and shows one once it ends.
 func TestARestartLeavesALiveSessionAlone(t *testing.T) {
 	d := startFakeDM(t, fakeLiveSessionEnv+"=1")
-	d.await("the daemon noticing the session", func() bool { return strings.Contains(d.logged(), "the greeter waits for it to end") })
+	d.await("the daemon noticing the session", func() bool { return strings.Contains(d.logged(), "the greeter waits for them to end") })
 	if got := d.lines("greeters"); len(got) != 0 {
 		t.Fatalf("a greeter started over the live session: %v", got)
 	}
@@ -1081,7 +1087,7 @@ func stoppedDaemonStops(t *testing.T, dir string) []int {
 
 func TestADaemonStoppedBeforeItLooksStillEndsTheLiveSession(t *testing.T) {
 	dir := sockdir.Dir(t)
-	held, err := holdSessionLock(dir)
+	held, err := holdSessionLock(dir, 7)
 	if err != nil {
 		t.Fatal(err)
 	}

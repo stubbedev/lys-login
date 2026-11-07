@@ -67,10 +67,8 @@ func pipedLogin(t *testing.T) (*pendingLogin, *channel) {
 func runLogin(t *testing.T, login *pendingLogin, workerSide *channel, workerDoes func()) string {
 	t.Helper()
 	var warnings bytes.Buffer
-	errs := make(chan error, 1)
-	go func() {
-		errs <- login.run(context.Background(), func(uint32) {}, log.New(&warnings, "", 0), &upgrader{})
-	}()
+	d := testSeat(log.New(&warnings, "", 0))
+	go d.start(login, d.o.VT, nil)
 	var start request
 	if err := workerSide.recv(&start); err != nil {
 		t.Fatal(err)
@@ -79,8 +77,11 @@ func runLogin(t *testing.T, login *pendingLogin, workerSide *channel, workerDoes
 	if err := workerSide.send(event{Kind: evEnded}); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-errs; err != nil {
-		t.Fatal(err)
+	for ev := range d.events {
+		d.handle(ev)
+		if len(d.running()) == 0 {
+			break
+		}
 	}
 	return warnings.String()
 }
@@ -102,5 +103,14 @@ func TestDaemonWarnsOfNothingWhenTheKeyringUnlocks(t *testing.T) {
 	got := runLogin(t, login, workerSide, func() { reportKeyring(workerSide, "alice", unlocked) })
 	if got != "" {
 		t.Errorf("warnings = %q, want none", got)
+	}
+}
+
+func testSeat(warnings *log.Logger) *seat {
+	quiet := func(int) error { return nil }
+	return &seat{
+		ctx: context.Background(), o: testOptions(), owners: newSessionOwners(), warnings: warnings,
+		c:      console{activate: quiet, showText: func(int, bool) error { return nil }, stop: quiet},
+		events: make(chan sessionEvent), switches: make(chan struct{}),
 	}
 }

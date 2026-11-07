@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -24,6 +25,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/dm"
+	"github.com/stubbedev/lys-login/internal/greeter"
 	"github.com/stubbedev/lys-login/internal/layouts"
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
@@ -122,6 +125,7 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		OnKeyboardLayout: a.OnKeyboardLayout,
 		NextLayout:       layouts.Switcher("lock"),
 		LabelLayouts:     layouts.LabeledOnSystem,
+		SwitchUser:       switchUser(cfg.Login.Lock.ShowSwitchUser),
 	}
 	account := sessionAccount()
 	s := New(cfg, account.RealName, app.FontFallback(base), apptheme.New(cfg).Sheet, deps)
@@ -224,4 +228,26 @@ func holdSession(env xdg.Env) (release func(), err error) {
 		return nil, fmt.Errorf("lock: take the session lock file: %w", err)
 	}
 	return func() { _ = f.Close() }, nil
+}
+
+func switchUser(shown bool) func() {
+	if !shown {
+		return nil
+	}
+	if users := greeter.ReadUsers(); len(users) < 2 {
+		return nil
+	}
+	if _, err := os.Stat(dm.SwitchSocket.Path(dm.DefaultRuntimeDir)); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			log.Printf("lock: no Switch user: %v", err)
+		}
+		return nil
+	}
+	return func() {
+		go func() {
+			if _, err := dm.SwitchSocket.Send(dm.DefaultRuntimeDir, dm.SwitchRequest{}); err != nil {
+				log.Printf("lock: switch user: %v", err)
+			}
+		}()
+	}
 }

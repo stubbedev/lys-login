@@ -86,6 +86,18 @@ Hands the session's cursor to the display manager and prints the file it wrote. 
 that names no cursor records nothing and exits 0. See
 [Configuration](/guide/configuration#the-cursor).
 
+## lys-login switch-user
+
+```text
+lys-login switch-user
+```
+
+Run in a session the display manager started: locks the running sessions and shows a
+greeter on a free VT, where another user logs in beside them, or picks a user whose
+session runs to switch back to it without a password. The lock screen's Switch User
+button does the same; `login.lock.show-switch-user` turns it off. See
+[Switching users](/reference/architecture#switching-users).
+
 ## Internal modes
 
 `lys-login worker`, `lys-login daemon-resume` and `lys-login vault-unlock` are started by lys-login itself.

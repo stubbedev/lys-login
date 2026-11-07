@@ -9,6 +9,7 @@ import (
 	"github.com/stubbedev/lys-lib/render"
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/i18n"
+	"github.com/stubbedev/lys-shell/shell/treetest"
 	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 
@@ -335,4 +336,33 @@ func TestAnIdleLockWithAPausedPlayerCommitsNoFrames(t *testing.T) {
 	if frames != 0 {
 		t.Errorf("an idle lock with a paused player committed %d frames over 60 unchanged updates", frames)
 	}
+}
+
+func TestSwitchUserAsksTheDisplayManagerAndKeepsTheLock(t *testing.T) {
+	asked := 0
+	r := newStatusRigWith(t, nil, func(d *Deps) { d.SwitchUser = func() { asked++ } })
+	r.lock(t)
+	buttons := treetestButtons(r.locker.surfaces[0].Root, "lock-switch-user")
+	if len(buttons) != 1 {
+		t.Fatalf("%d Switch user buttons on a face", len(buttons))
+	}
+	buttons[0].OnClick()
+	if asked != 1 || !r.locker.active {
+		t.Errorf("a click asked %d times, locked %v; want one ask and the lock held", asked, r.locker.active)
+	}
+	plain := newHarness(t, nil)
+	plain.lock(t)
+	if len(treetestButtons(plain.locker.surfaces[0].Root, "lock-switch-user")) != 0 {
+		t.Error("without a display manager to ask the lock offers Switch user")
+	}
+}
+
+func treetestButtons(root widget.Widget, class string) []*widget.Button {
+	var out []*widget.Button
+	for _, w := range treetest.WithClass(root, class) {
+		if b, ok := w.(*widget.Button); ok {
+			out = append(out, b)
+		}
+	}
+	return out
 }

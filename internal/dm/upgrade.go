@@ -48,7 +48,7 @@ type pendingUpgrade struct {
 }
 
 func (p *pendingUpgrade) fail(self string, cause error) {
-	log.Printf("dm: the upgrade to %s failed, staying on %s: %v", p.Exec, self, cause) //nolint:gosec // root named the program
+	log.Printf("dm: the upgrade to %s failed, staying on %s: %v", p.Exec, self, cause)
 	if err := answerUpgrade(p.conn, "", cause); err != nil {
 		log.Printf("dm: tell the upgrade's client: %v", err)
 	}
@@ -146,20 +146,21 @@ func (u *upgrader) next() *pendingUpgrade {
 }
 
 type upgradeAttempt struct {
-	u       *upgrader
-	req     *pendingUpgrade
-	base    handover
-	channel int
-	dups    []int
+	u        *upgrader
+	req      *pendingUpgrade
+	base     handover
+	channels []int
+	sessions []*session
+	dups     []int
 }
 
-func (u *upgrader) prepare(req *pendingUpgrade, s *session) (*upgradeAttempt, error) {
-	a := &upgradeAttempt{u: u, req: req, channel: -1}
-	if err := a.collect(s); err != nil {
+func (u *upgrader) prepare(req *pendingUpgrade, sessions []*session) (*upgradeAttempt, error) {
+	a := &upgradeAttempt{u: u, req: req, sessions: sessions}
+	if err := a.collect(sessions); err != nil {
 		a.closeDups()
 		return nil, err
 	}
-	data, err := a.state(s, nil).encode()
+	data, err := a.state(sessions, nil).encode()
 	if err != nil {
 		a.closeDups()
 		return nil, err
@@ -171,7 +172,7 @@ func (u *upgrader) prepare(req *pendingUpgrade, s *session) (*upgradeAttempt, er
 	return a, nil
 }
 
-func (a *upgradeAttempt) collect(s *session) error {
+func (a *upgradeAttempt) collect(sessions []*session) error {
 	var err error
 	take := func(c syscall.Conn, what string) int {
 		if err != nil {
@@ -194,11 +195,12 @@ func (a *upgradeAttempt) collect(s *session) error {
 			Cursor:  take(a.u.listeners.cursor, CursorSocket.name),
 			Splash:  take(a.u.listeners.splash, SplashSocket.name),
 			Upgrade: take(a.u.listeners.upgrade, UpgradeSocket.name),
+			Switch:  take(a.u.listeners.switchUser, SwitchSocket.name),
 		},
 		Rollback: rollback{Args: a.u.o.Args, Env: os.Environ()},
 	}
-	if s != nil {
-		a.channel = take(s.w.f, "the session's channel")
+	for _, s := range sessions {
+		a.channels = append(a.channels, take(s.w.f, fmt.Sprintf("the channel of the session on VT %d", s.vt)))
 	}
 	if err != nil {
 		return err
@@ -255,16 +257,22 @@ func (a *upgradeAttempt) dupCards() ([]handedCard, error) {
 	return cards, nil
 }
 
-func (a *upgradeAttempt) state(s *session, unread []byte) handover {
+func (a *upgradeAttempt) state(sessions []*session, unread [][]byte) handover {
 	h := a.base
-	if s != nil {
-		h.Session = &handedSession{
+	h.Sessions = make([]handedSession, len(sessions))
+	for i, s := range sessions {
+		h.Sessions[i] = handedSession{
 			WorkerPID: s.w.proc.Pid,
-			Channel:   a.channel,
+			VT:        s.vt,
+			User:      s.user,
+			ID:        s.id,
+			Channel:   a.channels[i],
 			Protocol:  workerProtocol,
-			Unread:    unread,
 			UID:       s.uid,
 			Cmd:       s.cmd,
+		}
+		if unread != nil {
+			h.Sessions[i].Unread = unread[i]
 		}
 	}
 	return h
@@ -287,14 +295,15 @@ func (a *upgradeAttempt) fail(cause error) {
 	a.req.fail(a.u.o.Self, cause)
 }
 
-func (a *upgradeAttempt) exec(s *session) error {
+func (a *upgradeAttempt) exec() error {
+	sessions := a.sessions
 	a.u.gate.Lock()
 	defer a.u.gate.Unlock()
-	var unread []byte
-	if s != nil {
-		unread = s.w.ch.unread()
+	unread := make([][]byte, len(sessions))
+	for i, s := range sessions {
+		unread[i] = s.w.ch.unread()
 	}
-	h := a.state(s, unread)
+	h := a.state(sessions, unread)
 	data, err := h.encode()
 	if err != nil {
 		return err
@@ -304,7 +313,7 @@ func (a *upgradeAttempt) exec(s *session) error {
 		return err
 	}
 	defer func() { _ = unix.Close(state) }()
-	log.Printf("dm: upgrading in place from %s to %s", a.u.o.Self, a.req.Exec) //nolint:gosec // root named the program
+	log.Printf("dm: upgrading in place from %s to %s", a.u.o.Self, a.req.Exec)
 	return execKeeping(a.req.Exec, a.req.Exec, a.req.Args, forwardEnv(os.Environ()), state, h)
 }
 
@@ -434,11 +443,11 @@ func CheckResume(stateFD int, o Options, out io.Writer) error {
 }
 
 type resumption struct {
-	from    string
-	client  *net.UnixConn
-	failure string
-	session *session
-	adopted *listeners
+	from     string
+	client   *net.UnixConn
+	failure  string
+	sessions []*session
+	adopted  *listeners
 }
 
 func Resume(ctx context.Context, o Options, stateFD int) error {
@@ -509,10 +518,12 @@ func adopt(h handover, cards *heldCards) (r *resumption, err error) {
 	if r.client, err = adoptConn(h.Client, track); err != nil {
 		return nil, fmt.Errorf("the upgrade's client: %w", err)
 	}
-	if h.Session != nil {
-		if r.session, err = adoptSession(*h.Session, track); err != nil {
-			return nil, fmt.Errorf("the session of worker %d: %w", h.Session.WorkerPID, err)
+	for _, hs := range h.Sessions {
+		s, err := adoptSession(hs, track)
+		if err != nil {
+			return nil, fmt.Errorf("the session of worker %d: %w", hs.WorkerPID, err)
 		}
+		r.sessions = append(r.sessions, s)
 	}
 	if err := cards.adopt(h.Cards, track); err != nil {
 		return nil, err
@@ -564,6 +575,9 @@ func adoptListeners(h handedListeners, track func(io.Closer)) (*listeners, error
 	if l.upgrade, err = listener(h.Upgrade, UpgradeSocket.name); err != nil {
 		return nil, err
 	}
+	if l.switchUser, err = listener(h.Switch, SwitchSocket.name); err != nil {
+		return nil, err
+	}
 	return &l, nil
 }
 
@@ -606,7 +620,7 @@ func adoptSession(h handedSession, track func(io.Closer)) (*session, error) {
 		return nil, fmt.Errorf("the channel: %w", err)
 	}
 	track(f)
-	return &session{w: &worker{proc: proc, ch: resumeChannel(f, h.Unread), f: f}, cmd: h.Cmd, uid: h.UID}, nil
+	return &session{w: &worker{proc: proc, ch: resumeChannel(f, h.Unread), f: f}, cmd: h.Cmd, uid: h.UID, vt: h.VT, user: h.User, id: h.ID}, nil
 }
 
 func parentOf(stat []byte) (int, error) {
@@ -625,29 +639,16 @@ func parentOf(stat []byte) (int, error) {
 	return ppid, nil
 }
 
-func (r *resumption) finish(ctx context.Context, o Options, owner *sessionOwner, warnings *log.Logger, u *upgrader) {
+func (r *resumption) finish(o Options) {
 	if r.failure != "" {
 		log.Printf("dm: rolled back to %s: %s", o.Self, r.failure) //nolint:gosec // this daemon's own state
 		if err := answerUpgrade(r.client, "", errors.New(r.failure)); err != nil {
 			log.Printf("dm: tell the upgrade's client: %v", err)
 		}
-	} else {
-		log.Printf("dm: upgraded in place from %s to %s", r.from, o.Self) //nolint:gosec // this daemon's own state
-		if err := answerUpgrade(r.client, o.Self, nil); err != nil {
-			log.Printf("dm: tell the upgrade's client: %v", err)
-		}
-	}
-	if r.session == nil {
 		return
 	}
-	if r.session.uid != nil {
-		log.Printf("dm: following the session of uid %d on worker %d", *r.session.uid, r.session.w.proc.Pid) //nolint:gosec // numbers
-	} else {
-		log.Printf("dm: following the session starting on worker %d", r.session.w.proc.Pid) //nolint:gosec // a number
-	}
-	err := r.session.follow(ctx, owner.set, warnings, u)
-	owner.clear()
-	if err != nil {
-		log.Printf("dm: session: %v", err)
+	log.Printf("dm: upgraded in place from %s to %s", r.from, o.Self) //nolint:gosec // this daemon's own state
+	if err := answerUpgrade(r.client, o.Self, nil); err != nil {
+		log.Printf("dm: tell the upgrade's client: %v", err)
 	}
 }

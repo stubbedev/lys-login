@@ -6,21 +6,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 )
 
-// sessionLockName is the file a session worker holds a lock on for as long as
-// its session runs. The kernel drops the lock when the worker goes, however it
-// goes, so a daemon that did not start the session can still see it is live.
-const sessionLockName = "session.lock"
+const sessionLockPattern = "session.*.lock"
 
-// holdSessionLock takes the lock in dir and records this process in it. The
-// file stays open for the caller to close; it does not reach the session's
-// processes, as Go opens it close-on-exec.
-func holdSessionLock(dir string) (*os.File, error) {
-	path := filepath.Join(dir, sessionLockName)
+func sessionLockPath(dir string, vt int) string {
+	return filepath.Join(dir, "session."+strconv.Itoa(vt)+".lock")
+}
+
+func holdSessionLock(dir string, vt int) (*os.File, error) {
+	path := sessionLockPath(dir, vt)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the daemon's own runtime directory
 	if err != nil {
 		return nil, fmt.Errorf("dm: open the session lock: %w", err)
@@ -40,9 +39,27 @@ func holdSessionLock(dir string) (*os.File, error) {
 	return f, nil
 }
 
-// liveSession reports a session worker holding the lock in dir, and its pid.
-func liveSession(dir string) (pid int, live bool, err error) {
-	path := filepath.Join(dir, sessionLockName)
+func liveSessions(dir string) ([]int, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, sessionLockPattern))
+	if err != nil {
+		return nil, fmt.Errorf("dm: list the session locks in %s: %w", dir, err)
+	}
+	slices.Sort(paths)
+	var pids []int
+	var errs []error
+	for _, path := range paths {
+		pid, live, err := liveSessionAt(path)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		if live && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, errors.Join(errs...)
+}
+
+func liveSessionAt(path string) (pid int, live bool, err error) {
 	f, err := os.Open(path) //nolint:gosec // the daemon's own runtime directory
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, false, nil

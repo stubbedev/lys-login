@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -76,10 +75,17 @@ type console struct {
 	showText func(vt int, on bool) error
 	cards    *heldCards
 	stop     func(worker int) error
+	freeVT   func() (int, io.Closer, error)
+	release  func(vt int) error
+	lock     func(session string) error
+	switchTo func(session string) error
 }
 
 func systemConsole() console {
-	return console{activate: activateVT, showText: showVTText, cards: newHeldCards(), stop: stopWorker}
+	return console{
+		activate: activateVT, showText: showVTText, cards: newHeldCards(), stop: stopWorker,
+		freeVT: freeVT, release: disallocateVT, lock: lockLogindSession, switchTo: activateLogindSession,
+	}
 }
 
 // hideText leaves nothing on the kernel's console to see. The console shows
@@ -92,7 +98,7 @@ func (c console) hideText(vt int) {
 }
 
 type listeners struct {
-	apply, cursor, splash, upgrade *net.UnixListener
+	apply, cursor, splash, upgrade, switchUser *net.UnixListener
 }
 
 func listen(runtimeDir string) (l *listeners, err error) {
@@ -109,125 +115,20 @@ func listen(runtimeDir string) (l *listeners, err error) {
 	if l.upgrade, err = UpgradeSocket.listen(runtimeDir); err != nil {
 		return nil, errors.Join(err, l.close())
 	}
+	if l.switchUser, err = SwitchSocket.listen(runtimeDir); err != nil {
+		return nil, errors.Join(err, l.close())
+	}
 	return l, nil
 }
 
 func (l *listeners) close() error {
 	var errs []error
-	for _, ln := range []*net.UnixListener{l.apply, l.cursor, l.splash, l.upgrade} {
+	for _, ln := range []*net.UnixListener{l.apply, l.cursor, l.splash, l.upgrade, l.switchUser} {
 		if ln != nil {
 			errs = append(errs, ln.Close())
 		}
 	}
 	return errors.Join(errs...)
-}
-
-func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool, r *resumption) error {
-	if err := os.MkdirAll(o.RuntimeDir, 0o755); err != nil { //nolint:gosec // the greeter user reaches its socket through it
-		return fmt.Errorf("dm: create %s: %w", o.RuntimeDir, err)
-	}
-	owner := newSessionOwner()
-	warnings := newWarningLogger(os.Stderr, os.Getenv(journalStreamEnv))
-	var l *listeners
-	if r != nil {
-		l = r.adopted
-		if r.session != nil && r.session.uid != nil {
-			owner.set(*r.session.uid)
-		}
-	} else {
-		var err error
-		if l, err = listen(o.RuntimeDir); err != nil {
-			return fmt.Errorf("dm: %w", err)
-		}
-	}
-	defer func() { _ = l.close() }()
-	gate := &sync.RWMutex{}
-	u := &upgrader{o: o, requests: make(chan *pendingUpgrade), listeners: l, cards: c.cards, gate: gate, mayUpgrade: may, drain: loginDrain}
-	go ApplySocket.serve(l.apply, gated(gate, applyChange(owner, o.GreeterConfig)))
-	go CursorSocket.serve(l.cursor, gated(gate, recordCursor(owner, o.CursorDir)))
-	go SplashSocket.serve(l.splash, handOverSplash(o.isGreeter, quitSplash(o.Splash)))
-	go u.serve()
-	defer func() {
-		if err := c.cards.Close(); err != nil {
-			log.Printf("dm: %v", err)
-		}
-	}()
-	defer func() {
-		if err := c.showText(o.VT, true); err != nil {
-			log.Printf("dm: %v", err)
-		}
-	}()
-	if r != nil {
-		r.finish(ctx, o, owner, warnings, u)
-	}
-	waitingOn := 0
-	for ctx.Err() == nil {
-		if req := u.next(); req != nil {
-			if a, err := u.prepare(req, nil); err != nil {
-				req.fail(o.Self, err)
-			} else {
-				a.fail(a.exec(nil))
-			}
-		}
-		pid, live, err := liveSession(o.RuntimeDir)
-		if err != nil {
-			log.Printf("dm: %v", err)
-		}
-		if live {
-			if pid != waitingOn {
-				log.Printf("dm: worker %d still runs a session this daemon did not start: the greeter waits for it to end", pid)
-				waitingOn = pid
-			}
-			select {
-			case <-ctx.Done():
-			case <-time.After(retryPause):
-			case u.parked = <-u.requests:
-			}
-			continue
-		}
-		waitingOn = 0
-		if err := c.activate(o.VT); err != nil {
-			log.Printf("dm: %v", err)
-		}
-		c.hideText(o.VT)
-		if err := c.cards.holdAll(); err != nil {
-			log.Printf("dm: %v", err)
-		}
-		g, err := o.greet(ctx, u)
-		switch {
-		case err != nil:
-			log.Printf("dm: greeter: %v", err)
-			select {
-			case <-ctx.Done():
-			case <-time.After(retryPause):
-			case u.parked = <-u.requests:
-			}
-		case g.upgrade != nil:
-			g.upgrade.fail(g.upgrade.exec(nil))
-		default:
-			c.hideText(o.VT)
-			err := g.login.run(ctx, owner.set, warnings, u)
-			owner.clear()
-			if err != nil {
-				log.Printf("dm: session: %v", err)
-			}
-		}
-	}
-	endLiveSession(o.RuntimeDir, c.stop)
-	return nil
-}
-
-func endLiveSession(runtimeDir string, stop func(worker int) error) {
-	pid, live, err := liveSession(runtimeDir)
-	if err != nil {
-		log.Printf("dm: %v", err)
-	}
-	if !live || pid == 0 {
-		return
-	}
-	if err := stop(pid); err != nil {
-		log.Printf("dm: stop the session of worker %d: %v", pid, err)
-	}
 }
 
 func stopWorker(worker int) error { return syscall.Kill(worker, syscall.SIGTERM) }
@@ -329,7 +230,7 @@ func writeKeyboard(b *strings.Builder, names xkb.Names, a11y greeter.Accessibili
 
 func (o Options) greeterKeyboard() xkb.Names {
 	r, err := o.Keyboard.Read(func(err error) {
-		log.Printf("dm: %v; the greeter's keyboard layout comes from %s, else %s", err, o.Keyboard.Xorg, o.Keyboard.Vconsole) //nolint:gosec // fixed system paths
+		log.Printf("dm: %v; the greeter's keyboard layout comes from %s, else %s", err, o.Keyboard.Xorg, o.Keyboard.Vconsole)
 	})
 	if err != nil {
 		log.Printf("dm: the greeter types with lys-wm's default keymap: %v", err)
@@ -382,17 +283,27 @@ func yamlString(s string) string {
 // pendingLogin is an authenticated login waiting for its session.
 type pendingLogin struct {
 	w        *worker
+	user     string
+	existing string
 	cmd, env []string
 }
 
 type greeted struct {
 	login   *pendingLogin
-	upgrade *upgradeAttempt
+	upgrade *pendingUpgrade
+}
+
+type greeterRequests struct {
+	vt       int
+	upgrades <-chan *pendingUpgrade
+	drain    time.Duration
+	existing func(user string) bool
 }
 
 // greet runs the greeter until a user is authenticated and asks for a
 // session, or an upgrade replaces this program, then stops it.
-func (o Options) greet(ctx context.Context, u *upgrader) (greeted, error) {
+func (o Options) greet(ctx context.Context, vt int, upgrades <-chan *pendingUpgrade, drain time.Duration, existing func(user string) bool) (greeted, error) {
+	req := greeterRequests{vt: vt, upgrades: upgrades, drain: drain, existing: existing}
 	sock := filepath.Join(o.RuntimeDir, "greeter.sock")
 	ln, err := o.listen(sock)
 	if err != nil {
@@ -403,7 +314,7 @@ func (o Options) greet(ctx context.Context, u *upgrader) (greeted, error) {
 	if err := os.WriteFile(cfg, []byte(kioskConfig(kiosk{greet: o.greeterCommand(), cursor: o.greeterCursor(), keyboard: o.greeterKeyboard(), a11y: o.greeterAccessibility()})), 0o644); err != nil { //nolint:gosec // the greeter user reads it
 		return greeted{}, fmt.Errorf("write %s: %w", cfg, err)
 	}
-	gw := exec.Command(o.Self, o.greeterWorkerArgs(sock, cfg)...) //nolint:gosec // lys-login itself
+	gw := exec.Command(o.Self, o.greeterWorkerArgs(sock, cfg, vt)...) //nolint:gosec // lys-login itself
 	gw.Stdout, gw.Stderr = os.Stderr, os.Stderr
 	if err := gw.Start(); err != nil {
 		return greeted{}, fmt.Errorf("start the greeter worker: %w", err)
@@ -430,7 +341,7 @@ func (o Options) greet(ctx context.Context, u *upgrader) (greeted, error) {
 			}
 		}
 	}()
-	g, err := o.serveConns(ctx, conns, exited, u)
+	g, err := o.serveConns(ctx, conns, exited, req)
 	_ = gw.Process.Signal(syscall.SIGTERM)
 	<-exited
 	if g == (greeted{}) && err == nil {
@@ -443,9 +354,9 @@ func (o Options) greeterCommand() []string {
 	return append([]string{o.Self, "greet", "--hand-over"}, o.GreeterArgs...)
 }
 
-func (o Options) greeterWorkerArgs(sock, kiosk string) []string {
+func (o Options) greeterWorkerArgs(sock, kiosk string, vt int) []string {
 	args := []string{
-		"worker", "greeter", "--service", o.Service, "--vt", strconv.Itoa(o.VT), "--user", o.GreeterUser,
+		"worker", "greeter", "--service", o.Service, "--vt", strconv.Itoa(vt), "--user", o.GreeterUser,
 		"--env", auth.GreetdSockEnv + "=" + sock, "--env", RuntimeDirEnv + "=" + o.RuntimeDir, "--",
 	}
 	return append(append(args, o.Compositor...), "--config", kiosk)
@@ -462,7 +373,7 @@ func (o Options) isGreeter(uid uint32) bool {
 // does, or an upgrade that passed its check has let the logins under way
 // finish. The connections still open then are closed, which cancels their
 // logins.
-func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <-chan struct{}, u *upgrader) (greeted, error) {
+func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <-chan struct{}, r greeterRequests) (greeted, error) {
 	logins := make(chan *pendingLogin)
 	open := map[net.Conn]bool{}
 	ended := make(chan net.Conn)
@@ -481,38 +392,30 @@ func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <
 			}
 		}
 	}()
-	var attempt *upgradeAttempt
+	var attempt *pendingUpgrade
 	var drained <-chan time.Time
 	for {
-		requests := u.requests
+		requests := r.upgrades
 		if attempt != nil {
 			requests = nil
 		}
 		select {
 		case <-ctx.Done():
-			if attempt != nil {
-				attempt.fail(ctx.Err())
-			}
-			return greeted{}, ctx.Err()
+			return greeted{upgrade: attempt}, ctx.Err()
 		case <-exited:
 			return greeted{upgrade: attempt}, nil
 		case req := <-requests:
-			a, err := u.prepare(req, nil)
-			if err != nil {
-				req.fail(o.Self, err)
-				continue
-			}
 			if len(open) == 0 {
-				return greeted{upgrade: a}, nil
+				return greeted{upgrade: req}, nil
 			}
-			log.Printf("dm: an upgrade waits for the logins under way, %s at most", u.drain)
-			attempt, drained = a, time.After(u.drain)
+			log.Printf("dm: an upgrade waits for the logins under way, %s at most", r.drain)
+			attempt, drained = req, time.After(r.drain)
 		case <-drained:
 			return greeted{upgrade: attempt}, nil
 		case conn := <-conns:
 			open[conn] = true
 			go func() {
-				login, err := o.serveGreeter(conn)
+				login, err := o.serveGreeter(conn, r)
 				_ = conn.Close()
 				switch {
 				case login != nil:
@@ -524,10 +427,7 @@ func (o Options) serveConns(ctx context.Context, conns <-chan net.Conn, exited <
 			}()
 		case login := <-logins:
 			// The winning connection's goroutine still reports its end.
-			if attempt != nil {
-				attempt.park()
-			}
-			return greeted{login: login}, nil
+			return greeted{login: login, upgrade: attempt}, nil
 		case conn := <-ended:
 			delete(open, conn)
 			if attempt != nil && len(open) == 0 {
@@ -565,9 +465,10 @@ func (o Options) listen(path string) (*net.UnixListener, error) {
 // serveGreeter answers the greeter's greetd requests, relaying each
 // login to a session worker, until a login asks to start its session or
 // the greeter goes away.
-func (o Options) serveGreeter(conn net.Conn) (*pendingLogin, error) {
+func (o Options) serveGreeter(conn net.Conn, r greeterRequests) (*pendingLogin, error) {
 	var w *worker
 	state := endedLogin
+	user, existing := "", ""
 	defer func() {
 		if w != nil && state != authenticatedLogin {
 			w.cancel()
@@ -596,7 +497,16 @@ func (o Options) serveGreeter(conn net.Conn) (*pendingLogin, error) {
 			if w != nil {
 				w.cancel()
 			}
-			if w, err = o.startSessionWorker(req.Username); err != nil {
+			w, user, existing = nil, req.Username, ""
+			if r.existing(req.Username) {
+				log.Printf("dm: %s already has a session: the greeter switches to it", req.Username)
+				existing, state = req.Username, authenticatedLogin
+				if err := auth.WriteGreetdSuccess(conn); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if w, err = o.startSessionWorker(req.Username, r.vt); err != nil {
 				w, state = nil, endedLogin
 				if err := auth.WriteGreetdError(conn, false, err.Error()); err != nil {
 					return nil, err
@@ -623,7 +533,7 @@ func (o Options) serveGreeter(conn net.Conn) (*pendingLogin, error) {
 			if w != nil {
 				w.cancel()
 			}
-			w, state = nil, endedLogin
+			w, state, existing = nil, endedLogin, ""
 			if err := auth.WriteGreetdSuccess(conn); err != nil {
 				return nil, err
 			}
@@ -637,7 +547,7 @@ func (o Options) serveGreeter(conn net.Conn) (*pendingLogin, error) {
 			if err := auth.WriteGreetdSuccess(conn); err != nil {
 				return nil, err
 			}
-			return &pendingLogin{w: w, cmd: req.Cmd, env: req.Env}, nil
+			return &pendingLogin{w: w, user: user, existing: existing, cmd: req.Cmd, env: req.Env}, nil
 		}
 	}
 }
@@ -679,20 +589,15 @@ func relay(conn net.Conn, w *worker) (loginState, error) {
 	return endedLogin, fmt.Errorf("dm: unexpected event %q while authenticating", ev.Kind)
 }
 
-// run starts the authenticated session and follows it until it ends.
-func (l *pendingLogin) run(ctx context.Context, started func(uid uint32), warnings *log.Logger, u *upgrader) error {
-	if err := l.w.ch.send(request{Op: opStart, Cmd: l.cmd, Env: l.env}); err != nil {
-		l.w.wait()
-		return err
-	}
-	s := &session{w: l.w, cmd: l.cmd}
-	return s.follow(ctx, started, warnings, u)
-}
-
 type session struct {
-	w   *worker
-	cmd []string
-	uid *uint32
+	w    *worker
+	cmd  []string
+	uid  *uint32
+	vt   int
+	user string
+	id   string
+	stop chan struct{}
+	held io.Closer
 }
 
 type workerEvent struct {
@@ -720,92 +625,6 @@ func (w *worker) events(stop <-chan struct{}) <-chan workerEvent {
 	return events
 }
 
-// follow runs until the session ends. When ctx ends it asks the worker to end
-// the session and keeps following: the session closes properly, and this
-// returns once it has, which is what stopping the display manager waits for.
-func (s *session) follow(ctx context.Context, started func(uid uint32), warnings *log.Logger, u *upgrader) error {
-	defer s.w.wait()
-	stop := make(chan struct{})
-	defer close(stop)
-	events := s.w.events(stop)
-	pending := u.parked
-	u.parked = nil
-	stopping := ctx.Done()
-	for {
-		if pending != nil {
-			var ended bool
-			var err error
-			events, ended, err = s.upgrade(pending, started, warnings, u, events, stop)
-			pending = nil
-			if ended {
-				return err
-			}
-		}
-		select {
-		case e := <-events:
-			if ended, err := s.handle(e, started, warnings); ended {
-				return err
-			}
-		case pending = <-u.requests:
-		case <-stopping:
-			stopping = nil
-			log.Printf("dm: stopping: ending the session on worker %d", s.w.proc.Pid) //nolint:gosec // a number
-			if err := s.w.proc.Signal(syscall.SIGTERM); err != nil {
-				log.Printf("dm: stop the session's worker: %v", err)
-			}
-		}
-	}
-}
-
-func (s *session) handle(e workerEvent, started func(uid uint32), warnings *log.Logger) (ended bool, err error) {
-	if e.err != nil {
-		if errors.Is(e.err, errClosed) {
-			return true, nil
-		}
-		return true, e.err
-	}
-	switch e.ev.Kind {
-	case evStarted:
-		uid := e.ev.UID
-		s.uid = &uid
-		started(uid)
-		log.Printf("dm: session of uid %d started: %q", uid, s.cmd) //nolint:gosec // quoted
-	case evFailed:
-		return true, fmt.Errorf("the session did not start: %s", e.ev.Text)
-	case evKeyringLocked:
-		warnings.Print(e.ev.Text)
-	case evEnded:
-		return true, nil
-	}
-	return false, nil
-}
-
-func (s *session) upgrade(req *pendingUpgrade, started func(uid uint32), warnings *log.Logger, u *upgrader, events <-chan workerEvent, stop <-chan struct{}) (<-chan workerEvent, bool, error) {
-	a, err := u.prepare(req, s)
-	if err != nil {
-		req.fail(u.o.Self, err)
-		return events, false, nil
-	}
-	if err := s.w.f.SetReadDeadline(time.Now()); err != nil {
-		a.fail(fmt.Errorf("stop reading the session's channel: %w", err))
-		return events, false, nil
-	}
-	for e := range events {
-		if errors.Is(e.err, os.ErrDeadlineExceeded) {
-			break
-		}
-		if ended, err := s.handle(e, started, warnings); ended {
-			a.park()
-			return nil, true, err
-		}
-	}
-	a.fail(a.exec(s))
-	if err := s.w.f.SetReadDeadline(time.Time{}); err != nil {
-		return nil, true, fmt.Errorf("read the session's channel again: %w", err)
-	}
-	return s.w.events(stop), false, nil
-}
-
 // worker is a session worker process and its channel.
 type worker struct {
 	proc *os.Process
@@ -815,7 +634,7 @@ type worker struct {
 
 // startSessionWorker starts a session worker and asks it to
 // authenticate user.
-func (o Options) startSessionWorker(user string) (*worker, error) {
+func (o Options) startSessionWorker(user string, vt int) (*worker, error) {
 	if user == "" {
 		return nil, errors.New("no user name")
 	}
@@ -830,7 +649,7 @@ func (o Options) startSessionWorker(user string) (*worker, error) {
 	}
 	mine, theirs := os.NewFile(uintptr(pair[0]), "dm"), os.NewFile(uintptr(pair[1]), "worker")
 	defer func() { _ = theirs.Close() }()
-	cmd := exec.Command(o.Self, "worker", "session", "--service", o.Service, "--vt", strconv.Itoa(o.VT), "--runtime-dir", o.RuntimeDir) //nolint:gosec // lys-login itself
+	cmd := exec.Command(o.Self, "worker", "session", "--service", o.Service, "--vt", strconv.Itoa(vt), "--runtime-dir", o.RuntimeDir) //nolint:gosec // lys-login itself
 	cmd.ExtraFiles = []*os.File{theirs}
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Start(); err != nil {

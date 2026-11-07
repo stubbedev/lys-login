@@ -156,3 +156,12 @@ func (b *batteryChip) set(l batteryLevel, ok bool) {
 	b.label.SetText(i18n.T("lock-battery", i18n.Str("percent", strconv.Itoa(l.percent))))
 	b.charging.SetVisible(l.charging)
 }
+
+func switchUserButton(font render.Font, onClick func()) *widget.Button {
+	label := widget.NewLabel(font, widgets.TextPx(styling.Body, 1), i18n.T("lock-switch-user"), 0)
+	b := widget.NewButton(label, 0, 0)
+	b.AddClass("lock-switch-user", css.Pill, css.Ghost)
+	b.SetCursorName("pointer")
+	b.OnClick = onClick
+	return b
+}

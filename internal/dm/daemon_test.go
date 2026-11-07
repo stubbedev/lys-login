@@ -55,6 +55,31 @@ func fakeSessionWorker() int {
 	return 0
 }
 
+func testRequests() greeterRequests {
+	return greeterRequests{vt: 7, existing: func(string) bool { return false }}
+}
+
+func finishLogin(t *testing.T, login *pendingLogin) []uint32 {
+	t.Helper()
+	defer login.w.wait()
+	if err := login.w.ch.send(request{Op: opStart, Cmd: login.cmd, Env: login.env}); err != nil {
+		t.Fatal(err)
+	}
+	var started []uint32
+	for {
+		var ev event
+		if err := login.w.ch.recv(&ev); err != nil {
+			t.Fatalf("the session's events: %v", err)
+		}
+		switch ev.Kind {
+		case evStarted:
+			started = append(started, ev.UID)
+		case evEnded:
+			return started
+		}
+	}
+}
+
 func testOptions() Options {
 	return Options{Service: "lys-login", VT: 7, Self: os.Args[0]}
 }
@@ -66,7 +91,7 @@ func serve(t *testing.T) (net.Conn, <-chan *pendingLogin, <-chan error) {
 	t.Cleanup(func() { _ = server.Close(); _ = client.Close() })
 	logins, errs := make(chan *pendingLogin, 1), make(chan error, 1)
 	go func() {
-		l, err := testOptions().serveGreeter(server)
+		l, err := testOptions().serveGreeter(server, testRequests())
 		logins <- l
 		errs <- err
 	}()
@@ -97,10 +122,7 @@ func TestGreeterLogsInThroughTheDaemon(t *testing.T) {
 	if !slices.Equal(login.cmd, []string{"Hyprland"}) || !slices.Equal(login.env, []string{"LANG=C"}) {
 		t.Errorf("session = %v %v", login.cmd, login.env)
 	}
-	var started []uint32
-	if err := login.run(context.Background(), func(uid uint32) { started = append(started, uid) }, log.Default(), &upgrader{}); err != nil {
-		t.Errorf("run: %v", err)
-	}
+	started := finishLogin(t, login)
 	if !slices.Equal(started, []uint32{1000}) {
 		t.Errorf("started = %v, want the session's uid once", started)
 	}
@@ -114,7 +136,7 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 	exited := make(chan struct{})
 	logins := make(chan *pendingLogin, 1)
 	go func() {
-		g, _ := testOptions().serveConns(context.Background(), conns, exited, &upgrader{})
+		g, _ := testOptions().serveConns(context.Background(), conns, exited, testRequests())
 		logins <- g.login
 	}()
 	attempt := func(password string) error {
@@ -137,16 +159,14 @@ func TestAFailedLoginCanBeRetried(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session after the retry")
 	}
-	if err := login.run(context.Background(), func(uint32) {}, log.Default(), &upgrader{}); err != nil {
-		t.Error(err)
-	}
+	finishLogin(t, login)
 }
 
 // The greeter going away ends the serving without a session.
 func TestServeConnsEndsWithTheGreeter(t *testing.T) {
 	exited := make(chan struct{})
 	close(exited)
-	if g, err := testOptions().serveConns(context.Background(), make(chan net.Conn), exited, &upgrader{}); g != (greeted{}) || err != nil {
+	if g, err := testOptions().serveConns(context.Background(), make(chan net.Conn), exited, testRequests()); g != (greeted{}) || err != nil {
 		t.Errorf("serveConns = %v, %v; want neither a login nor an error", g, err)
 	}
 }
@@ -318,7 +338,7 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 	conns := make(chan net.Conn)
 	logins := make(chan *pendingLogin, 1)
 	go func() {
-		g, _ := testOptions().serveConns(context.Background(), conns, make(chan struct{}), &upgrader{})
+		g, _ := testOptions().serveConns(context.Background(), conns, make(chan struct{}), testRequests())
 		logins <- g.login
 	}()
 	idleServer, idleClient := net.Pipe()
@@ -334,9 +354,7 @@ func TestAnIdleConnectionDoesNotBlockTheNext(t *testing.T) {
 	if login == nil {
 		t.Fatal("no session")
 	}
-	if err := login.run(context.Background(), func(uint32) {}, log.Default(), &upgrader{}); err != nil {
-		t.Error(err)
-	}
+	finishLogin(t, login)
 	if _, err := idleClient.Write([]byte{0}); err == nil {
 		t.Error("the idle connection stayed open after the login")
 	}
@@ -374,7 +392,7 @@ func TestLookupIn(t *testing.T) {
 func TestGreeterKnowsTheRuntimeDir(t *testing.T) {
 	o := testOptions()
 	o.GreeterUser, o.RuntimeDir, o.Compositor = "lys-greeter", "/run/lys-login", []string{"lys-wm"}
-	got := o.greeterWorkerArgs("/run/lys-login/greeter.sock", "/run/lys-login/kiosk.yaml")
+	got := o.greeterWorkerArgs("/run/lys-login/greeter.sock", "/run/lys-login/kiosk.yaml", o.VT)
 	want := []string{
 		"worker", "greeter", "--service", "lys-login", "--vt", "7", "--user", "lys-greeter",
 		"--env", auth.GreetdSockEnv + "=/run/lys-login/greeter.sock", "--env", RuntimeDirEnv + "=/run/lys-login", "--",

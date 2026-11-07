@@ -37,7 +37,7 @@ func serveAt[T any](t *testing.T, s Socket[T], handle handler[T]) string {
 // serveApplyAt runs the apply socket for a greeter config in a scratch
 // directory and returns the runtime directory and the config's
 // runtime.yaml.
-func serveApplyAt(t *testing.T, owner *sessionOwner) (runtimeDir, runtime string) {
+func serveApplyAt(t *testing.T, owner *sessionOwners) (runtimeDir, runtime string) {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
 	return serveAt(t, ApplySocket, applyChange(owner, cfg)), filepath.Join(filepath.Dir(cfg), "runtime.yaml")
@@ -59,14 +59,14 @@ func me(t *testing.T) uint32 {
 // The user whose session runs changes the login screen; nobody else
 // does while the greeter is up or someone else is logged in.
 func TestApplyIsTheLoggedInUsers(t *testing.T) {
-	owner := newSessionOwner()
+	owner := newSessionOwners()
 	dir, runtime := serveApplyAt(t, owner)
 	me := me(t)
 
 	if _, err := ApplySocket.Send(dir, colorChange); err == nil || !strings.Contains(err.Error(), "logged in") {
 		t.Errorf("without a session: %v, want a refusal", err)
 	}
-	owner.set(me + 1)
+	owner.add(me + 1)
 	if _, err := ApplySocket.Send(dir, colorChange); err == nil {
 		t.Error("another user's session let this one apply")
 	}
@@ -74,7 +74,7 @@ func TestApplyIsTheLoggedInUsers(t *testing.T) {
 		t.Fatalf("a refused change wrote runtime.yaml: %v", err)
 	}
 
-	owner.set(me)
+	owner.add(me)
 	path, err := ApplySocket.Send(dir, colorChange)
 	if err != nil {
 		t.Fatalf("the session's user: %v", err)
@@ -83,18 +83,18 @@ func TestApplyIsTheLoggedInUsers(t *testing.T) {
 		t.Errorf("wrote %s: %q", path, data)
 	}
 
-	owner.clear()
+	owner.remove(me)
 	if _, err := ApplySocket.Send(dir, colorChange); err == nil {
 		t.Error("the session's end left its user able to apply")
 	}
 }
 
 func TestMayApply(t *testing.T) {
-	owner := newSessionOwner()
+	owner := newSessionOwners()
 	if !owner.mayApply(0) || owner.mayApply(1000) {
 		t.Error("without a session only root may apply")
 	}
-	owner.set(1000)
+	owner.add(1000)
 	if !owner.mayApply(0) || !owner.mayApply(1000) || owner.mayApply(1001) {
 		t.Error("with 1000's session root and 1000 may apply, 1001 not")
 	}
@@ -104,8 +104,8 @@ func TestMayApply(t *testing.T) {
 }
 
 func TestApplyRefusesAMalformedChange(t *testing.T) {
-	owner := newSessionOwner()
-	owner.set(uint32(os.Getuid()))
+	owner := newSessionOwners()
+	owner.add(uint32(os.Getuid()))
 	dir, _ := serveApplyAt(t, owner)
 	if _, err := ApplySocket.Send(dir, greeterconfig.Change{Staged: "general:\n  foo: 1\n"}); err == nil || !strings.Contains(err.Error(), "no recognised login screen keys") {
 		t.Errorf("no login keys: %v", err)
@@ -137,7 +137,7 @@ func TestSendWithoutADaemon(t *testing.T) {
 // greeter reads it; nobody records one while the greeter is up or for
 // someone else's session.
 func TestCursorIsTheSessionsUsers(t *testing.T) {
-	owner := newSessionOwner()
+	owner := newSessionOwners()
 	records := filepath.Join(t.TempDir(), "cursor")
 	dir := serveAt(t, CursorSocket, recordCursor(owner, records))
 	me := me(t)
@@ -146,7 +146,7 @@ func TestCursorIsTheSessionsUsers(t *testing.T) {
 	if _, err := CursorSocket.Send(dir, bibata); err == nil || !strings.Contains(err.Error(), "logged in") {
 		t.Errorf("without a session: %v, want a refusal", err)
 	}
-	owner.set(me + 1)
+	owner.add(me + 1)
 	if _, err := CursorSocket.Send(dir, bibata); err == nil {
 		t.Error("another user's session let this one record a cursor")
 	}
@@ -154,7 +154,7 @@ func TestCursorIsTheSessionsUsers(t *testing.T) {
 		t.Fatalf("a refused cursor was recorded: %v", err)
 	}
 
-	owner.set(me)
+	owner.add(me)
 	if _, err := CursorSocket.Send(dir, bibata); err != nil {
 		t.Fatalf("the session's user: %v", err)
 	}
@@ -164,9 +164,9 @@ func TestCursorIsTheSessionsUsers(t *testing.T) {
 }
 
 func TestCursorRefusesAThemeThatIsNoDirectoryName(t *testing.T) {
-	owner := newSessionOwner()
+	owner := newSessionOwners()
 	me := me(t)
-	owner.set(me)
+	owner.add(me)
 	records := filepath.Join(t.TempDir(), "cursor")
 	dir := serveAt(t, CursorSocket, recordCursor(owner, records))
 	if _, err := CursorSocket.Send(dir, cursorrecord.Cursor{Theme: "../../etc", Size: 24}); err == nil || !strings.Contains(err.Error(), "malformed request") {

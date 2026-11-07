@@ -41,6 +41,13 @@ it, so the password can be typed in the right layout. `login.lock.show-media` an
 `login.lock.show-battery` turn the first two off. None of it repaints while
 nothing changes.
 
+## Switch user
+
+Under lys-login's display manager, with a second account on the machine, the lock screen
+offers Switch User. It leaves this session running and locked, and shows a greeter on
+another VT; see [Switching users](/reference/architecture#switching-users).
+`login.lock.show-switch-user` turns it off.
+
 ## Fingerprint
 
 With fprintd and a finger enrolled for the session user, the lock asks fprintd to

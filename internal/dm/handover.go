@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	handoverVersion = 1
+	handoverVersion = 2
 	workerProtocol  = 1
 	maxHandover     = 8 << 20
 	firstHandoverFD = 3
@@ -23,7 +23,7 @@ type handover struct {
 	Client     int             `json:"client"`
 	Listeners  handedListeners `json:"listeners"`
 	Cards      []handedCard    `json:"cards"`
-	Session    *handedSession  `json:"session"`
+	Sessions   []handedSession `json:"sessions"`
 	Rollback   rollback        `json:"rollback"`
 	Failure    string          `json:"failure"`
 }
@@ -33,6 +33,7 @@ type handedListeners struct {
 	Cursor  int `json:"cursor"`
 	Splash  int `json:"splash"`
 	Upgrade int `json:"upgrade"`
+	Switch  int `json:"switch"`
 }
 
 type handedCard struct {
@@ -42,6 +43,9 @@ type handedCard struct {
 
 type handedSession struct {
 	WorkerPID int      `json:"worker_pid"`
+	VT        int      `json:"vt"`
+	User      string   `json:"user"`
+	ID        string   `json:"id"`
 	Channel   int      `json:"channel"`
 	Protocol  int      `json:"protocol"`
 	Unread    []byte   `json:"unread"`
@@ -121,7 +125,15 @@ func (h handover) validate() error {
 			return fmt.Errorf("the DRM card %q is not an absolute path", card.Path)
 		}
 	}
-	if s := h.Session; s != nil {
+	vts := map[int]bool{}
+	for _, s := range h.Sessions {
+		if s.VT <= 0 || vts[s.VT] {
+			return fmt.Errorf("the session of worker %d is on VT %d, which is none or another session's", s.WorkerPID, s.VT)
+		}
+		vts[s.VT] = true
+		if s.User == "" {
+			return fmt.Errorf("the session of worker %d names no user", s.WorkerPID)
+		}
 		if s.WorkerPID <= 1 {
 			return fmt.Errorf("the session's worker has pid %d", s.WorkerPID)
 		}
@@ -157,13 +169,14 @@ func (h handover) descriptors() []namedFD {
 		{CursorSocket.name, h.Listeners.Cursor},
 		{SplashSocket.name, h.Listeners.Splash},
 		{UpgradeSocket.name, h.Listeners.Upgrade},
+		{SwitchSocket.name, h.Listeners.Switch},
 		{"the old program", h.Rollback.Exe},
 	}
 	for _, card := range h.Cards {
 		fds = append(fds, namedFD{card.Path, card.FD})
 	}
-	if h.Session != nil {
-		fds = append(fds, namedFD{"the session's channel", h.Session.Channel})
+	for _, s := range h.Sessions {
+		fds = append(fds, namedFD{fmt.Sprintf("the channel of the session on VT %d", s.VT), s.Channel})
 	}
 	return fds
 }

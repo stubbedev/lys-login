@@ -60,7 +60,8 @@ type event struct {
 	// (ended), or why its keyring stays locked (keyring-locked).
 	Text string `json:"text,omitempty"`
 	// UID is the account the session runs as (started).
-	UID uint32 `json:"uid"`
+	UID       uint32 `json:"uid"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // The event kinds.
