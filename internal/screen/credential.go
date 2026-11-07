@@ -7,7 +7,8 @@
 // The layout is the macOS lock screen's: the date over a large clock at
 // the top, and at the bottom the account being asked for, the password
 // pill under it, the caps lock warning and the error line, and under
-// all of it the greeter's power buttons.
+// all of it the greeter's power buttons. A chip in the top right corner
+// shows the keyboard layout when there are several.
 package screen
 
 import (
@@ -16,10 +17,14 @@ import (
 	"github.com/stubbedev/lys-shell/styling"
 	"github.com/stubbedev/lys-ui/widget"
 	"github.com/stubbedev/lys-ui/widget/css"
+
+	"github.com/stubbedev/lys-login/internal/layouts"
 )
 
 // entryChars is the entries' width-chars.
 const entryChars = 18
+
+const layoutChars = 4
 
 // The password entry's peek icons: the
 // eye reveals masked text, the crossed eye masks it again.
@@ -49,7 +54,8 @@ type Options struct {
 	Password, CapsLock string
 	// Focus moves keyboard focus; the username entry's Enter uses it
 	// to move on to the secret entry.
-	Focus func(widget.Widget)
+	Focus      func(widget.Widget)
+	NextLayout func()
 }
 
 // Prompt is a built credential prompt and the handles its screen
@@ -68,9 +74,11 @@ type Prompt struct {
 	// Caps is the caps lock warning, hidden until SetCapsLock shows it.
 	Caps *widget.Label
 	// Error is the error and info line, hidden until it has text.
-	Error  *widget.Label
-	peeked bool
-	iconPx int
+	Error      *widget.Label
+	Layout     *widget.Button
+	layoutText *widget.Label
+	peeked     bool
+	iconPx     int
 	// scaleWatch sees the device scale each frame paints at, which is fractional
 	// where the compositor says so and known to nothing before the first paint.
 	scaleWatch *widget.DrawingArea
@@ -101,6 +109,15 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	p.scaleWatch.OnDraw = func(cv *render.Canvas, _ render.Rect) { p.preloadAt(cv.DeviceScale()) }
 	p.Entry.OnActivate = onSubmit
 	p.Error.SetVisible(false)
+	p.layoutText = label(o.Font, textPx)
+	p.layoutText.SetWidthChars(layoutChars)
+	p.Layout = widget.NewButton(p.layoutText, 0, 0)
+	p.Layout.AddClass("lock-layout", css.Pill, css.Ghost, css.Small)
+	p.Layout.SetVisible(false)
+	if o.NextLayout != nil {
+		p.Layout.SetCursorName("pointer")
+		p.Layout.OnClick = o.NextLayout
+	}
 
 	th := widget.Current()
 	credentials := widget.NewBox(widget.Column, th.Spacing, 0)
@@ -135,7 +152,8 @@ func newPrompt(o Options, onSubmit func(string)) *Prompt {
 	if o.Footer != nil {
 		stack.AppendAligned(o.Footer, false, widget.AlignCenter)
 	}
-	p.Reveal = widget.NewRevealer(stack)
+	p.Layout.SetMargin(render.Insets{Top: 2 * th.Spacing, Right: 2 * th.Spacing})
+	p.Reveal = widget.NewRevealer(widget.NewOverlay().Append(stack).AppendAligned(p.Layout, widget.AlignEnd, widget.AlignStart))
 	return p
 }
 
@@ -191,6 +209,15 @@ func (p *Prompt) SetCapsLock(on bool) {
 	if p.Caps.Visible() != on {
 		p.Caps.SetVisible(on)
 	}
+}
+
+func (p *Prompt) SetLayouts(all []layouts.Layout, active uint32) {
+	shown := len(all) > 1 && int(active) < len(all)
+	if shown {
+		p.layoutText.SetText(all[active].Label)
+		p.Layout.SetAccessibleName(all[active].Name)
+	}
+	p.Layout.SetVisible(shown)
 }
 
 // SetMessage shows text on the error line, or hides it when empty.

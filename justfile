@@ -80,6 +80,12 @@ upgrade-vm:
 greetd-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.greetd-vm
 
+# The greeter on the system keyboard layout in a NixOS VM (needs KVM): a German
+# password typed on German keys, and with German and US a Caps Lock switch, a US
+# password, and the next greeter back on the layout the user logged in with.
+keyboard-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.keyboard-vm
+
 # An X11 session through the display manager in a NixOS VM (needs KVM): logind
 # holds it as Type=x11, and the greeter before it stays wayland.
 x11-session-vm:

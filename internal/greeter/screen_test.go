@@ -26,6 +26,7 @@ import (
 	"github.com/stubbedev/memory-go"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/layouts"
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
@@ -82,7 +83,9 @@ type rig struct {
 	// outputs are the device sizes the greeter shows on.
 	outputs []image.Point
 	// forgotten are the rasters the renderer was told to drop.
-	forgotten []render.ImageID
+	forgotten      []render.ImageID
+	steps          []int
+	noLayoutSwitch bool
 }
 
 func newRig(t *testing.T, edit func(*Init)) *rig {
@@ -110,6 +113,10 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 	init.Config.Login.Greeter.ShowPowerButtons = true
 	if edit != nil {
 		edit(&init)
+	}
+	nextLayout := func(n int) { r.steps = append(r.steps, n) }
+	if r.noLayoutSwitch {
+		nextLayout = nil
 	}
 	r.s = newScreen(init, face, Stylesheet(init.Config), deps{
 		connect: func(start auth.Start) (auth.Conversation, error) {
@@ -176,6 +183,14 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			return r.avatar, nil
 		},
 		outputScale: func() int { return r.scale },
+		nextLayout:  nextLayout,
+		labelLayouts: func(names []string) ([]layouts.Layout, error) {
+			out := make([]layouts.Layout, len(names))
+			for i, name := range names {
+				out[i] = layouts.Layout{Label: strings.ToUpper(name[:2]), Name: name}
+			}
+			return out, nil
+		},
 	})
 	t.Cleanup(r.s.saving.Wait)
 	return r

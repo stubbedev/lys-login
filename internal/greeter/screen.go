@@ -21,6 +21,7 @@ import (
 	"github.com/stubbedev/memory-go"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/layouts"
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
@@ -47,6 +48,7 @@ type Init struct {
 	Users       []User
 	LastSession string
 	LastUser    string
+	Layouts     map[string]string
 	StatePath   string
 	SessionEnv  []string
 	OnPresented func()
@@ -89,7 +91,9 @@ type deps struct {
 	// loadAvatar decodes an avatar file.
 	loadAvatar func(path string) (image.Image, error)
 	// outputScale is the largest buffer scale of the outputs the greeter shows on.
-	outputScale func() int
+	outputScale  func() int
+	nextLayout   func(steps int)
+	labelLayouts func(names []string) ([]layouts.Layout, error)
 }
 
 type authHandle interface {
@@ -128,6 +132,12 @@ type screen struct {
 	announced bool
 
 	clock *loginscreen.ClockTicker
+
+	keyboard     app.KeyboardLayout
+	labeled      []layouts.Layout
+	pendingSteps int
+	wantLayout   string
+	logged       string
 
 	// saving is the write handOver may have stopped waiting for.
 	saving sync.WaitGroup
@@ -181,11 +191,15 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 		rows.Power = s.power
 	}
 	s.bg = s.loadBackground()
-	surface := loginscreen.Build(loginscreen.Spec{
+	spec := loginscreen.Spec{
 		Mode: loginscreen.Greeter, Config: g, Font: font, Sheet: sheet, Backdrop: s.bg,
 		Identity: users, Greeter: rows, Password: t("greeter-password"), CapsLock: t("greeter-caps-lock"),
 		Focus: d.focus, OnSubmit: s.submit,
-	})
+	}
+	if d.nextLayout != nil {
+		spec.NextLayout = s.cycleLayout
+	}
+	surface := loginscreen.Build(spec)
 	s.prompt, s.root = surface.Prompt, surface.Root
 	s.prompt.Username.SetPlaceholder(t("greeter-username"))
 	s.prompt.Username.SetVisible(s.picked == nil)
@@ -207,6 +221,7 @@ func (s *screen) start() {
 	}
 	if s.init.LastUser != "" {
 		s.prompt.Username.SetText(s.init.LastUser)
+		s.wantLayoutOf(s.init.LastUser)
 		s.d.focus(s.prompt.Entry)
 		return
 	}
@@ -302,6 +317,7 @@ func (s *screen) pickUser(picked *userButton) {
 	picked.button.AddClass("selected")
 	s.prompt.Username.SetText(picked.user.Name)
 	s.prompt.Username.SetVisible(false)
+	s.wantLayoutOf(picked.user.Name)
 	s.d.focus(s.prompt.Entry)
 }
 
@@ -467,11 +483,12 @@ func (s *screen) setForm(on bool) {
 type rememberedLogin struct {
 	session string
 	user    string
+	layout  string
 }
 
 // loginToRemember reads what it needs on the loop.
 func (s *screen) loginToRemember() rememberedLogin {
-	return rememberedLogin{session: s.selectedSession().ID, user: strings.TrimSpace(s.prompt.Username.Text())}
+	return rememberedLogin{session: s.selectedSession().ID, user: strings.TrimSpace(s.prompt.Username.Text()), layout: s.activeLayout()}
 }
 
 // remember persists the session and the username for next time.
@@ -484,6 +501,13 @@ func (s *screen) remember(l rememberedLogin) {
 	}
 	if err := s.d.saveLast(LastUserPath(s.init.StatePath), l.user); err != nil {
 		log.Printf("greeter: could not save last user: %v", err)
+	}
+	path, ok := LastLayoutPath(s.init.StatePath, l.user)
+	if l.layout == "" || !ok {
+		return
+	}
+	if err := s.d.saveLast(path, l.layout); err != nil {
+		log.Printf("greeter: could not save the layout %s logged in with: %v", l.user, err)
 	}
 }
 

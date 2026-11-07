@@ -42,7 +42,8 @@ type Spec struct {
 	// Focus moves keyboard focus.
 	Focus func(widget.Widget)
 	// OnSubmit receives the secret entry's text on Enter.
-	OnSubmit func(string)
+	OnSubmit   func(string)
+	NextLayout func()
 }
 
 // Surface is a built login screen and the handles its mode drives.
@@ -64,7 +65,7 @@ func Cover(s Spec) widget.Widget {
 func Build(s Spec) *Surface {
 	o := Options{
 		Font: s.Font, ShowClock: s.Config.ShowClock, Identity: s.Identity,
-		Password: s.Password, CapsLock: s.CapsLock, Focus: s.Focus,
+		Password: s.Password, CapsLock: s.CapsLock, Focus: s.Focus, NextLayout: s.NextLayout,
 	}
 	if s.Mode == Greeter {
 		o.WithUsername = true

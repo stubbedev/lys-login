@@ -72,7 +72,7 @@ func TestBuildIsTheMacOSLayout(t *testing.T) {
 	p := newPrompt(Options{
 		Font: treetest.Font(t), ShowClock: true, Identity: identity, Footer: footer, Password: "Enter Password",
 	}, func(string) {})
-	rows := p.Reveal.Child().(*widget.Box).Children()
+	rows := promptStack(t, p).Children()
 	if len(rows) != 4 {
 		t.Fatalf("%d rows over the background, want the clock, the gap, the credentials and the footer", len(rows))
 	}
@@ -113,7 +113,7 @@ func TestBuildIsTheMacOSLayout(t *testing.T) {
 // bottom.
 func TestBuildWithoutIdentityOrFooter(t *testing.T) {
 	p := newPrompt(Options{Font: treetest.Font(t)}, func(string) {})
-	rows := p.Reveal.Child().(*widget.Box).Children()
+	rows := promptStack(t, p).Children()
 	if len(rows) != 3 {
 		t.Fatalf("%d rows, want the clock, the gap and the credentials", len(rows))
 	}
@@ -240,4 +240,13 @@ func TestThePromptSitsOnTheBackgroundWithNoCard(t *testing.T) {
 	if bg := widget.StyleBackground(card); bg.A() != 0 {
 		t.Errorf("the prompt column paints background %#08x, want none", uint32(bg))
 	}
+}
+
+func promptStack(t *testing.T, p *Prompt) *widget.Box {
+	t.Helper()
+	layers := p.Reveal.Child().(*widget.Overlay).Children()
+	if len(layers) != 2 || layers[1] != p.Layout {
+		t.Fatalf("the prompt reveals %d layers, want the screen's column under the layout chip", len(layers))
+	}
+	return layers[0].(*widget.Box)
 }

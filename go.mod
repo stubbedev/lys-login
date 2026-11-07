@@ -7,7 +7,7 @@ require (
 	github.com/stubbedev/lys-lib v0.3.10
 	github.com/stubbedev/lys-secrets v0.3.12
 	github.com/stubbedev/lys-shell v0.3.14
-	github.com/stubbedev/lys-ui v0.2.14
+	github.com/stubbedev/lys-ui v0.2.15-0.20261107150137-f18d4690b369
 	github.com/stubbedev/memory-go v0.5.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0

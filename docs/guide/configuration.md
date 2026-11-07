@@ -131,10 +131,19 @@ which localed reads.
 A layout lys-wm could not compile is logged and left out, so the greeter still
 comes up, with lys-wm's default US layout.
 
+With more than one layout (`localectl set-x11-keymap de,us`), a chip in the top
+right corner of the greeter shows the one the password is typed in (`DE`, `US`).
+Clicking it moves to the next layout, as does the switch key the XKB options
+name, such as `grp:caps_toggle` or `grp:alt_shift_toggle`. The greeter remembers
+the layout each user logged in with and switches to it when that user is chosen
+or remembered. Under greetd the chip only shows the layout: switching by click
+needs lys-wm.
+
 ## What it remembers
 
-The last session goes in the `--state` file and the last username in a
-`last-user` file beside it. The display manager's unit and the NixOS module use
+The last session goes in the `--state` file, the last username in a
+`last-user` file beside it, and the layout each user logged in with in
+`last-layout/<user>`. The display manager's unit and the NixOS module use
 `/var/lib/lys-greeter/`, `0700` and owned by the greeter's account: `lys-greeter`,
 or `greeter` under greetd.
 

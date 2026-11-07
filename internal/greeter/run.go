@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-lib/render"
+	"github.com/stubbedev/lys-lib/xkb"
 	"github.com/stubbedev/lys-shell/config"
 	"github.com/stubbedev/lys-shell/imagedecode"
 	"github.com/stubbedev/lys-shell/logging"
@@ -21,6 +22,7 @@ import (
 	"github.com/stubbedev/lys-ui/widget"
 
 	"github.com/stubbedev/lys-login/internal/auth"
+	"github.com/stubbedev/lys-login/internal/layouts"
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
@@ -108,6 +110,10 @@ func Run(init Init) error {
 		forget:      a.ForgetImage,
 		loadAvatar:  imagedecode.Open,
 		outputScale: func() int { return loginscreen.MaxScale(sess.Outputs()) },
+		nextLayout:  layoutSwitch(),
+		labelLayouts: func(names []string) ([]layouts.Layout, error) {
+			return layouts.Labeled(names, xkb.NewContext(os.Getenv).IncludePaths())
+		},
 	})
 	defer s.end()
 	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented))
@@ -138,6 +144,7 @@ func Run(init Init) error {
 		}
 	})
 	a.OnLocks(func(l app.Locks) { s.setCapsLock(l.Caps) })
+	a.OnKeyboardLayout(s.setKeyboardLayout)
 	s.applyDebugOps(os.Getenv("LYS_SHELL_GREETER_DEBUG"), func(d time.Duration, fn func()) {
 		time.AfterFunc(d, func() { a.Invoke(fn) })
 	})

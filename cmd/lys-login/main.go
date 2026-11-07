@@ -121,6 +121,7 @@ func greet(args []string) int {
 		Users:       greeter.LoadUsers(),
 		LastSession: greeter.LoadLast(opts.StatePath),
 		LastUser:    greeter.LoadLast(greeter.LastUserPath(opts.StatePath)),
+		Layouts:     greeter.LoadLayouts(opts.StatePath),
 		StatePath:   opts.StatePath,
 		SessionEnv:  opts.Env,
 		OnPresented: dm.TakeScreenFromSplash(os.Getenv(dm.RuntimeDirEnv)),
