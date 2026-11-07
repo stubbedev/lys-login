@@ -49,6 +49,7 @@ type Init struct {
 	LastSession string
 	LastUser    string
 	Layouts     map[string]string
+	A11y        Accessibility
 	StatePath   string
 	SessionEnv  []string
 	OnPresented func()
@@ -94,6 +95,7 @@ type deps struct {
 	outputScale  func() int
 	nextLayout   func(steps int)
 	labelLayouts func(names []string) ([]layouts.Layout, error)
+	a11y         a11yDeps
 }
 
 type authHandle interface {
@@ -134,6 +136,7 @@ type screen struct {
 	clock *loginscreen.ClockTicker
 
 	layouts *loginscreen.KeyboardLayouts
+	a11y    a11yMenu
 
 	// saving is the write handOver may have stopped waiting for.
 	saving sync.WaitGroup
@@ -182,10 +185,14 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 		users.SetVisible(false)
 	}
 	rows := loginscreen.GreeterRows{Session: s.drop}
+	footer := widget.NewBox(widget.Row, 4*th.Spacing, 0)
+	footer.AddClass("lock-footer")
+	footer.Append(s.a11yButton(font), false)
 	if g.Greeter.ShowPowerButtons {
 		s.power = s.powerRow(font)
-		rows.Power = s.power
+		footer.Append(s.power, false)
 	}
+	rows.Power = footer
 	s.bg = s.loadBackground()
 	spec := loginscreen.Spec{
 		Mode: loginscreen.Greeter, Config: g, Font: font, Sheet: sheet, Backdrop: s.bg,
@@ -202,6 +209,7 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 	surface := loginscreen.Build(spec)
 	s.prompt, s.root = surface.Prompt, surface.Root
 	s.prompt.Username.SetPlaceholder(t("greeter-username"))
+	s.prompt.Username.SetAccessibleName(t("greeter-username"))
 	s.prompt.Username.SetVisible(s.picked == nil)
 	var shown []func(time.Time) string
 	if g.ShowClock {
@@ -215,6 +223,7 @@ func newScreen(init Init, font render.Font, sheet *widget.Stylesheet, d deps) *s
 // start pre-fills the remembered user and focuses the next field:
 // the password when the username is known, the username otherwise.
 func (s *screen) start() {
+	s.applyA11y(s.init.A11y)
 	s.showPrompt()
 	if s.init.HandOver {
 		s.prompt.Reveal.Finish()
@@ -274,6 +283,7 @@ func (s *screen) loadBackground() *loginscreen.Backdrop {
 
 // end lets go of the background once the greeter no longer shows it.
 func (s *screen) end() {
+	s.screenReader(false)
 	if s.bg == nil {
 		return
 	}

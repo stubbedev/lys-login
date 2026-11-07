@@ -139,13 +139,34 @@ the layout each user logged in with and switches to it when that user is chosen
 or remembered. Under greetd the chip only shows the layout: switching by click
 needs lys-wm.
 
+## Accessibility
+
+The accessibility button beside the power buttons opens a menu, reachable by
+Tab and toggled with Space or Enter:
+
+- **Screen reader** starts `login.greeter.screen-reader` (`orca` from the PATH by
+  default) and serves the greeter over AT-SPI; Super+Alt+S toggles it without
+  the menu. Its row is hidden when the program is not installed. The NixOS module
+  makes at-spi2-core D-Bus activatable for this.
+- **Large text** scales the login screen's text by 1.5, live.
+- **High contrast** switches the login screen to its `prefers-contrast: more`
+  styles, live.
+- **Sticky keys** and **Slow keys** (300 ms) turn on lys-wm's
+  `input.keyboard.sticky_keys` and `slow_keys` in the kiosk. They need lys-wm, so
+  under greetd their rows are hidden.
+
+The choices are the machine's, kept for the next greeter, so a reader that was
+on comes back at the next boot. A user's own settings are not touched, and with
+every option off the greeter starts no accessibility process.
+
 ## What it remembers
 
 The last session goes in the `--state` file, the last username in a
 `last-user` file beside it, and the layout each user logged in with in
-`last-layout/<user>`. The display manager's unit and the NixOS module use
-`/var/lib/lys-greeter/`, `0700` and owned by the greeter's account: `lys-greeter`,
-or `greeter` under greetd.
+`last-layout/<user>`, and the accessibility choices in an `accessibility` file.
+The display manager's unit and the NixOS module use `/var/lib/lys-greeter/`,
+`0700` and owned by the greeter's account: `lys-greeter`, or `greeter` under
+greetd.
 
 ## Who the user list shows
 

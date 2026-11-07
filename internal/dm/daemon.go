@@ -290,6 +290,7 @@ type kiosk struct {
 	greet    []string
 	cursor   greeter.Cursor
 	keyboard xkb.Names
+	a11y     greeter.Accessibility
 }
 
 // kioskConfig is lys-wm's config for the greeter: no binds, so the
@@ -304,7 +305,7 @@ func kioskConfig(k kiosk) string {
 	}
 	var b strings.Builder
 	b.WriteString("binds: []\n" + kioskLook)
-	writeKeyboard(&b, k.keyboard)
+	writeKeyboard(&b, k.keyboard, k.a11y)
 	b.WriteString("env:\n  XCURSOR_SIZE: " + yamlString(strconv.FormatUint(uint64(k.cursor.Size), 10)) + "\n")
 	if k.cursor.Theme != "" {
 		b.WriteString("  XCURSOR_THEME: " + yamlString(k.cursor.Theme) + "\n")
@@ -313,11 +314,12 @@ func kioskConfig(k kiosk) string {
 	return b.String()
 }
 
-func writeKeyboard(b *strings.Builder, names xkb.Names) {
-	if names == (xkb.Names{}) {
+func writeKeyboard(b *strings.Builder, names xkb.Names, a11y greeter.Accessibility) {
+	keys := a11y.WMConfig()
+	if names == (xkb.Names{}) && keys == "" {
 		return
 	}
-	b.WriteString("input:\n  keyboard:\n")
+	b.WriteString("input:\n  keyboard:\n" + keys)
 	for _, f := range [...]struct{ key, value string }{{"model", names.Model}, {"layout", names.Layout}, {"variant", names.Variant}, {"options", names.Options}} {
 		if f.value != "" {
 			b.WriteString("    " + f.key + ": " + yamlString(f.value) + "\n")
@@ -338,6 +340,14 @@ func (o Options) greeterKeyboard() xkb.Names {
 		return xkb.Names{}
 	}
 	return r.Names
+}
+
+func (o Options) greeterAccessibility() greeter.Accessibility {
+	a, err := greeter.LoadAccessibility(o.GreeterState)
+	if err != nil {
+		log.Printf("dm: the greeter starts without sticky or slow keys: %v", err)
+	}
+	return a
 }
 
 // greeterCursor is the cursor the next greeter shows: the greeter's
@@ -390,7 +400,7 @@ func (o Options) greet(ctx context.Context, u *upgrader) (greeted, error) {
 	}
 	defer func() { _ = ln.Close() }()
 	cfg := filepath.Join(o.RuntimeDir, "kiosk.yaml")
-	if err := os.WriteFile(cfg, []byte(kioskConfig(kiosk{greet: o.greeterCommand(), cursor: o.greeterCursor(), keyboard: o.greeterKeyboard()})), 0o644); err != nil { //nolint:gosec // the greeter user reads it
+	if err := os.WriteFile(cfg, []byte(kioskConfig(kiosk{greet: o.greeterCommand(), cursor: o.greeterCursor(), keyboard: o.greeterKeyboard(), a11y: o.greeterAccessibility()})), 0o644); err != nil { //nolint:gosec // the greeter user reads it
 		return greeted{}, fmt.Errorf("write %s: %w", cfg, err)
 	}
 	gw := exec.Command(o.Self, o.greeterWorkerArgs(sock, cfg)...) //nolint:gosec // lys-login itself

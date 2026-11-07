@@ -92,6 +92,12 @@ keyboard-vm:
 lock-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.lock-vm
 
+# The greeter's accessibility menu in a NixOS VM (needs KVM): nothing started
+# with every option off, Super+Alt+S starting Orca, which speaks the focused
+# field, and the choices back at the next greeter.
+accessibility-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.accessibility-vm
+
 # An X11 session through the display manager in a NixOS VM (needs KVM): logind
 # holds it as Type=x11, and the greeter before it stays wayland.
 x11-session-vm:

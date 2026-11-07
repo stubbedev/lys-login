@@ -57,6 +57,11 @@
           inherit self;
           inherit (inputs) lys-wm;
         };
+        # The greeter's accessibility menu; see nix/tests/accessibility-vm.nix.
+        accessibility-vm = pkgs.callPackage ./tests/accessibility-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm;
+        };
         # The lock screen's status row and fingerprint; see nix/tests/lock-vm.nix.
         lock-vm = pkgs.callPackage ./tests/lock-vm.nix {
           inherit self;

@@ -86,6 +86,8 @@ type rig struct {
 	forgotten      []render.ImageID
 	steps          []int
 	noLayoutSwitch bool
+	a11y           fakeA11y
+	noReader       bool
 }
 
 func newRig(t *testing.T, edit func(*Init)) *rig {
@@ -191,6 +193,7 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			}
 			return out, nil
 		},
+		a11y: r.a11y.deps(!r.noReader, !r.noLayoutSwitch),
 	})
 	t.Cleanup(r.s.saving.Wait)
 	return r

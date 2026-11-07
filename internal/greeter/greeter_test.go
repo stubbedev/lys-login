@@ -367,7 +367,7 @@ func TestStylesheetInstallsTheWidgetTheme(t *testing.T) {
 
 func TestFirstPresentedFrameTakesTheScreenFromTheSplash(t *testing.T) {
 	taken := make(chan struct{})
-	cfg := windowConfig(nil, func() { close(taken) })
+	cfg := windowConfig(nil, func() { close(taken) }, nil)
 	if cfg.OnPresented == nil {
 		t.Fatal("the greeter's window does not report its first presented frame")
 	}
@@ -376,7 +376,7 @@ func TestFirstPresentedFrameTakesTheScreenFromTheSplash(t *testing.T) {
 }
 
 func TestWithoutDisplayManagerNoFrameIsReported(t *testing.T) {
-	if windowConfig(nil, nil).OnPresented != nil {
+	if windowConfig(nil, nil, nil).OnPresented != nil {
 		t.Error("a greeter with no hand-over to make reports its first frame")
 	}
 }

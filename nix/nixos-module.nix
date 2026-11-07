@@ -412,6 +412,7 @@ in {
         home = greeterStateDir;
       };
       users.groups.lys-greeter = {};
+      services.gnome.at-spi2-core.enable = lib.mkDefault true;
       # One PAM service for both: the greeter's session (class greeter, no
       # authentication) and each login. startSession adds pam_systemd, which
       # registers both with logind on the seat and VT the daemon hands it.

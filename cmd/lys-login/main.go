@@ -122,6 +122,7 @@ func greet(args []string) int {
 		LastSession: greeter.LoadLast(opts.StatePath),
 		LastUser:    greeter.LoadLast(greeter.LastUserPath(opts.StatePath)),
 		Layouts:     greeter.LoadLayouts(opts.StatePath),
+		A11y:        loadAccessibility(opts.StatePath),
 		StatePath:   opts.StatePath,
 		SessionEnv:  opts.Env,
 		OnPresented: dm.TakeScreenFromSplash(os.Getenv(dm.RuntimeDirEnv)),
@@ -417,4 +418,12 @@ func self() (string, error) {
 		return sibling, nil
 	}
 	return exe, nil
+}
+
+func loadAccessibility(statePath string) greeter.Accessibility {
+	a, err := greeter.LoadAccessibility(statePath)
+	if err != nil {
+		log.Printf("greeter: starting with every accessibility option off: %v", err)
+	}
+	return a
 }

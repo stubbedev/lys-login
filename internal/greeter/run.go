@@ -45,7 +45,11 @@ func Run(init Init) error {
 	}
 	defer sess.Close()
 	a := app.NewApplication(sess)
-	apptheme.FollowDesktopFontSize(a)
+	scaleText := followTextScale(a)
+	a.SetAccessibility(app.A11yOff)
+	readerPath, readerFound := screenReaderPath(init.Config.Login.Greeter.ScreenReader)
+	var screenReaders readers
+	defer screenReaders.wait()
 
 	family := init.Config.General.FontSans
 	base, err := app.Font(family, 16)
@@ -111,9 +115,17 @@ func Run(init Init) error {
 		outputScale:  func() int { return loginscreen.MaxScale(sess.Outputs()) },
 		nextLayout:   layouts.Switcher("greeter"),
 		labelLayouts: layouts.LabeledOnSystem,
+		a11y: a11yDeps{
+			readerFound:  readerFound,
+			startReader:  screenReaders.start(a, readerPath),
+			textScale:    scaleText,
+			highContrast: widget.SetMediaContrast,
+			dispatch:     wmDispatch(),
+			popover:      openPopover,
+		},
 	})
 	defer s.end()
-	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented))
+	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented, s.captureKey))
 	if err != nil {
 		return err
 	}
@@ -181,8 +193,9 @@ func coverOutputs(layerShell bool, outputs []*app.Output, watch func(added, remo
 	return watch(cover, nil)
 }
 
-func windowConfig(root widget.Widget, onPresented func()) app.WindowConfig {
+func windowConfig(root widget.Widget, onPresented func(), capture func(app.Accel) bool) app.WindowConfig {
 	cfg := app.WindowConfig{
+		KeyCapture: capture,
 		Title:      "lys-greeter",
 		AppID:      "dev.stubbe.lys.greeter",
 		Root:       root,

@@ -465,3 +465,26 @@ func TestNoSystemLayoutLeavesInputOut(t *testing.T) {
 		t.Errorf("a kiosk without a system layout names one:\n%s", got)
 	}
 }
+
+func TestTheRememberedStickyAndSlowKeysReachTheKiosk(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "last-session")
+	if err := greeter.SaveLast(greeter.AccessibilityPath(state), "sticky-keys\nslow-keys\nlarge-text\n"); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{GreeterState: state}
+	var cfg kioskKeyboard
+	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}, keyboard: xkb.Names{Layout: "de"}, a11y: o.greeterAccessibility()})), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"layout": "de", "sticky_keys": "true", "slow_keys": "300"}
+	if !reflect.DeepEqual(cfg.Input.Keyboard, want) {
+		t.Errorf("input.keyboard = %v, want %v", cfg.Input.Keyboard, want)
+	}
+	var bare kioskKeyboard
+	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}, a11y: greeter.Accessibility{greeter.StickyKeys: true}})), &bare); err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"sticky_keys": "true"}; !reflect.DeepEqual(bare.Input.Keyboard, want) {
+		t.Errorf("without a layout input.keyboard = %v, want %v", bare.Input.Keyboard, want)
+	}
+}

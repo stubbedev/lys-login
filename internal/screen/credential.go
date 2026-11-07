@@ -173,6 +173,7 @@ func entry(font render.Font, px float64, placeholder string) *widget.Entry {
 	e := widget.NewEntry(font, px, 0)
 	e.AddClass("lock-entry")
 	e.SetPlaceholder(placeholder)
+	e.SetAccessibleName(placeholder)
 	e.SetWidthChars(entryChars, 0)
 	return e
 }
