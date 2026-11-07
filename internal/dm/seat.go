@@ -276,9 +276,9 @@ func (d *seat) greeted(r greetResult) {
 			log.Printf("dm: greeter: %v", r.err)
 			d.retry = time.After(retryPause)
 		}
-		d.leaveGreeterVT(g.vt, nil)
+		d.leaveGreeterVT(g, nil)
 	case r.g.login == nil:
-		d.leaveGreeterVT(g.vt, nil)
+		d.leaveGreeterVT(g, nil)
 		if a != nil {
 			d.exec(a)
 		}
@@ -287,12 +287,10 @@ func (d *seat) greeted(r greetResult) {
 		if s == nil {
 			log.Printf("dm: the session of %s ended before the switch to it", r.g.login.existing)
 		}
-		d.leaveGreeterVT(g.vt, s)
+		d.leaveGreeterVT(g, s)
 	default:
 		d.start(r.g.login, g.vt, g.held)
-		return
 	}
-	letGo(g.held, g.vt)
 }
 
 func letGo(held io.Closer, vt int) {
@@ -304,15 +302,16 @@ func letGo(held io.Closer, vt int) {
 	}
 }
 
-func (d *seat) leaveGreeterVT(vt int, to *session) {
+func (d *seat) leaveGreeterVT(g *greeterRun, to *session) {
 	if sessions := d.running(); to == nil && !d.stopping && len(sessions) > 0 {
 		to = sessions[len(sessions)-1]
 	}
 	if to != nil {
 		d.activate(to)
 	}
-	if vt != d.o.VT && !d.onVT(vt) {
-		d.freeVT(vt)
+	letGo(g.held, g.vt)
+	if g.vt != d.o.VT && !d.onVT(g.vt) {
+		d.freeVT(g.vt)
 	}
 }
 
