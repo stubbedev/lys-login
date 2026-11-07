@@ -21,7 +21,7 @@ It exits 2 on a malformed command line, or with no session to offer.
 ## lys-login daemon
 
 ```text
-lys-login daemon [--vt N] [--service NAME] [--greeter-user NAME] [--compositor PATH] [--runtime-dir DIR] [--splash PATH] [-- <greet args...>]
+lys-login daemon [--vt N] [--service NAME] [--greeter-user NAME] [--compositor PATH] [--runtime-dir DIR] [--splash PATH] [--autologin USER [--autologin-session ID]] [-- <greet args...>]
 ```
 
 Run as root by its service. Everything after `--` goes to `lys-login greet`, and a
@@ -35,6 +35,8 @@ session list that would be empty stops it at startup.
 | `--compositor PATH` | `lys-wm` | The greeter's compositor. |
 | `--runtime-dir DIR` | `/run/lys-login` | The directory for the sockets and the kiosk config. |
 | `--splash PATH` | | lys-splash, quit with `--retain-splash` once the greeter's first frame is presented. |
+| `--autologin USER` | | Log USER in once per boot, before the first greeter, through the `lys-login-autologin` [PAM service](/guide/pam#autologin). After USER logs out, the greeter shows. |
+| `--autologin-session ID` | the last session, else the first offered | The session the autologin starts: a session file's name, `-x11` for X11 ones. An ID no session has stops the daemon at startup. |
 
 The packaged unit keeps these arguments in `LYS_LOGIN_DAEMON_ARGS`, for its `ExecStart`
 and its `ExecReload` alike:

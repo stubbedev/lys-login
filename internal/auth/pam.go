@@ -58,6 +58,7 @@ type pamTxn interface {
 	getenvlist() []string
 	end(status int32)
 	strerror(code int32) string
+	authtok() []byte
 }
 
 // pam_setcred flags (security/_pam_types.h).
@@ -65,6 +66,8 @@ const (
 	pamEstablishCred = 0x0002
 	pamDeleteCred    = 0x0004
 )
+
+const pamAuthtok = 6
 
 // PAM authenticates against a PAM service (e.g. system-auth): the
 // in-session backend of the lock screen. The conversation runs on the

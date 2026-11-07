@@ -41,6 +41,19 @@ func fakeSessionWorker() int {
 	if err := ch.recv(&req); err != nil || req.Op != opAuth {
 		return 1
 	}
+	if slices.Contains(os.Args, "--autologin") {
+		if !slices.Contains(os.Args, AutologinService) {
+			_ = ch.send(event{Kind: evFailed, Text: "not the autologin service"})
+			return 0
+		}
+		_ = ch.send(event{Kind: evAuthenticated})
+		if err := ch.recv(&req); err != nil || req.Op != opStart {
+			return 0
+		}
+		_ = ch.send(event{Kind: evStarted, UID: 1000, SessionID: "7"})
+		_ = ch.send(event{Kind: evEnded, Text: "exited"})
+		return 0
+	}
 	_ = ch.send(event{Kind: evPrompt, Prompt: &auth.Prompt{Kind: auth.PromptSecret, Text: "Password:"}})
 	if err := ch.recv(&req); err != nil || req.Op != opAnswer || req.Answer == nil || *req.Answer != "pw" {
 		_ = ch.send(event{Kind: evFailed, Text: "Authentication failure"})

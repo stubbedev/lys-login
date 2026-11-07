@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"syscall"
@@ -194,6 +196,9 @@ func (d *seat) showSomething() {
 		return
 	}
 	if d.waitForOrphans() {
+		return
+	}
+	if d.autologin() {
 		return
 	}
 	d.startGreeter(d.o.VT)
@@ -510,4 +515,67 @@ func (d *seat) resume(sessions []*session) {
 		}
 		d.read(s)
 	}
+}
+
+const (
+	autologinMarker = "autologin.done"
+	autologinWait   = 30 * time.Second
+)
+
+func (d *seat) autologin() bool {
+	a := d.o.Autologin
+	if a == nil || !d.claimAutologin() {
+		return false
+	}
+	w, err := d.o.startSessionWorker(a.User, d.o.VT, true)
+	if err != nil {
+		log.Printf("dm: autologin of %s: %v", a.User, err)
+		return false
+	}
+	if err := awaitAuthenticated(w); err != nil {
+		log.Printf("dm: autologin of %s: %v; the greeter shows instead", a.User, err)
+		w.cancel()
+		return false
+	}
+	if err := d.c.activate(d.o.VT); err != nil {
+		log.Printf("dm: %v", err)
+	}
+	log.Printf("dm: autologin of %s into %q", a.User, a.Session.Cmd)
+	d.start(&pendingLogin{w: w, user: a.User, cmd: a.Session.Cmd, env: a.Session.Env}, d.o.VT, nil)
+	return true
+}
+
+func (d *seat) claimAutologin() bool {
+	f, err := os.OpenFile(filepath.Join(d.o.RuntimeDir, autologinMarker), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return false
+	}
+	if err != nil {
+		log.Printf("dm: autologin: %v; the greeter shows instead", err)
+		return false
+	}
+	if err := f.Close(); err != nil {
+		log.Printf("dm: autologin: %v", err)
+	}
+	return true
+}
+
+func awaitAuthenticated(w *worker) error {
+	if err := w.f.SetReadDeadline(time.Now().Add(autologinWait)); err != nil {
+		return fmt.Errorf("bound the authentication: %w", err)
+	}
+	var ev event
+	err := w.ch.recv(&ev)
+	if clearErr := w.f.SetReadDeadline(time.Time{}); clearErr != nil && err == nil {
+		err = fmt.Errorf("unbind the authentication: %w", clearErr)
+	}
+	switch {
+	case err != nil:
+		return fmt.Errorf("the worker: %w", err)
+	case ev.Kind == evFailed:
+		return fmt.Errorf("PAM refused: %s", ev.Text)
+	case ev.Kind != evAuthenticated:
+		return fmt.Errorf("the worker answered %q, not authenticated", ev.Kind)
+	}
+	return nil
 }

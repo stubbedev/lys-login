@@ -67,6 +67,11 @@
           inherit self;
           inherit (inputs) lys-wm;
         };
+        # Autologin and the disk passphrase as the keyring's; see nix/tests/autologin-vm.nix.
+        autologin-vm = pkgs.callPackage ./tests/autologin-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm lys-secrets;
+        };
         # The lock screen's status row and fingerprint; see nix/tests/lock-vm.nix.
         lock-vm = pkgs.callPackage ./tests/lock-vm.nix {
           inherit self;

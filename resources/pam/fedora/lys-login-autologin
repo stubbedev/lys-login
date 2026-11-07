@@ -1,0 +1,7 @@
+#%PAM-1.0
+auth       requisite    pam_nologin.so
+auth       [success=ok default=ignore module_unknown=ignore] pam_systemd_loadkey.so
+auth       required     pam_permit.so
+account    include      lys-login
+password   include      lys-login
+session    include      lys-login

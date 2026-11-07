@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -55,6 +56,7 @@ type libpam struct {
 	getenvlist   func(pamh uintptr) unsafe.Pointer
 	end          func(pamh uintptr, status int32) int32
 	strerror     func(pamh uintptr, code int32) string
+	getItem      func(pamh uintptr, itemType int32, item *unsafe.Pointer) int32
 	calloc       func(n, size uintptr) unsafe.Pointer
 	free         func(p unsafe.Pointer)
 	strdup       func(s string) unsafe.Pointer
@@ -98,6 +100,7 @@ func bindLibpam() (*libpam, error) {
 	purego.RegisterLibFunc(&l.getenvlist, pam, "pam_getenvlist")
 	purego.RegisterLibFunc(&l.end, pam, "pam_end")
 	purego.RegisterLibFunc(&l.strerror, pam, "pam_strerror")
+	purego.RegisterLibFunc(&l.getItem, pam, "pam_get_item")
 	// pam_start_confdir (Linux-PAM 1.4+) is optional: only the tests
 	// point a transaction at a private service directory.
 	if _, err := purego.Dlsym(pam, "pam_start_confdir"); err == nil {
@@ -249,6 +252,18 @@ func (t *systemTxn) getenvlist() []string {
 }
 
 func (t *systemTxn) strerror(code int32) string { return t.l.strerror(t.handle, code) }
+
+func (t *systemTxn) authtok() []byte {
+	var item unsafe.Pointer
+	if t.l.getItem(t.handle, pamAuthtok, &item) != pamSuccess || item == nil {
+		return nil
+	}
+	n := 0
+	for *(*byte)(unsafe.Add(item, n)) != 0 {
+		n++
+	}
+	return bytes.Clone(unsafe.Slice((*byte)(item), n)) //nolint:gosec // audited: the NUL-terminated char* PAM owns, n bytes long
+}
 
 // end closes the transaction and releases the conversation.
 func (t *systemTxn) end(status int32) {

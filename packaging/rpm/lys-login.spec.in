@@ -47,7 +47,7 @@ install -D -m 0644 lys-login.sysusers %{buildroot}%{_sysusersdir}/lys-login.conf
 install -D -m 0644 lys-login.tmpfiles %{buildroot}%{_tmpfilesdir}/lys-login.conf
 
 install -d %{buildroot}%{_sysconfdir}/pam.d
-install -m 0644 pam/fedora/lys-login pam/fedora/lys-shell %{buildroot}%{_sysconfdir}/pam.d/
+install -m 0644 pam/fedora/lys-login pam/fedora/lys-login-autologin pam/fedora/lys-shell %{buildroot}%{_sysconfdir}/pam.d/
 
 %post
 %systemd_post lys-login.service
@@ -81,6 +81,7 @@ fi
 %{_sysusersdir}/lys-login.conf
 %{_tmpfilesdir}/lys-login.conf
 %config(noreplace) %{_sysconfdir}/pam.d/lys-login
+%config(noreplace) %{_sysconfdir}/pam.d/lys-login-autologin
 %config(noreplace) %{_sysconfdir}/pam.d/lys-shell
 
 %changelog

@@ -85,3 +85,23 @@ func TestPickingAUserWithASessionSwitchesWithoutAuthenticating(t *testing.T) {
 		t.Errorf("login %+v, want a switch to alice's session and no worker", l)
 	}
 }
+
+func TestAutologinRunsOncePerBootWithoutAPassword(t *testing.T) {
+	var calls consoleCalls
+	d := recordingSeat(&calls)
+	d.o.RuntimeDir = t.TempDir()
+	d.o.Autologin = &Autologin{User: "alice", Session: auth.Session{Cmd: []string{"niri"}, Env: []string{auth.SessionTypeEnv + "=wayland"}}}
+	if !d.autologin() {
+		t.Fatal("the first autologin of the boot did not start")
+	}
+	running := d.running()
+	if len(running) != 1 || running[0].user != "alice" || !slices.Equal(running[0].cmd, []string{"niri"}) {
+		t.Fatalf("running %v, want alice's niri", running)
+	}
+	for len(d.running()) > 0 {
+		d.handle(<-d.events)
+	}
+	if d.autologin() {
+		t.Error("a second autologin in the same boot started; after a logout the greeter shows")
+	}
+}

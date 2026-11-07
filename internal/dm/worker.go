@@ -47,6 +47,7 @@ type WorkerOptions struct {
 	Self string
 	// RuntimeDir holds the lock a session worker keeps while its session runs.
 	RuntimeDir string
+	Autologin  bool
 }
 
 // greeterSessionType is the type of the session the greeter's compositor
@@ -320,6 +321,22 @@ func lookupIn(env []string) xdg.Env {
 	}
 }
 
+func (o WorkerOptions) authenticate(user string, ask auth.Ask) (*auth.Login, error) {
+	if !o.Autologin {
+		return auth.Authenticate(o.Service, user, ask)
+	}
+	login, err := auth.Autologin(o.Service, user)
+	if err != nil {
+		return nil, err
+	}
+	if login.HasSecret() {
+		log.Printf("dm: autologin of %s: the disk passphrase from the kernel keyring goes to the login keyring", user)
+	} else {
+		log.Printf("dm: autologin of %s: no disk passphrase in the kernel keyring, so the login keyring stays locked until the lock screen opens it", user)
+	}
+	return login, nil
+}
+
 // RunSession is one login's worker, serving the daemon over rw: it
 // authenticates the user the daemon names, relaying PAM's prompts, and
 // once told to start, opens the session, runs the command as the user
@@ -344,7 +361,7 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 		}
 		return *ans.Answer, true
 	}
-	login, err := auth.Authenticate(o.Service, req.User, ask)
+	login, err := o.authenticate(req.User, ask)
 	if err != nil {
 		log.Printf("dm: login of %s: %v", req.User, err)
 		return ch.send(event{Kind: evFailed, Text: err.Error()})

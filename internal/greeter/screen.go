@@ -378,10 +378,7 @@ func (s *screen) selectedSession() Session {
 // registered as its kind, with SessionEnv after that so --env can
 // override the type of a custom session.
 func (s *screen) startedSession() auth.Session {
-	picked := s.selectedSession()
-	env := make([]string, 0, 1+len(s.init.SessionEnv))
-	env = append(env, auth.SessionTypeEnv+"="+picked.Kind.sessionType())
-	return auth.Session{Cmd: picked.Exec, Env: append(env, s.init.SessionEnv...)}
+	return s.selectedSession().Started(s.init.SessionEnv)
 }
 
 // submit is Enter in the password entry: answer a prompt on screen, or

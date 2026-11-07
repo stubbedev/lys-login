@@ -42,6 +42,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 
 	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-shell/config"
@@ -284,6 +285,8 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 	compositor := fs.String("compositor", "lys-wm", "the greeter's compositor")
 	runtimeDir := fs.String("runtime-dir", dm.DefaultRuntimeDir, "directory for the greeter's socket and the display manager's")
 	splash := fs.String("splash", "", "lys-splash, quit with --retain-splash once the greeter's first frame is presented")
+	autologinUser := fs.String("autologin", "", "log this user in once per boot, before the first greeter")
+	autologinSession := fs.String("autologin-session", "", "the session id the autologin starts, else the last session or the first offered")
 	if err := fs.Parse(args); err != nil {
 		return dm.Options{}, 2
 	}
@@ -292,8 +295,14 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter's arguments:", err)
 		return dm.Options{}, 2
 	}
-	if _, err := greet.Sessions(); err != nil {
+	sessions, err := greet.Sessions()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter would offer nothing to log into:", err)
+		return dm.Options{}, 2
+	}
+	autologin, err := autologinTarget(*autologinUser, *autologinSession, sessions, greeter.LoadLast(greet.StatePath), greet.Env)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lys-login daemon:", err)
 		return dm.Options{}, 2
 	}
 	if wo.Self, err = self(); err != nil {
@@ -305,8 +314,28 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
 		GreeterConfig: greet.ConfigPath, GreeterState: greet.StatePath, CursorDir: cursorrecord.Dir,
 		Keyboard: keyboard.System,
-		Splash:   *splash, Args: args,
+		Splash:   *splash, Args: args, Autologin: autologin,
 	}, 0
+}
+
+func autologinTarget(user, session string, sessions []greeter.Session, last string, env []string) (*dm.Autologin, error) {
+	if user == "" {
+		if session != "" {
+			return nil, fmt.Errorf("--autologin-session %q without --autologin names nobody to log in", session)
+		}
+		return nil, nil
+	}
+	want := session
+	if want == "" {
+		want = last
+	}
+	picked := sessions[0]
+	if i := slices.IndexFunc(sessions, func(s greeter.Session) bool { return s.ID == want }); i >= 0 {
+		picked = sessions[i]
+	} else if session != "" {
+		return nil, fmt.Errorf("--autologin-session %q is none of the sessions offered", session)
+	}
+	return &dm.Autologin{User: user, Session: picked.Started(env)}, nil
 }
 
 func daemon(args []string) int {
@@ -384,6 +413,7 @@ func worker(args []string) int {
 	var env multiFlag
 	fs.Var(&env, "env", "KEY=value for the greeter's compositor (repeatable)")
 	fs.StringVar(&wo.RuntimeDir, "runtime-dir", dm.DefaultRuntimeDir, "directory for the lock a session holds while it runs")
+	fs.BoolVar(&wo.Autologin, "autologin", false, "log the user in with the autologin PAM service, which asks nothing")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}

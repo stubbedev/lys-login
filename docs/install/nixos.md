@@ -100,6 +100,8 @@ All under `programs.lys-login`.
 | --- | --- | --- |
 | `enable` | `false` | `lys-login` on the PATH. |
 | `package` | this flake's | The lys-login package. |
+| `autologin.user` | `null` | An account the display manager logs in once per boot, before the first greeter; see [Autologin](/guide/pam#autologin). |
+| `autologin.session` | `null` | The session id it starts; null takes the last session, else the first offered. |
 | `lock.enable` | `false` | Declares the lock screen's PAM service. |
 | `lock.pamService` | `"lys-shell"` | Its name. |
 | `greeter.enable` | `false` | The greeter, run by `greeter.displayManager`. |

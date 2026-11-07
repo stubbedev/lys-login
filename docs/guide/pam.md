@@ -33,6 +33,28 @@ X11 sessions, `wayland` for a custom session unless `--env` says otherwise),
 
 Elsewhere, start from one of these and adjust the includes to your distribution.
 
+## Autologin
+
+`--autologin` logs its user in through a second service, `lys-login-autologin`, which
+asks nothing: `pam_permit` authenticates, and the account and session stacks are the
+display manager's. Before it, `pam_systemd_loadkey` (systemd 255 and later) takes the
+passphrase systemd-cryptsetup left in the kernel keyring at boot, if any, and sets it as
+the login's password. The worker hands that to the [keyring](#the-keyring) as it hands
+a typed one, so where the disk's passphrase is also the login keyring's password, the
+one prompt at boot unlocks the disk, logs in and opens the keyring, as FileVault does.
+
+Without a key there (no LUKS, a TPM unlock, initramfs-tools' cryptroot) the autologin
+still runs, the keyring stays locked until the lock screen opens it, and the worker
+logs which it was. A passphrase that is not the keyring's logs one warning and leaves
+it locked the same way. The daemon's unit runs with `KeyringMode=inherit`, so it sees
+the key systemd-cryptsetup left in root's keyring.
+
+The packages ship it
+([Debian](https://github.com/stubbedev/lys-login/blob/main/resources/pam/debian/lys-login-autologin),
+[Fedora](https://github.com/stubbedev/lys-login/blob/main/resources/pam/fedora/lys-login-autologin)),
+and the NixOS module declares it. `login.lock.lock-on-start` still locks the session as
+it starts, for those who want a lock on arrival.
+
 ## The lock screen's service
 
 The lock screen authenticates against the service `login.lock.pam-service` names

@@ -24,6 +24,6 @@ override_dh_auto_install:
 	install -D -m 0644 lys-login.tmpfiles debian/lys-login/usr/lib/tmpfiles.d/lys-login.conf
 
 	install -d debian/lys-login/etc/pam.d
-	install -m 0644 pam/debian/lys-login pam/debian/lys-shell debian/lys-login/etc/pam.d/
+	install -m 0644 pam/debian/lys-login pam/debian/lys-login-autologin pam/debian/lys-shell debian/lys-login/etc/pam.d/
 
 	install -D -m 0644 eff_large_wordlist.NOTICE debian/lys-login/usr/share/doc/lys-login/eff_large_wordlist.NOTICE

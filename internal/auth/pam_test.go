@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -28,6 +29,8 @@ type fakePAM struct {
 	endStatus     int32
 	openRC        int32
 	env           []string
+	authtok       []byte
+	permit        bool
 }
 
 func (f *fakePAM) start(service, user string, converse func([]pamMessage) ([]pamReply, int32)) (pamTxn, error) {
@@ -50,7 +53,7 @@ const (
 
 func (t *fakeTxn) authenticate() int32 {
 	t.f.calls = append(t.f.calls, "authenticate")
-	ok := false
+	ok := t.f.permit
 	for _, batch := range t.f.batches {
 		replies, code := t.converse(batch)
 		t.f.replies = append(t.f.replies, replies)
@@ -105,6 +108,8 @@ func (t *fakeTxn) end(status int32) {
 	t.f.calls = append(t.f.calls, "end")
 	t.f.endStatus = status
 }
+
+func (t *fakeTxn) authtok() []byte { return bytes.Clone(t.f.authtok) }
 
 func (t *fakeTxn) strerror(code int32) string {
 	switch code {

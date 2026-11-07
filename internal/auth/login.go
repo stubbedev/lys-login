@@ -29,6 +29,21 @@ func Authenticate(service, user string, ask Ask) (*Login, error) {
 	return authenticate(systemPAM{}, service, user, &pamConversation{ask: ask})
 }
 
+func Autologin(service, user string) (*Login, error) {
+	return autologin(systemPAM{}, service, user)
+}
+
+func autologin(lib pamLib, service, user string) (*Login, error) {
+	l, err := authenticate(lib, service, user, &pamConversation{ask: refuseAutologinPrompt})
+	if err != nil {
+		return nil, err
+	}
+	l.secret = l.txn.authtok()
+	return l, nil
+}
+
+func refuseAutologinPrompt(Prompt) (string, bool) { return "", false }
+
 // Greeter starts service's transaction for the greeter's user, who
 // signs nothing in: only its session opens.
 func Greeter(service, user string) (*Login, error) {
@@ -69,6 +84,8 @@ func (l *Login) TakeSecret() []byte {
 	l.secret = nil
 	return secret
 }
+
+func (l *Login) HasSecret() bool { return l.secret != nil }
 
 // User is the account the login is for.
 func (l *Login) User() string { return l.user }

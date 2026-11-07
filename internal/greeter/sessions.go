@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/stubbedev/lys-login/internal/auth"
 )
 
 // SessionKind is which discovery directory advertised a session.
@@ -171,4 +173,10 @@ func (o Options) Sessions() ([]Session, error) {
 			ErrNoSessions, o.SessionDirs, o.XSessionDirs)
 	}
 	return sessions, nil
+}
+
+func (s Session) Started(extra []string) auth.Session {
+	env := make([]string, 0, 1+len(extra))
+	env = append(env, auth.SessionTypeEnv+"="+s.Kind.sessionType())
+	return auth.Session{Cmd: s.Exec, Env: append(env, extra...)}
 }

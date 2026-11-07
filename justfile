@@ -98,6 +98,17 @@ lock-vm:
 accessibility-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.accessibility-vm
 
+# Fast user switching in a NixOS VM (needs KVM): a greeter on a free VT for
+# a second user, back to the first without a password, an upgrade with both
+# sessions, a logout back to the other session, and a stop ending both.
+switch-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.switch-vm
+
+# Autologin in a NixOS VM (needs KVM): no greeter at boot and one after the
+# logout, then a LUKS root whose passphrase opens the login keyring, or does not.
+autologin-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.autologin-vm
+
 # An X11 session through the display manager in a NixOS VM (needs KVM): logind
 # holds it as Type=x11, and the greeter before it stays wayland.
 x11-session-vm:

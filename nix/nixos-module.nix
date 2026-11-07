@@ -117,6 +117,8 @@ self: {
       "--splash"
       (lib.getExe' cfg.greeter.splashPackage "lys-splash")
     ]
+    ++ lib.optionals (cfg.autologin.user != null) ["--autologin" cfg.autologin.user]
+    ++ lib.optionals (cfg.autologin.session != null) ["--autologin-session" cfg.autologin.session]
     ++ [
       "--"
       "--config"
@@ -173,6 +175,25 @@ in {
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
       defaultText = lib.literalExpression "lys-login.packages.\${system}.default";
       description = "The lys-login package: the greeter, the lock screen and the display manager.";
+    };
+
+    autologin = {
+      user = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          Account the display manager logs in once per boot, before the first
+          greeter, through the `lys-login-autologin` PAM service, which asks
+          nothing. With full-disk encryption the passphrase typed at boot opens
+          the login keyring when it is the keyring's password
+          (`pam_systemd_loadkey`). After that user logs out the greeter shows.
+        '';
+      };
+      session = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Session id the autologin starts (a session file's name, `-x11` for X11 ones); null takes the last session, else the first offered.";
+      };
     };
 
     lock = {
@@ -417,6 +438,14 @@ in {
       # authentication) and each login. startSession adds pam_systemd, which
       # registers both with logind on the seat and VT the daemon hands it.
       security.pam.services.lys-login.startSession = true;
+      security.pam.services.lys-login-autologin.text = ''
+        auth     requisite pam_nologin.so
+        auth     [success=ok default=ignore] ${config.systemd.package}/lib/security/pam_systemd_loadkey.so
+        auth     required  pam_permit.so
+        account  include   lys-login
+        password include   lys-login
+        session  include   lys-login
+      '';
       systemd.tmpfiles.rules = [
         "d ${greeterStateDir} 0700 lys-greeter lys-greeter -"
       ];
@@ -447,7 +476,7 @@ in {
           Restart = "always";
           RestartSec = 1;
           Type = "idle";
-          KeyringMode = "shared";
+          KeyringMode = "inherit";
           IgnoreSIGPIPE = false;
           SendSIGHUP = true;
           TimeoutStopSec = "30s";
@@ -460,6 +489,10 @@ in {
         {
           assertion = cfg.greeter.session.dirs != [] || cfg.greeter.session.x11Dirs != [] || cfg.greeter.session.command != "";
           message = "programs.lys-login.greeter offers no session to log into: session.dirs and session.x11Dirs are empty and session.command is unset. Keep the default dirs, list a directory of session files, or set session.command.";
+        }
+        {
+          assertion = cfg.autologin.user == null || cfg.greeter.displayManager == "lys-login";
+          message = "programs.lys-login.autologin needs greeter.displayManager = \"lys-login\": under greetd, set greetd's initial_session instead.";
         }
       ];
       # The greeter runs as a system user with no usable $HOME, so its theme config

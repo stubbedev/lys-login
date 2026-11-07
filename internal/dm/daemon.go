@@ -48,9 +48,17 @@ type Options struct {
 	// CursorDir holds the cursor records the sessions hand over.
 	CursorDir string
 	Keyboard  keyboard.Sources
+	Autologin *Autologin
 	Splash    string
 	Args      []string
 }
+
+type Autologin struct {
+	User    string
+	Session auth.Session
+}
+
+const AutologinService = "lys-login-autologin"
 
 // retryPause spaces greeters that fail to come up.
 const retryPause = 2 * time.Second
@@ -506,7 +514,7 @@ func (o Options) serveGreeter(conn net.Conn, r greeterRequests) (*pendingLogin, 
 				}
 				continue
 			}
-			if w, err = o.startSessionWorker(req.Username, r.vt); err != nil {
+			if w, err = o.startSessionWorker(req.Username, r.vt, false); err != nil {
 				w, state = nil, endedLogin
 				if err := auth.WriteGreetdError(conn, false, err.Error()); err != nil {
 					return nil, err
@@ -634,7 +642,7 @@ type worker struct {
 
 // startSessionWorker starts a session worker and asks it to
 // authenticate user.
-func (o Options) startSessionWorker(user string, vt int) (*worker, error) {
+func (o Options) startSessionWorker(user string, vt int, autologin bool) (*worker, error) {
 	if user == "" {
 		return nil, errors.New("no user name")
 	}
@@ -649,7 +657,15 @@ func (o Options) startSessionWorker(user string, vt int) (*worker, error) {
 	}
 	mine, theirs := os.NewFile(uintptr(pair[0]), "dm"), os.NewFile(uintptr(pair[1]), "worker")
 	defer func() { _ = theirs.Close() }()
-	cmd := exec.Command(o.Self, "worker", "session", "--service", o.Service, "--vt", strconv.Itoa(vt), "--runtime-dir", o.RuntimeDir) //nolint:gosec // lys-login itself
+	service := o.Service
+	if autologin {
+		service = AutologinService
+	}
+	args := []string{"worker", "session", "--service", service, "--vt", strconv.Itoa(vt), "--runtime-dir", o.RuntimeDir}
+	if autologin {
+		args = append(args, "--autologin")
+	}
+	cmd := exec.Command(o.Self, args...) //nolint:gosec // lys-login itself
 	cmd.ExtraFiles = []*os.File{theirs}
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Start(); err != nil {
