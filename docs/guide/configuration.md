@@ -116,6 +116,21 @@ greeter, with `XCURSOR_PATH=/run/current-system/sw/share/icons`, where a theme
 from `environment.systemPackages` lands. On other greetd setups pass
 `XCURSOR_THEME` and `XCURSOR_PATH` in the greetd command.
 
+## The keyboard layout
+
+Under the daemon, the greeter types with the system's keyboard layout. Each time
+the greeter starts, the daemon asks systemd-localed (`localectl status`, the
+`X11Layout`, `X11Model`, `X11Variant` and `X11Options` of
+`org.freedesktop.locale1`), waiting 2 seconds at most. Without localed it reads
+`/etc/X11/xorg.conf.d/00-keyboard.conf`, then the `XKBLAYOUT`, `XKBMODEL`,
+`XKBVARIANT` and `XKBOPTIONS` of `/etc/vconsole.conf`. The layout goes into the
+greeter's lys-wm kiosk config as `input.keyboard`. Set it with
+`localectl set-x11-keymap de`, or on NixOS with `services.xserver.xkb.layout`,
+which localed reads.
+
+A layout lys-wm could not compile is logged and left out, so the greeter still
+comes up, with lys-wm's default US layout.
+
 ## What it remembers
 
 The last session goes in the `--state` file and the last username in a

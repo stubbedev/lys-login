@@ -48,6 +48,7 @@ import (
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
 	"github.com/stubbedev/lys-login/internal/greeterconfig"
+	"github.com/stubbedev/lys-login/internal/keyboard"
 	"github.com/stubbedev/lys-login/internal/lock"
 )
 
@@ -283,7 +284,8 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 		WorkerOptions: *wo, GreeterUser: *greeterUser,
 		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
 		GreeterConfig: greet.ConfigPath, GreeterState: greet.StatePath, CursorDir: cursorrecord.Dir,
-		Splash: *splash, Args: args,
+		Keyboard: keyboard.System,
+		Splash:   *splash, Args: args,
 	}, 0
 }
 

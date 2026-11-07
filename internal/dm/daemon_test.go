@@ -8,15 +8,19 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/stubbedev/lys-lib/xkb"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/greeter"
+	"github.com/stubbedev/lys-login/internal/keyboard"
+	"github.com/stubbedev/lys-login/internal/keyboard/keyboardtest"
 )
 
 // TestMain lets the test binary be a session worker whose PAM is a
@@ -195,7 +199,7 @@ func TestATruncatedRequestIsAnError(t *testing.T) {
 }
 
 func TestKioskConfigQuotesTheGreeter(t *testing.T) {
-	got := kioskConfig([]string{"/nix/store/x/bin/lys-login", "greet", "--sessions", "/run/my sessions", `--env`, `A="b"`}, greeter.Cursor{Size: 24})
+	got := kioskConfig(kiosk{greet: []string{"/nix/store/x/bin/lys-login", "greet", "--sessions", "/run/my sessions", `--env`, `A="b"`}, cursor: greeter.Cursor{Size: 24}})
 	want := "binds: []\n" + kioskLook + "env:\n  XCURSOR_SIZE: \"24\"\nautostart:\n  - \"/nix/store/x/bin/lys-login greet --sessions '/run/my sessions' --env 'A=\\\"b\\\"'\"\n"
 	if got != want {
 		t.Errorf("kiosk config =\n%s\nwant\n%s", got, want)
@@ -208,7 +212,7 @@ func TestKioskConfigDrawsNoBorder(t *testing.T) {
 			Width *int `yaml:"width"`
 		} `yaml:"borders"`
 	}
-	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Size: 24})), &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}})), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Borders.Width == nil || *cfg.Borders.Width != 0 {
@@ -234,7 +238,7 @@ func TestKioskConfigTurnsOffTheDefaultLook(t *testing.T) {
 			Enabled *bool `yaml:"enabled"`
 		} `yaml:"animations"`
 	}
-	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Size: 24})), &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}})), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if cfg.Gaps.Inner == nil || *cfg.Gaps.Inner != 0 || cfg.Gaps.Outer == nil || *cfg.Gaps.Outer != 0 {
@@ -257,14 +261,14 @@ func TestKioskConfigCarriesTheCursor(t *testing.T) {
 	var cfg struct {
 		Env map[string]string `yaml:"env"`
 	}
-	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Theme: `Bibata "Ice"`, Size: 48})), &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Theme: `Bibata "Ice"`, Size: 48}})), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if want := map[string]string{"XCURSOR_THEME": `Bibata "Ice"`, "XCURSOR_SIZE": "48"}; !reflect.DeepEqual(cfg.Env, want) {
 		t.Errorf("env = %v, want %v", cfg.Env, want)
 	}
 	cfg.Env = nil
-	if err := yaml.Unmarshal([]byte(kioskConfig([]string{"lys-login", "greet"}, greeter.Cursor{Size: 24})), &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}})), &cfg); err != nil {
 		t.Fatal(err)
 	}
 	if want := map[string]string{"XCURSOR_SIZE": "24"}; !reflect.DeepEqual(cfg.Env, want) {
@@ -386,5 +390,78 @@ func TestTheGreeterHandsOverToTheDisplayManager(t *testing.T) {
 	want := []string{"/bin/lys-login", "greet", "--hand-over", "--state", "/var/lib/s", "--", "fallback-session"}
 	if got := o.greeterCommand(); !slices.Equal(got, want) {
 		t.Errorf("greeter command %q, want %q", got, want)
+	}
+}
+
+type kioskKeyboard struct {
+	Input struct {
+		Keyboard map[string]string `yaml:"keyboard"`
+	} `yaml:"input"`
+	Env map[string]string `yaml:"env"`
+}
+
+func greeterKiosk(t *testing.T, o Options) kioskKeyboard {
+	t.Helper()
+	var cfg kioskKeyboard
+	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}, keyboard: o.greeterKeyboard()})), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func keyboardOptions(t *testing.T, xorg string) Options {
+	t.Helper()
+	dir := t.TempDir()
+	o := Options{Keyboard: keyboard.Sources{Timeout: keyboard.BusTimeout, Xorg: filepath.Join(dir, "00-keyboard.conf"), Vconsole: filepath.Join(dir, "vconsole.conf")}}
+	if xorg != "" {
+		if err := os.WriteFile(o.Keyboard.Xorg, []byte(xorg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return o
+}
+
+func TestTheKioskTypesWithLocaledsLayout(t *testing.T) {
+	keyboardtest.XKBData(t)
+	keyboardtest.ServeLocale1(t, xkb.Names{Model: "pc105", Layout: "de,us", Variant: "nodeadkeys,", Options: "grp:alt_shift_toggle"})
+	cfg := greeterKiosk(t, keyboardOptions(t, `Option "XkbLayout" "fr"`))
+	want := map[string]string{"model": "pc105", "layout": "de,us", "variant": "nodeadkeys,", "options": "grp:alt_shift_toggle"}
+	if !reflect.DeepEqual(cfg.Input.Keyboard, want) {
+		t.Errorf("input.keyboard = %v, want %v", cfg.Input.Keyboard, want)
+	}
+	for name := range cfg.Env {
+		if strings.HasPrefix(name, "XKB_") {
+			t.Errorf("the kiosk sets %s: lys-wm takes the layout from input.keyboard", name)
+		}
+	}
+}
+
+func TestWithoutLocaledTheKioskTypesWithTheXorgFilesLayout(t *testing.T) {
+	keyboardtest.XKBData(t)
+	keyboardtest.NoSystemBus(t)
+	cfg := greeterKiosk(t, keyboardOptions(t, "Section \"InputClass\"\n  Option \"XkbLayout\" \"fr\"\nEndSection\n"))
+	if want := map[string]string{"layout": "fr"}; !reflect.DeepEqual(cfg.Input.Keyboard, want) {
+		t.Errorf("input.keyboard = %v, want %v", cfg.Input.Keyboard, want)
+	}
+}
+
+func TestALayoutLysWMCannotCompileLeavesTheKioskOnItsDefault(t *testing.T) {
+	keyboardtest.XKBData(t)
+	keyboardtest.ServeLocale1(t, xkb.Names{Layout: "no-such-layout"})
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	cfg := greeterKiosk(t, keyboardOptions(t, ""))
+	if cfg.Input.Keyboard != nil {
+		t.Errorf("input.keyboard = %v, want none, so lys-wm still starts", cfg.Input.Keyboard)
+	}
+	if !strings.Contains(logged.String(), "no-such-layout") {
+		t.Errorf("the refused layout was not logged: %q", logged.String())
+	}
+}
+
+func TestNoSystemLayoutLeavesInputOut(t *testing.T) {
+	if got := kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}}); strings.Contains(got, "input:") {
+		t.Errorf("a kiosk without a system layout names one:\n%s", got)
 	}
 }
