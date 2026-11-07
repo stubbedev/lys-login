@@ -81,7 +81,7 @@ in
     name = "lys-login-upgrade-vm";
     globalTimeout = 540;
 
-    nodes.machine = {config, ...}: {
+    nodes.machine = {...}: {
       imports = [
         self.nixosModules.default
         lys-wm.nixosModules.default
@@ -96,8 +96,6 @@ in
         lock.enable = true;
         greeter = {
           enable = true;
-          displayManager = "lys-login";
-          compositorPackage = config.programs.lys-wm.package;
           session = {
             dirs = [];
             x11Dirs = [];

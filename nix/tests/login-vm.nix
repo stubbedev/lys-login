@@ -1,6 +1,8 @@
-# lys-login as the display manager (#109): a NixOS VM boots into the
-# greeter, shown in a lys-wm kiosk by `lys-login daemon` with neither
-# greetd nor cage. The script logs a user in with a wrong and then the
+# lys-login as the display manager (#109), from the module's defaults
+# (#7): with `greeter.enable` and no `displayManager` or
+# `compositorPackage`, a NixOS VM boots to graphical.target, whose
+# display-manager.service is `lys-login daemon`, into the greeter shown in
+# the flake's own lys-wm with neither greetd nor cage. The script logs a user in with a wrong and then the
 # right password, checks the session logind registered (the user, the
 # wayland type, the user class, the seat and the VT), that the login
 # unlocked lys-secrets' login collection with the password, and that the
@@ -22,6 +24,7 @@
   user = "alice";
   password = "lys-login-vm";
   greeterVm = import ./greeter-vm.nix {inherit pkgs;};
+  defaultCompositor = lys-wm.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
   # The cursor the session records for the next greeter.
   cursorTheme = "lys-vm-cursor";
@@ -57,7 +60,7 @@ in
   pkgs.testers.nixosTest {
     name = "lys-login-vm";
 
-    nodes.machine = {config, ...}: {
+    nodes.machine = {...}: {
       imports = [
         self.nixosModules.default
         lys-wm.nixosModules.default
@@ -71,8 +74,6 @@ in
       programs.lys-login = {
         greeter = {
           enable = true;
-          displayManager = "lys-login";
-          compositorPackage = config.programs.lys-wm.package;
           session = {
             dirs = [];
             x11Dirs = [];
@@ -144,6 +145,17 @@ in
           if machine.execute(f"pgrep -x {absent}")[0] == 0:
               raise Exception(f"{absent} runs")
       machine.wait_until_succeeds("loginctl list-sessions --no-legend | grep -q lys-greeter", timeout=30)
+      machine.wait_for_unit("graphical.target")
+      for cmd, want in (
+          ("systemctl show -p Id --value default.target", "graphical.target"),
+          ("systemctl show -p Id --value display-manager.service", "lys-login.service"),
+      ):
+          got = machine.succeed(cmd).strip()
+          if got != want:
+              raise Exception(f"{cmd}: {got}, want {want}")
+      kiosk = machine.succeed("for p in $(pgrep -u lys-greeter); do readlink /proc/$p/exe; done").split()
+      if not any(exe.startswith("${defaultCompositor}/") for exe in kiosk):
+          raise Exception(f"the greeter's kiosk is not the flake's lys-wm ${defaultCompositor}: {kiosk}")
       await_ready(machine, "username", 1)
       await_background({(0, 0, 0)}, "first greeter")
       machine.screenshot("01-greeter")

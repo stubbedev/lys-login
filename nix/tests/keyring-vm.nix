@@ -64,7 +64,7 @@
       print("b true" if locked else "b false")
     '';
 
-  node = keyring: {config, ...}: {
+  node = keyring: {...}: {
     imports = [
       self.nixosModules.default
       lys-wm.nixosModules.default
@@ -74,8 +74,6 @@
     services.gnome.gnome-keyring.enable = keyring;
     programs.lys-login.greeter = {
       enable = true;
-      displayManager = "lys-login";
-      compositorPackage = config.programs.lys-wm.package;
       session = {
         dirs = [];
         x11Dirs = [];
