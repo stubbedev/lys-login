@@ -72,6 +72,11 @@
           inherit self;
           inherit (inputs) lys-wm lys-secrets;
         };
+        # A changed password re-keys the login collection; see nix/tests/rekey-vm.nix.
+        rekey-vm = pkgs.callPackage ./tests/rekey-vm.nix {
+          inherit self;
+          inherit (inputs) lys-wm lys-secrets;
+        };
         # The lock screen's status row and fingerprint; see nix/tests/lock-vm.nix.
         lock-vm = pkgs.callPackage ./tests/lock-vm.nix {
           inherit self;

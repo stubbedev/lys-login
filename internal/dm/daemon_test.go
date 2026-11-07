@@ -381,7 +381,7 @@ func TestUnlockKeyringAsRefusedCredentials(t *testing.T) {
 	}
 	other := account{name: "other", uid: uint32(os.Getuid()) + 1, gid: uint32(os.Getgid()) + 1}
 	password := []byte("pw")
-	err := <-unlockKeyringAs(other, []string{"XDG_RUNTIME_DIR=" + t.TempDir()}, password)
+	err := <-unlockKeyringAs(other, []string{"XDG_RUNTIME_DIR=" + t.TempDir()}, password, nil)
 	if err == nil || !strings.Contains(err.Error(), "other") {
 		t.Errorf("unlock as another user = %v, want the credentials refused", err)
 	}

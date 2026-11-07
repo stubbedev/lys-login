@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"runtime"
-	"slices"
 	"sync"
 )
 
@@ -51,6 +50,7 @@ type pamLib interface {
 type pamTxn interface {
 	authenticate() int32
 	acctMgmt() int32
+	chauthtok(flags int32) int32
 	setcred(flags int32) int32
 	openSession() int32
 	closeSession() int32
@@ -67,7 +67,11 @@ const (
 	pamDeleteCred    = 0x0004
 )
 
-const pamAuthtok = 6
+const (
+	pamAuthtok              = 6
+	pamNewAuthtokReqd       = 12
+	pamChangeExpiredAuthtok = 0x0020
+)
 
 // PAM authenticates against a PAM service (e.g. system-auth): the
 // in-session backend of the lock screen. The conversation runs on the
@@ -86,24 +90,27 @@ type PAM struct {
 // not keep the screen locked, and whoever ends the process waits for it, or the
 // keyring would never hear of the password.
 type Verified struct {
-	hooks []func(password []byte)
-	wg    sync.WaitGroup
+	hooks   []func(password []byte)
+	keyring func(password, previous []byte)
+	wg      sync.WaitGroup
 }
 
 // NewVerified is what follows a verified password: each of hooks in turn, then
 // unlocking the session keyring. Each borrows the password until it returns.
 func NewVerified(hooks ...func(password []byte)) *Verified {
-	return &Verified{hooks: append(slices.Clip(hooks), UnlockLoginKeyring)}
+	return &Verified{hooks: hooks, keyring: unlockOrRekey}
 }
 
 // start runs the hooks on their own copy of the password, zeroed after them.
-func (v *Verified) start(password []byte) {
-	own := bytes.Clone(password)
+func (v *Verified) start(password, previous []byte) {
+	own, was := bytes.Clone(password), bytes.Clone(previous)
 	v.wg.Go(func() {
 		defer clear(own)
+		defer clear(was)
 		for _, fn := range v.hooks {
 			fn(own)
 		}
+		v.keyring(own, was)
 	})
 }
 
@@ -142,13 +149,14 @@ func (p *PAM) Run(username string, ask Ask) error {
 		log.Printf("auth: PAM %s: %v", p.Service, err)
 		return err
 	}
-	secret := l.TakeSecret()
+	secret, previous := l.TakeSecret(), l.TakePrevious()
 	defer clear(secret)
+	defer clear(previous)
 	if err := l.Close(); err != nil {
 		log.Printf("auth: PAM %s: %v", p.Service, err)
 	}
 	if secret != nil {
-		p.verified.start(secret)
+		p.verified.start(secret, previous)
 	}
 	return nil
 }

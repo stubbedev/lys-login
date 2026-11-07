@@ -49,6 +49,7 @@ type libpam struct {
 	startConfdir func(service, user string, conv unsafe.Pointer, confdir string, pamh *uintptr) int32
 	authenticate func(pamh uintptr, flags int32) int32
 	acctMgmt     func(pamh uintptr, flags int32) int32
+	chauthtok    func(pamh uintptr, flags int32) int32
 	setcred      func(pamh uintptr, flags int32) int32
 	openSession  func(pamh uintptr, flags int32) int32
 	closeSession func(pamh uintptr, flags int32) int32
@@ -93,6 +94,7 @@ func bindLibpam() (*libpam, error) {
 	purego.RegisterLibFunc(&l.start, pam, "pam_start")
 	purego.RegisterLibFunc(&l.authenticate, pam, "pam_authenticate")
 	purego.RegisterLibFunc(&l.acctMgmt, pam, "pam_acct_mgmt")
+	purego.RegisterLibFunc(&l.chauthtok, pam, "pam_chauthtok")
 	purego.RegisterLibFunc(&l.setcred, pam, "pam_setcred")
 	purego.RegisterLibFunc(&l.openSession, pam, "pam_open_session")
 	purego.RegisterLibFunc(&l.closeSession, pam, "pam_close_session")
@@ -228,12 +230,13 @@ type systemTxn struct {
 	conv   unsafe.Pointer
 }
 
-func (t *systemTxn) authenticate() int32       { return t.l.authenticate(t.handle, 0) }
-func (t *systemTxn) acctMgmt() int32           { return t.l.acctMgmt(t.handle, 0) }
-func (t *systemTxn) setcred(flags int32) int32 { return t.l.setcred(t.handle, flags) }
-func (t *systemTxn) openSession() int32        { return t.l.openSession(t.handle, 0) }
-func (t *systemTxn) closeSession() int32       { return t.l.closeSession(t.handle, 0) }
-func (t *systemTxn) putenv(kv string) int32    { return t.l.putenv(t.handle, kv) }
+func (t *systemTxn) authenticate() int32         { return t.l.authenticate(t.handle, 0) }
+func (t *systemTxn) acctMgmt() int32             { return t.l.acctMgmt(t.handle, 0) }
+func (t *systemTxn) chauthtok(flags int32) int32 { return t.l.chauthtok(t.handle, flags) }
+func (t *systemTxn) setcred(flags int32) int32   { return t.l.setcred(t.handle, flags) }
+func (t *systemTxn) openSession() int32          { return t.l.openSession(t.handle, 0) }
+func (t *systemTxn) closeSession() int32         { return t.l.closeSession(t.handle, 0) }
+func (t *systemTxn) putenv(kv string) int32      { return t.l.putenv(t.handle, kv) }
 
 // getenvlist is the transaction's environment, the C list freed once
 // copied.

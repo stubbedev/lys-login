@@ -31,6 +31,8 @@ type fakePAM struct {
 	env           []string
 	authtok       []byte
 	permit        bool
+	changeBatches [][]pamMessage
+	chauthtokRC   int32
 }
 
 func (f *fakePAM) start(service, user string, converse func([]pamMessage) ([]pamReply, int32)) (pamTxn, error) {
@@ -76,6 +78,17 @@ func (t *fakeTxn) authenticate() int32 {
 func (t *fakeTxn) acctMgmt() int32 {
 	t.f.calls = append(t.f.calls, "acct_mgmt")
 	return t.f.acctRC
+}
+
+func (t *fakeTxn) chauthtok(flags int32) int32 {
+	t.f.calls = append(t.f.calls, fmt.Sprintf("chauthtok %#x", flags))
+	for _, batch := range t.f.changeBatches {
+		if _, code := t.converse(batch); code != pamSuccess {
+			return pamConvErr
+		}
+	}
+	t.f.acctRC = pamSuccess
+	return t.f.chauthtokRC
 }
 
 func (t *fakeTxn) setcred(flags int32) int32 {
@@ -136,7 +149,7 @@ func answering(answer string, seen *[]Prompt) Ask {
 }
 
 func newTestPAM(f *fakePAM, unlocked *[]string) *PAM {
-	return &PAM{Service: "lys-shell", lib: f, verified: &Verified{hooks: []func([]byte){func(pw []byte) { *unlocked = append(*unlocked, string(pw)) }}}}
+	return &PAM{Service: "lys-shell", lib: f, verified: &Verified{hooks: []func([]byte){func(pw []byte) { *unlocked = append(*unlocked, string(pw)) }}, keyring: noKeyring}}
 }
 
 // TestPAMConversationHandling pins the conversation: an echo-off
@@ -214,7 +227,7 @@ func TestPAMVerifiedHooksRunOnceEachOnlyOnSuccess(t *testing.T) {
 			return func(pw []byte) { got = append(got, name+":"+string(pw)) }
 		}
 		f := &fakePAM{password: "right", batches: [][]pamMessage{{{style: pamPromptEchoOff, text: "Password: "}}}}
-		p := &PAM{Service: "lys-shell", lib: f, verified: &Verified{hooks: []func([]byte){hook("first"), hook("second")}}}
+		p := &PAM{Service: "lys-shell", lib: f, verified: &Verified{hooks: []func([]byte){hook("first"), hook("second")}, keyring: noKeyring}}
 		var seen []Prompt
 		_ = p.Run("alice", answering(tc.answer, &seen))
 		p.verified.Wait()
@@ -226,8 +239,41 @@ func TestPAMVerifiedHooksRunOnceEachOnlyOnSuccess(t *testing.T) {
 
 func TestNewPAMRunsHooksBeforeTheKeyring(t *testing.T) {
 	p := NewPAM("lys-shell", NewVerified(func([]byte) {}))
-	if hooks := p.verified.hooks; len(hooks) != 2 || reflect.ValueOf(hooks[1]).Pointer() != reflect.ValueOf(UnlockLoginKeyring).Pointer() {
-		t.Errorf("NewPAM hooks = %d, want the extra hook then the keyring unlock", len(hooks))
+	if len(p.verified.hooks) != 1 || reflect.ValueOf(p.verified.keyring).Pointer() != reflect.ValueOf(unlockOrRekey).Pointer() {
+		t.Errorf("NewPAM hooks = %d, want the extra hook and then the keyring", len(p.verified.hooks))
+	}
+}
+
+func noKeyring(_, _ []byte) {}
+
+func TestAnExpiredPasswordIsChangedAndTheKeyringMoved(t *testing.T) {
+	f := &fakePAM{
+		password: "old", acctRC: pamNewAuthtokReqd,
+		batches:       [][]pamMessage{{{style: pamPromptEchoOff, text: "Password: "}}},
+		changeBatches: [][]pamMessage{{{style: pamPromptEchoOff, text: "New password: "}}, {{style: pamPromptEchoOff, text: "Retype new password: "}}},
+	}
+	var moved []string
+	p := &PAM{Service: "lys-shell", lib: f, verified: &Verified{keyring: func(pw, previous []byte) { moved = append(moved, string(previous)+" -> "+string(pw)) }}}
+	answers := map[string]string{"Password: ": "old", "New password: ": "new", "Retype new password: ": "new"}
+	if err := p.Run("alice", func(pr Prompt) (string, bool) { return answers[pr.Text], true }); err != nil {
+		t.Fatal(err)
+	}
+	p.verified.Wait()
+	if !slices.Equal(moved, []string{"old -> new"}) {
+		t.Errorf("the keyring heard %q, want the move from old to new", moved)
+	}
+	if !slices.Contains(f.calls, "chauthtok 0x20") {
+		t.Errorf("calls %v, want pam_chauthtok for the expired password", f.calls)
+	}
+	f.chauthtokRC = fakeAuthErr
+	f.acctRC = pamNewAuthtokReqd
+	moved = nil
+	if err := p.Run("alice", func(pr Prompt) (string, bool) { return answers[pr.Text], true }); err == nil || !strings.Contains(err.Error(), "pam_chauthtok") {
+		t.Errorf("a refused change: %v", err)
+	}
+	p.verified.Wait()
+	if len(moved) != 0 {
+		t.Errorf("a refused change moved the keyring: %q", moved)
 	}
 }
 
@@ -383,7 +429,7 @@ func TestSuccessDoesNotWaitForTheKeyring(t *testing.T) {
 	v := &Verified{hooks: []func([]byte){func(pw []byte) {
 		entered <- pw
 		<-release
-	}}}
+	}}, keyring: noKeyring}
 	p := &PAM{Service: "lys-shell", lib: f, verified: v}
 	events := make(chan Event, 4)
 	handle := make(chan *Handle, 1)

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -53,7 +54,7 @@ func fakeKeyring(t *testing.T, length, result uint32) (path string, got <-chan [
 // byte, then big-endian packet length, op, and the password.
 func TestKeyringUnlockWire(t *testing.T) {
 	path, got := fakeKeyring(t, 8, keyringResultOK)
-	if err := keyringUnlock(path, []byte("hunter2")); err != nil {
+	if err := keyringRequest(path, keyringOpUnlock, []byte("hunter2")); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
 	msg := <-got
@@ -75,12 +76,12 @@ func TestKeyringUnlockFailures(t *testing.T) {
 		{12, keyringResultOK, "unexpected response length 12"},
 	} {
 		path, _ := fakeKeyring(t, tc.length, tc.result)
-		err := keyringUnlock(path, []byte("pw"))
+		err := keyringRequest(path, keyringOpUnlock, []byte("pw"))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("result %d/len %d: err = %v, want %q", tc.result, tc.length, err, tc.want)
 		}
 	}
-	if err := keyringUnlock(filepath.Join(sockdir.Dir(t), "absent"), []byte("pw")); !errors.Is(err, errKeyringAbsent) {
+	if err := keyringRequest(filepath.Join(sockdir.Dir(t), "absent"), keyringOpUnlock, []byte("pw")); !errors.Is(err, errKeyringAbsent) {
 		t.Errorf("a missing daemon socket = %v, want errKeyringAbsent", err)
 	}
 }
@@ -113,6 +114,14 @@ func TestKeyringSockets(t *testing.T) {
 
 type secretsUnlocker struct{ got chan string }
 
+func (u secretsUnlocker) RekeyLogin(old, next []byte) error {
+	u.got <- "rekey " + string(old) + " -> " + string(next)
+	if string(old) != "pw" {
+		return control.ErrWrongPassword
+	}
+	return nil
+}
+
 func (u secretsUnlocker) UnlockLogin(pw []byte) error {
 	u.got <- string(pw)
 	if string(pw) != "pw" {
@@ -135,13 +144,13 @@ func TestLoginKeyringPrefersLysSecrets(t *testing.T) {
 	go control.Serve(ctx, ln, u)
 	gnome, gnomeGot := fakeKeyring(t, 8, keyringResultOK)
 
-	if err := unlockLoginKeyring(secrets, gnome, []byte("pw")); err != nil {
+	if err := unlockLoginKeyring(secrets, gnome, []byte("pw"), nil); err != nil {
 		t.Fatalf("unlock through lys-secrets: %v", err)
 	}
 	if got := <-u.got; got != "pw" {
 		t.Errorf("lys-secrets got %q", got)
 	}
-	if err := unlockLoginKeyring(secrets, gnome, []byte("other")); err == nil || !strings.Contains(err.Error(), "lys-secrets") {
+	if err := unlockLoginKeyring(secrets, gnome, []byte("other"), nil); err == nil || !strings.Contains(err.Error(), "lys-secrets") {
 		t.Errorf("a wrong password = %v, want lys-secrets' refusal", err)
 	}
 	select {
@@ -151,20 +160,20 @@ func TestLoginKeyringPrefersLysSecrets(t *testing.T) {
 	}
 
 	absent := filepath.Join(sockdir.Dir(t), "absent")
-	if err := unlockLoginKeyring(absent, gnome, []byte("pw")); err != nil {
+	if err := unlockLoginKeyring(absent, gnome, []byte("pw"), nil); err != nil {
 		t.Fatalf("fall back to gnome-keyring: %v", err)
 	}
 	if msg := <-gnomeGot; !strings.HasSuffix(string(msg), "pw") {
 		t.Errorf("gnome-keyring got %q", msg)
 	}
-	if err := unlockLoginKeyring(absent, filepath.Join(sockdir.Dir(t), "absent2"), []byte("pw")); !errors.Is(err, errNoKeyring) {
+	if err := unlockLoginKeyring(absent, filepath.Join(sockdir.Dir(t), "absent2"), []byte("pw"), nil); !errors.Is(err, errNoKeyring) {
 		t.Errorf("neither running = %v, want errNoKeyring", err)
 	}
 }
 
 // serveSecrets runs lys-secrets' control server at the socket of the
 // session with environment env.
-func serveSecrets(t *testing.T, env xdg.Env, u control.Unlocker) {
+func serveSecrets(t *testing.T, env xdg.Env, u control.Login) {
 	t.Helper()
 	path, err := control.SocketPath(env)
 	if err != nil {
@@ -186,7 +195,7 @@ func TestAwaitLoginKeyringWaitsForLysSecrets(t *testing.T) {
 	env := sessionEnv(map[string]string{"XDG_RUNTIME_DIR": sockdir.Dir(t)})
 	u := secretsUnlocker{got: make(chan string, 1)}
 	errs := make(chan error, 1)
-	go func() { errs <- AwaitLoginKeyring(t.Context(), env, []byte("pw")) }()
+	go func() { errs <- AwaitLoginKeyring(t.Context(), env, []byte("pw"), nil) }()
 	time.Sleep(3 * keyringPoll)
 	select {
 	case err := <-errs:
@@ -208,16 +217,71 @@ func TestAwaitLoginKeyringGivesUp(t *testing.T) {
 	env := sessionEnv(map[string]string{"XDG_RUNTIME_DIR": sockdir.Dir(t)})
 	ctx, cancel := context.WithTimeout(t.Context(), 2*keyringPoll)
 	defer cancel()
-	if err := AwaitLoginKeyring(ctx, env, []byte("pw")); !errors.Is(err, errNoKeyring) || !errors.Is(err, context.DeadlineExceeded) {
+	if err := AwaitLoginKeyring(ctx, env, []byte("pw"), nil); !errors.Is(err, errNoKeyring) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("no keyring = %v, want errNoKeyring and the deadline", err)
 	}
 
 	serveSecrets(t, env, secretsUnlocker{got: make(chan string, 1)})
-	if err := AwaitLoginKeyring(t.Context(), env, []byte("wrong")); !errors.Is(err, control.ErrWrongPassword) {
+	if err := AwaitLoginKeyring(t.Context(), env, []byte("wrong"), nil); !errors.Is(err, control.ErrWrongPassword) {
 		t.Errorf("a wrong password = %v, want lys-secrets' refusal", err)
 	}
 
-	if err := AwaitLoginKeyring(t.Context(), sessionEnv(nil), []byte("pw")); err == nil || errors.Is(err, errNoKeyring) {
+	if err := AwaitLoginKeyring(t.Context(), sessionEnv(nil), []byte("pw"), nil); err == nil || errors.Is(err, errNoKeyring) {
 		t.Errorf("no runtime dir = %v, want that error", err)
+	}
+}
+
+func TestAChangedPasswordMovesTheLoginCollectionThenUnlocksIt(t *testing.T) {
+	secrets := filepath.Join(sockdir.Dir(t), "lys-secrets", "control")
+	ln, err := control.Listen(secrets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	u := secretsUnlocker{got: make(chan string, 4)}
+	go control.Serve(ctx, ln, u)
+	gnome := filepath.Join(sockdir.Dir(t), "absent")
+	if err := unlockLoginKeyring(secrets, gnome, []byte("pw"), []byte("pw")); err != nil {
+		t.Fatal(err)
+	}
+	if got := []string{<-u.got, <-u.got}; got[0] != "rekey pw -> pw" || got[1] != "pw" {
+		t.Errorf("lys-secrets saw %q, want the rekey and then the unlock with the new password", got)
+	}
+	if err := unlockLoginKeyring(secrets, gnome, []byte("new"), []byte("wrong")); err == nil || !strings.Contains(err.Error(), "new password") {
+		t.Errorf("a rekey from a password that never opened it: %v", err)
+	}
+}
+
+func TestAChangedPasswordReachesGnomeKeyringAsAChange(t *testing.T) {
+	path := filepath.Join(sockdir.Dir(t), "control")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	ops := make(chan []byte, 2)
+	go func() {
+		for range 2 {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			buf := make([]byte, 256)
+			n, _ := io.ReadAtLeast(conn, buf, 9)
+			ops <- buf[:n]
+			_, _ = conn.Write([]byte{0, 0, 0, 8, 0, 0, 0, 0})
+			_ = conn.Close()
+		}
+	}()
+	if err := gnomeKeyringUnlock(path, []byte("new"), []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	change, unlock := <-ops, <-ops
+	if op := binary.BigEndian.Uint32(change[5:9]); op != keyringOpChange || !bytes.Contains(change, []byte("old")) || !bytes.Contains(change, []byte("new")) {
+		t.Errorf("the first request %q is not a change from old to new", change)
+	}
+	if op := binary.BigEndian.Uint32(unlock[5:9]); op != keyringOpUnlock {
+		t.Errorf("the second request is op %d, want an unlock", op)
 	}
 }

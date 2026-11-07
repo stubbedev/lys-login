@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 )
@@ -16,7 +17,8 @@ type Login struct {
 	user string
 	// secret is the last secret the authentication was answered with,
 	// until TakeSecret or Close.
-	secret []byte
+	secret   []byte
+	previous []byte
 	// last is the status pam_end receives.
 	last         int32
 	credentialed bool
@@ -66,7 +68,19 @@ func authenticate(lib pamLib, service, user string, conv *pamConversation) (*Log
 		txn.end(l.last)
 		return nil, err
 	}
-	if l.last = txn.acctMgmt(); l.last != pamSuccess {
+	l.last = txn.acctMgmt()
+	if l.last == pamNewAuthtokReqd {
+		previous := bytes.Clone(conv.secret)
+		if l.last = txn.chauthtok(pamChangeExpiredAuthtok); l.last != pamSuccess {
+			err := &RefusedError{Call: "pam_chauthtok", Code: pamCodeName(l.last)}
+			clear(previous)
+			clear(conv.secret)
+			txn.end(l.last)
+			return nil, err
+		}
+		l.previous = previous
+	}
+	if l.last != pamSuccess {
 		err := &RefusedError{Call: "pam_acct_mgmt", Code: pamCodeName(l.last)}
 		clear(conv.secret)
 		txn.end(l.last)
@@ -86,6 +100,12 @@ func (l *Login) TakeSecret() []byte {
 }
 
 func (l *Login) HasSecret() bool { return l.secret != nil }
+
+func (l *Login) TakePrevious() []byte {
+	previous := l.previous
+	l.previous = nil
+	return previous
+}
 
 // User is the account the login is for.
 func (l *Login) User() string { return l.user }
@@ -120,6 +140,8 @@ func (l *Login) OpenSession(env []string) ([]string, error) {
 func (l *Login) Close() error {
 	clear(l.secret)
 	l.secret = nil
+	clear(l.previous)
+	l.previous = nil
 	var errs []string
 	if l.opened {
 		if rc := l.txn.closeSession(); rc != pamSuccess {

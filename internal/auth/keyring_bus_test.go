@@ -75,6 +75,10 @@ func (f fileUnlocker) UnlockLogin(pw []byte) error {
 	return os.WriteFile(string(f), pw, 0o600)
 }
 
+func (f fileUnlocker) RekeyLogin(_, next []byte) error {
+	return os.WriteFile(string(f)+".rekeyed", next, 0o600)
+}
+
 func ownAndWait(conn *dbus.Conn, names ...string) error {
 	for _, name := range names {
 		if _, err := conn.RequestName(name, dbus.NameFlagDoNotQueue); err != nil {
@@ -256,7 +260,7 @@ func testDeadline(t *testing.T, d time.Duration) context.Context {
 
 func TestAwaitActivatesTheKeyringNoClientAskedFor(t *testing.T) {
 	b := startActivatableBus(t, fakeService{secretServiceName, "gnome", "ok"})
-	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw")); err != nil {
+	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw"), nil); err != nil {
 		t.Fatalf("AwaitLoginKeyring = %v", err)
 	}
 	if got := b.got(t, "gnome"); got != "pw" {
@@ -266,7 +270,7 @@ func TestAwaitActivatesTheKeyringNoClientAskedFor(t *testing.T) {
 
 func TestAwaitActivatesGnomeKeyringByItsOwnName(t *testing.T) {
 	b := startActivatableBus(t, fakeService{gnomeKeyringName, "gnome", "ok"})
-	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw")); err != nil {
+	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw"), nil); err != nil {
 		t.Fatalf("AwaitLoginKeyring = %v", err)
 	}
 	if got := b.got(t, "gnome"); got != "pw" {
@@ -279,7 +283,7 @@ func TestAwaitActivatesOnTheNamedBus(t *testing.T) {
 	elsewhere := filepath.Join(sockdir.Dir(t), "elsewhere")
 	b.startDaemon(t, elsewhere, fakeService{secretServiceName, "gnome", "ok"})
 	env := sessionEnv(map[string]string{"XDG_RUNTIME_DIR": b.runtime, "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + elsewhere})
-	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), env, []byte("pw")); err != nil {
+	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), env, []byte("pw"), nil); err != nil {
 		t.Fatalf("AwaitLoginKeyring = %v", err)
 	}
 	if got := b.got(t, "gnome"); got != "pw" {
@@ -291,7 +295,7 @@ func TestAwaitWaitsForASessionBusThatStartsLate(t *testing.T) {
 	runtime := sockdir.Dir(t)
 	b := &activatableBus{runtime: runtime, marks: t.TempDir(), env: sessionEnv(map[string]string{"XDG_RUNTIME_DIR": runtime})}
 	errs := make(chan error, 1)
-	go func() { errs <- AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw")) }()
+	go func() { errs <- AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw"), nil) }()
 	time.Sleep(3 * keyringPoll)
 	select {
 	case err := <-errs:
@@ -313,7 +317,7 @@ func TestAwaitActivatesLysSecretsBeforeGnomeKeyring(t *testing.T) {
 		fakeService{secretServiceName, "gnome", "ok"},
 		fakeService{gnomeKeyringName, "gnome", "ok"},
 	)
-	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw")); err != nil {
+	if err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw"), nil); err != nil {
 		t.Fatalf("AwaitLoginKeyring = %v", err)
 	}
 	if got := b.got(t, "lys-secrets"); got != "pw" {
@@ -326,7 +330,7 @@ func TestAwaitActivatesLysSecretsBeforeGnomeKeyring(t *testing.T) {
 
 func TestAwaitReportsADeniedPasswordAtOnce(t *testing.T) {
 	b := startActivatableBus(t, fakeService{secretServiceName, "gnome", "denied"})
-	err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("wrong"))
+	err := AwaitLoginKeyring(testDeadline(t, 15*time.Second), b.env, []byte("wrong"), nil)
 	if err == nil || !strings.Contains(err.Error(), "denied") || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("a refused password = %v, want the denial before the deadline", err)
 	}
@@ -334,7 +338,7 @@ func TestAwaitReportsADeniedPasswordAtOnce(t *testing.T) {
 
 func TestAwaitWithoutAnyKeyringSaysSo(t *testing.T) {
 	b := startActivatableBus(t)
-	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 	for _, want := range []error{errNoKeyring, context.DeadlineExceeded} {
 		if !errors.Is(err, want) {
 			t.Errorf("no keyring = %v, want %v", err, want)
@@ -347,7 +351,7 @@ func TestAwaitWithoutAnyKeyringSaysSo(t *testing.T) {
 
 func TestAwaitWithoutASessionBusNamesIt(t *testing.T) {
 	runtime := sockdir.Dir(t)
-	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), sessionEnv(map[string]string{"XDG_RUNTIME_DIR": runtime}), []byte("pw"))
+	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), sessionEnv(map[string]string{"XDG_RUNTIME_DIR": runtime}), []byte("pw"), nil)
 	if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), "no session bus at unix:path="+runtime) {
 		t.Errorf("no bus = %v, want the derived address named", err)
 	}
@@ -355,7 +359,7 @@ func TestAwaitWithoutASessionBusNamesIt(t *testing.T) {
 
 func TestAwaitFailingActivationIsReported(t *testing.T) {
 	b := startActivatableBus(t, fakeService{name: secretServiceName})
-	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 	if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), secretServiceName+": ") {
 		t.Errorf("a failing activation = %v, want its reason", err)
 	}
@@ -397,7 +401,7 @@ func ownCollection(t *testing.T, b *activatableBus, locked bool) {
 func TestAwaitNamesAnotherLockedProvider(t *testing.T) {
 	b := startActivatableBus(t)
 	ownCollection(t, b, true)
-	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 	comm, commErr := os.ReadFile("/proc/self/comm")
 	if commErr != nil {
 		t.Fatal(commErr)
@@ -410,7 +414,7 @@ func TestAwaitNamesAnotherLockedProvider(t *testing.T) {
 func TestAwaitAcceptsAnotherUnlockedProvider(t *testing.T) {
 	b := startActivatableBus(t)
 	ownCollection(t, b, false)
-	if err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw")); err != nil {
+	if err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil); err != nil {
 		t.Errorf("an unlocked provider = %v, want no warning", err)
 	}
 }
@@ -421,7 +425,7 @@ func TestAwaitNamesAProviderWithoutADefaultCollection(t *testing.T) {
 		if _, err := b.conn(t).RequestName(secretServiceName, dbus.NameFlagDoNotQueue); err != nil {
 			t.Fatal(err)
 		}
-		err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+		err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 		if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), "did not say whether it is locked") {
 			t.Errorf("no Secret Service = %v, want that said", err)
 		}
@@ -435,7 +439,7 @@ func TestAwaitNamesAProviderWithoutADefaultCollection(t *testing.T) {
 		if _, err := conn.RequestName(secretServiceName, dbus.NameFlagDoNotQueue); err != nil {
 			t.Fatal(err)
 		}
-		err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+		err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 		if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), "no default alias") {
 			t.Errorf("no default alias = %v, want that said", err)
 		}
@@ -468,7 +472,7 @@ func ownKWallet(t *testing.T, b *activatableBus, open bool) {
 func TestAwaitAcceptsAWalletPamKwalletOpened(t *testing.T) {
 	b := startActivatableBus(t)
 	ownKWallet(t, b, true)
-	if err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw")); err != nil {
+	if err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil); err != nil {
 		t.Errorf("an open wallet = %v, want no warning", err)
 	}
 }
@@ -476,7 +480,7 @@ func TestAwaitAcceptsAWalletPamKwalletOpened(t *testing.T) {
 func TestAwaitNamesAClosedWallet(t *testing.T) {
 	b := startActivatableBus(t)
 	ownKWallet(t, b, false)
-	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 	if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), kwalletServices[0].name) || !strings.Contains(err.Error(), "pam_kwallet") {
 		t.Errorf("a closed wallet = %v, want KWallet and pam_kwallet named", err)
 	}
@@ -484,7 +488,7 @@ func TestAwaitNamesAClosedWallet(t *testing.T) {
 
 func TestAwaitNamesAnInstalledKWalletWithoutStartingIt(t *testing.T) {
 	b := startActivatableBus(t, fakeService{kwalletServices[1].name, "kwallet", "ok"})
-	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+	err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 	if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), kwalletServices[1].name+" is installed") {
 		t.Errorf("a dormant KWallet = %v, want it named", err)
 	}
@@ -497,7 +501,7 @@ func TestLockScreenWaitOnlyForWhatActivationStarted(t *testing.T) {
 	t.Run("nothing activatable ends at once", func(t *testing.T) {
 		b := startActivatableBus(t)
 		began := time.Now()
-		err := awaitKeyring(testDeadline(t, unlockKeyringWait), b.env, []byte("pw"), waitForActivation)
+		err := awaitKeyring(testDeadline(t, unlockKeyringWait), b.env, []byte("pw"), nil, waitForActivation)
 		if !errors.Is(err, errNoKeyring) || errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("no keyring = %v, want it said before the deadline", err)
 		}
@@ -508,7 +512,7 @@ func TestLockScreenWaitOnlyForWhatActivationStarted(t *testing.T) {
 	t.Run("no bus ends at once", func(t *testing.T) {
 		env := sessionEnv(map[string]string{"XDG_RUNTIME_DIR": sockdir.Dir(t)})
 		began := time.Now()
-		err := awaitKeyring(testDeadline(t, unlockKeyringWait), env, []byte("pw"), waitForActivation)
+		err := awaitKeyring(testDeadline(t, unlockKeyringWait), env, []byte("pw"), nil, waitForActivation)
 		if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), "no session bus") {
 			t.Errorf("no bus = %v", err)
 		}
@@ -518,7 +522,7 @@ func TestLockScreenWaitOnlyForWhatActivationStarted(t *testing.T) {
 	})
 	t.Run("an activated keyring gets the password", func(t *testing.T) {
 		b := startActivatableBus(t, fakeService{secretServiceName, "gnome", "ok"})
-		if err := awaitKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw"), waitForActivation); err != nil {
+		if err := awaitKeyring(testDeadline(t, 15*time.Second), b.env, []byte("pw"), nil, waitForActivation); err != nil {
 			t.Fatalf("awaitKeyring = %v", err)
 		}
 		if got := b.got(t, "gnome"); got != "pw" {
@@ -534,7 +538,7 @@ func TestKeyringThatDoesNotAnswerYetIsRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = l.Close() })
-	if err := keyringUnlock(path, []byte("pw")); !errors.Is(err, errKeyringAbsent) {
+	if err := keyringRequest(path, keyringOpUnlock, []byte("pw")); !errors.Is(err, errKeyringAbsent) {
 		t.Errorf("a socket unit's daemon still starting = %v, want errKeyringAbsent", err)
 	}
 }
@@ -590,14 +594,14 @@ func TestAwaitReadsTheCollectionBehindAFirstEmptyAlias(t *testing.T) {
 	t.Run("unlocked", func(t *testing.T) {
 		b := startActivatableBus(t)
 		ownRacingCollection(t, b, false)
-		if err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw")); err != nil {
+		if err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil); err != nil {
 			t.Errorf("an unlocked keyring = %v, want no warning", err)
 		}
 	})
 	t.Run("locked", func(t *testing.T) {
 		b := startActivatableBus(t)
 		ownRacingCollection(t, b, true)
-		err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"))
+		err := AwaitLoginKeyring(testDeadline(t, 2*keyringPoll), b.env, []byte("pw"), nil)
 		if !errors.Is(err, errNoKeyring) || !strings.Contains(err.Error(), "default collection is locked") {
 			t.Errorf("a locked keyring = %v, want it reported locked", err)
 		}

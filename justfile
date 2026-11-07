@@ -109,6 +109,10 @@ switch-vm:
 autologin-vm:
     nix build -L .#checks.{{ arch() }}-{{ os() }}.autologin-vm
 
+# A changed password re-keys the login collection, in a NixOS VM (needs KVM).
+rekey-vm:
+    nix build -L .#checks.{{ arch() }}-{{ os() }}.rekey-vm
+
 # An X11 session through the display manager in a NixOS VM (needs KVM): logind
 # holds it as Type=x11, and the greeter before it stays wayland.
 x11-session-vm:

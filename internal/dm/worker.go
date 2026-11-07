@@ -254,12 +254,13 @@ const keyringWait = time.Minute
 // executed for it: under SELinux the session's domain may not enter
 // this program, which is labelled as a display manager's. It takes
 // password over and clears it before it reports.
-func unlockKeyringAs(a account, env []string, password []byte) <-chan error {
+func unlockKeyringAs(a account, env []string, password, previous []byte) <-chan error {
 	done := make(chan error, 1)
 	go func() {
 		runtime.LockOSThread()
-		err := handOverAs(a, env, password)
+		err := handOverAs(a, env, password, previous)
 		clear(password)
+		clear(previous)
 		done <- err
 	}()
 	return done
@@ -277,13 +278,13 @@ func reportKeyring(ch *channel, name string, unlocked <-chan error) {
 }
 
 // handOverAs is unlockKeyringAs on its locked thread.
-func handOverAs(a account, env []string, password []byte) error {
+func handOverAs(a account, env []string, password, previous []byte) error {
 	if err := becomeOnThread(a); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), keyringWait)
 	defer cancel()
-	return auth.AwaitLoginKeyring(ctx, lookupIn(env), password)
+	return auth.AwaitLoginKeyring(ctx, lookupIn(env), password, previous)
 }
 
 // becomeOnThread gives the calling OS thread a's groups, gid and uid,
@@ -371,8 +372,8 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 			log.Printf("dm: session of %s: %v", req.User, err)
 		}
 	}()
-	secret := login.TakeSecret()
-	defer func() { clear(secret) }()
+	secret, previous := login.TakeSecret(), login.TakePrevious()
+	defer func() { clear(secret); clear(previous) }()
 	if err := ch.send(event{Kind: evAuthenticated}); err != nil {
 		return err
 	}
@@ -412,8 +413,8 @@ func RunSession(o WorkerOptions, rw io.ReadWriter) error {
 		log.Printf("dm: tell the daemon the session started: %v", err)
 	}
 	if secret != nil {
-		unlocked := unlockKeyringAs(a, env, secret)
-		secret = nil
+		unlocked := unlockKeyringAs(a, env, secret, previous)
+		secret, previous = nil, nil
 		go reportKeyring(ch, a.name, unlocked)
 	}
 	exited := make(chan error, 1)
