@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stubbedev/lys-shell/imagedecode"
-	"github.com/stubbedev/lys-shell/shell/treetest"
+	"github.com/stubbedev/lys-desktop/imagedecode"
+	"github.com/stubbedev/lys-desktop/shell/treetest"
 	"github.com/stubbedev/memory-go"
 )
 

@@ -6,10 +6,10 @@
     system,
     ...
   }: let
-    shell = inputs.lys-shell.devShells.${system}.default;
-    gpuDrivers = inputs.lys-shell.inputs.lys-lib.lib.gpuDriverEnv pkgs;
+    shell = inputs.lys-desktop.devShells.${system}.default;
+    gpuDrivers = inputs.lys-desktop.inputs.lys-lib.lib.gpuDriverEnv pkgs;
   in {
-    # lys-shell's dev shell: the lint stack, fonts and the headless sway
+    # lys-desktop's dev shell: the lint stack, fonts and the headless sway
     # and private D-Bus the tests start, with its fontconfig and GPU
     # driver setup (its shellHook).
     devShells.default = pkgs.mkShell {

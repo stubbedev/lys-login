@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-lib/atomicfile"
-	"github.com/stubbedev/lys-shell/config"
 )
 
 // The discovery defaults sddm and gdm read, highest precedence first.

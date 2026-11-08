@@ -43,10 +43,10 @@ fhs_interpreter := if arch() == "aarch64" { "/lib/ld-linux-aarch64.so.1" } else 
 # Build the release binary into dist/, as the archive and the Debian and
 # RPM packages ship it: pure Go (libpam and the drawing libraries load at
 # runtime through purego), stripped, asking for the standard loader;
-# beside it the notice of the wordlist lys-shell's config links in.
+# beside it the notice of the wordlist lys-desktop's config links in.
 dist:
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -I {{fhs_interpreter}}" -o dist/ ./cmd/lys-login
-    install -m 0644 "$(go list -m -f '{{{{.Dir}}' github.com/stubbedev/lys-shell)/service/bitwarden/generator/eff_large_wordlist.NOTICE" dist/
+    install -m 0644 "$(go list -m -f '{{{{.Dir}}' github.com/stubbedev/lys-desktop)/service/bitwarden/generator/eff_large_wordlist.NOTICE" dist/
 
 # Format every Go source in place (gofumpt and gci via golangci-lint).
 fmt:
@@ -125,13 +125,13 @@ distro-vm distro: dist
     ./scripts/ci/build-archive.sh dist 0.0.0 {{ arch() }}
     nix run .#distro-vm-{{ distro }} -- lys-login-0.0.0-{{ arch() }}-linux.tar.gz
 
-# Move lys-shell, lys-secrets, lys-ui and lys-lib to the heads of their
+# Move lys-desktop, lys-secrets, lys-ui and lys-lib to the heads of their
 # main branches (the module proxy lags fresh commits), the flake's
-# lys-shell and lys-secrets inputs with them, then the vendor hash.
+# lys-desktop and lys-secrets inputs with them, then the vendor hash.
 bump-lys:
-    GOPROXY=direct GOPRIVATE=github.com/stubbedev/* go get github.com/stubbedev/lys-shell@master github.com/stubbedev/lys-secrets@main github.com/stubbedev/lys-ui@main github.com/stubbedev/lys-lib@main
+    GOPROXY=direct GOPRIVATE=github.com/stubbedev/* go get github.com/stubbedev/lys-desktop@main github.com/stubbedev/lys-secrets@main github.com/stubbedev/lys-ui@main github.com/stubbedev/lys-lib@main
     go mod tidy
-    nix flake update lys-shell lys-secrets lys-wm
+    nix flake update lys-desktop lys-secrets lys-wm
     just vendor-hash
 
 # Set nix/package.nix's vendorHash to the hash of the modules go.sum pins.

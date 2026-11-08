@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stubbedev/lys-desktop/service/logind"
+	"github.com/stubbedev/lys-desktop/service/logind/logindtest"
+	"github.com/stubbedev/lys-desktop/shell/lockclient"
+	"github.com/stubbedev/lys-desktop/swaytest"
+	"github.com/stubbedev/lys-desktop/testhome"
 	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
-	"github.com/stubbedev/lys-shell/service/logind"
-	"github.com/stubbedev/lys-shell/service/logind/logindtest"
-	"github.com/stubbedev/lys-shell/shell/lockclient"
-	"github.com/stubbedev/lys-shell/swaytest"
-	"github.com/stubbedev/lys-shell/testhome"
 )
 
 // TestMain lets the test binary be lys-login: the tests re-exec it with

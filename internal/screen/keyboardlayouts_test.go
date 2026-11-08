@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stubbedev/lys-shell/shell/treetest"
+	"github.com/stubbedev/lys-desktop/shell/treetest"
 	"github.com/stubbedev/lys-ui/app"
 
 	"github.com/stubbedev/lys-login/internal/layouts"

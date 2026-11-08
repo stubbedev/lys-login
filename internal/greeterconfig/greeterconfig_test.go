@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-desktop/config"
 )
 
 func readRuntime(t *testing.T, path string) map[string]any {

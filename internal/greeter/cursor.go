@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/stubbedev/lys-shell/config"
+	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-ui/gtksettings"
 
 	"github.com/stubbedev/lys-login/internal/cursorrecord"

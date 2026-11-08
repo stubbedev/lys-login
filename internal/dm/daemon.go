@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/stubbedev/lys-desktop/config"
+	"github.com/stubbedev/lys-desktop/shlex"
 	"github.com/stubbedev/lys-lib/xkb"
-	"github.com/stubbedev/lys-shell/config"
-	"github.com/stubbedev/lys-shell/shlex"
 	"golang.org/x/sys/unix"
 
 	"github.com/stubbedev/lys-login/internal/auth"

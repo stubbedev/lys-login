@@ -2,7 +2,6 @@
   perSystem = {
     lib,
     pkgs,
-    system,
     ...
   }: let
     src = lib.fileset.toSource {
@@ -17,9 +16,9 @@
       );
     };
     # What the binary dlopens through purego: libpam for authentication
-    # and sessions, and what lys-shell's binaries load for drawing through
-    # the same lys-ui (libvulkan, libva).
-    libs = lib.unique ([pkgs.pam] ++ inputs.lys-shell.packages.${system}.lys-shell.libs);
+    # and sessions, and what drawing loads through
+    # lys-ui (libvulkan, libva).
+    libs = [pkgs.pam pkgs.libva pkgs.vulkan-loader];
   in {
     packages.default = pkgs.buildGo127Module {
       pname = "lys-login";
@@ -29,7 +28,7 @@
 
       # The module cache's hash; `just vendor-hash` recomputes it after a
       # go.mod change.
-      vendorHash = "sha256-yMArUhUmPG6BcykLIixwXmFQxstLsm/DiEgy3maWDkg=";
+      vendorHash = "sha256-iJ/SXLoE8w1PbO6icqIwHoGa3DEeT1WaZ95yYAkTxWQ=";
 
       subPackages = ["cmd/lys-login"];
 

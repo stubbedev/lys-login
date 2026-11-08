@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/stubbedev/lys-desktop/service/lyswm"
 	"github.com/stubbedev/lys-lib/xkb"
-	"github.com/stubbedev/lys-shell/service/lyswm"
 )
 
 func LabeledOnSystem(names []string) ([]Layout, error) {

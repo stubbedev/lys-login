@@ -8,9 +8,9 @@ import (
 	"math/rand/v2"
 	"testing"
 
+	"github.com/stubbedev/lys-desktop/shell/treetest"
 	"github.com/stubbedev/lys-lib/intconv"
 	"github.com/stubbedev/lys-lib/render"
-	"github.com/stubbedev/lys-shell/shell/treetest"
 	"github.com/stubbedev/memory-go"
 )
 

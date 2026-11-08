@@ -44,9 +44,9 @@ import (
 	"runtime"
 	"slices"
 
+	"github.com/stubbedev/lys-desktop/config"
+	"github.com/stubbedev/lys-desktop/shell/lockclient"
 	"github.com/stubbedev/lys-lib/xdg"
-	"github.com/stubbedev/lys-shell/config"
-	"github.com/stubbedev/lys-shell/shell/lockclient"
 
 	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"

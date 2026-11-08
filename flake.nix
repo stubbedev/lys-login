@@ -8,18 +8,14 @@
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
-    # The shell whose look and config the login screen shares: the
-    # libraries its binaries dlopen, its dev shell's test stack, and the
-    # GPU driver setup through its lys-lib input. The Go code comes
-    # through go.mod. Its own lys-login input (the lock screen its VM
-    # checks lock with) is this flake.
-    lys-shell = {
-      url = "github:stubbedev/lys-shell";
+    # The dev shell's test stack and the GPU driver setup through its
+    # lys-lib input. The Go code comes through go.mod.
+    lys-desktop = {
+      url = "github:stubbedev/lys-desktop";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
+      inputs.lys-ci.follows = "lys-ci";
       inputs.lys-wm.follows = "lys-wm";
-      inputs.lys-secrets.follows = "lys-secrets";
-      inputs.lys-login.follows = "";
     };
     # The Secret Service the login VM check finds unlocked by the login.
     lys-secrets = {
@@ -34,7 +30,7 @@
       url = "github:stubbedev/lys-wm";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-parts.follows = "flake-parts";
-      inputs.lys-shell.follows = "lys-shell";
+      inputs.lys-shell.follows = "";
     };
   };
 

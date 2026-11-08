@@ -18,8 +18,8 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-lib/atomicfile"
-	"github.com/stubbedev/lys-shell/config"
 )
 
 // MaxImage bounds the background image a Change carries.
