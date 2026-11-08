@@ -4,16 +4,17 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 
+	"github.com/stubbedev/lys-desktop/resources"
 	"github.com/stubbedev/lys-lib/atomicfile"
 	"github.com/stubbedev/lys-ui/widget"
 
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
-// embeddedIcons are the glyphs of themeIcons: pre-login there is no
-// icon theme to rely on.
+// embeddedIcons holds the glyph the shared bundle does not.
 //
 //go:embed assets/*.svg
 var embeddedIcons embed.FS
@@ -25,8 +26,8 @@ const (
 	accessibilityIcon = "ld-accessibility-symbolic"
 )
 
-// themeIcons are the theme icons the greeter draws, each embedded as
-// assets/<name>.svg.
+// themeIcons are the theme icons the greeter draws, each from the shared
+// bundle or assets/<name>.svg: pre-login there is no icon theme to rely on.
 func themeIcons() []string {
 	return append([]string{sleepIcon, restartIcon, shutdownIcon, accessibilityIcon}, loginscreen.Icons()...)
 }
@@ -49,6 +50,13 @@ func installIcons() error {
 	return nil
 }
 
+func iconSVG(name, file string) ([]byte, error) {
+	if name == accessibilityIcon {
+		return embeddedIcons.ReadFile("assets/" + file)
+	}
+	return resources.Icons.ReadFile(path.Join(resources.IconsDir, file))
+}
+
 // writeIcons materializes the glyph of every theme icon into dir.
 func writeIcons(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // the session runtime dir, as install_icons uses it
@@ -56,7 +64,7 @@ func writeIcons(dir string) error {
 	}
 	for _, name := range themeIcons() {
 		file := name + ".svg"
-		data, err := embeddedIcons.ReadFile("assets/" + file)
+		data, err := iconSVG(name, file)
 		if err != nil {
 			return fmt.Errorf("greeter: embedded icon %s: %w", name, err)
 		}
