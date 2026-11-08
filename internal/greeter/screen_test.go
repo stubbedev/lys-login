@@ -7,9 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +18,7 @@ import (
 	"github.com/stubbedev/lys-desktop/imagedecode"
 	"github.com/stubbedev/lys-desktop/shell/treetest"
 	"github.com/stubbedev/lys-lib/render"
+	"github.com/stubbedev/lys-lib/testbuild"
 	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 	"github.com/stubbedev/lys-ui/widget/css"
@@ -782,17 +781,6 @@ func TestTheGreeterClockWakesOncePerMinuteAndFollowsAJump(t *testing.T) {
 	}
 }
 
-func goroutineID() uint64 {
-	buf := make([]byte, 64)
-	n := runtime.Stack(buf, false)
-	id, _, _ := strings.Cut(strings.TrimPrefix(string(buf[:n]), "goroutine "), " ")
-	v, err := strconv.ParseUint(id, 10, 64)
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
 func TestThePowerRowHasNoGlass(t *testing.T) {
 	r := newRig(t, nil)
 	if len(treetest.WithClass(r.s.power, "lock-power")) != 1 {
@@ -807,11 +795,11 @@ func TestThePowerRowHasNoGlass(t *testing.T) {
 
 func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 	r := newRig(t, nil)
-	loop := goroutineID()
+	loop := testbuild.GoroutineID()
 	var onLoop atomic.Int32
 	entered, release := make(chan struct{}, 3), make(chan struct{})
 	r.onPower = func(string) {
-		if goroutineID() == loop {
+		if testbuild.GoroutineID() == loop {
 			onLoop.Add(1)
 		}
 		entered <- struct{}{}
@@ -852,7 +840,7 @@ func loopRig(t *testing.T, edit func(*Init)) (*rig, *atomic.Uint64) {
 	t.Cleanup(func() { close(calls) })
 	var loop atomic.Uint64
 	go func() {
-		loop.Store(goroutineID())
+		loop.Store(testbuild.GoroutineID())
 		for fn := range calls {
 			fn()
 		}
@@ -872,7 +860,7 @@ func TestTheLoginIsSavedOffTheLoopBeforeThePromptLeaves(t *testing.T) {
 	var writes, onLoop atomic.Int32
 	r.save = func(string, string) {
 		writes.Add(1)
-		if goroutineID() == loop.Load() {
+		if testbuild.GoroutineID() == loop.Load() {
 			onLoop.Add(1)
 		}
 		if !r.s.prompt.Reveal.Revealed() {

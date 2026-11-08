@@ -125,14 +125,9 @@ distro-vm distro: dist
     ./scripts/ci/build-archive.sh dist 0.0.0 {{ arch() }}
     nix run .#distro-vm-{{ distro }} -- lys-login-0.0.0-{{ arch() }}-linux.tar.gz
 
-# Move lys-desktop, lys-secrets, lys-ui and lys-lib to the heads of their
-# main branches (the module proxy lags fresh commits), the flake's
-# lys-desktop and lys-secrets inputs with them, then the vendor hash.
+# Move every lys module and flake input to its head, then the vendor hash.
 bump-lys:
-    GOPROXY=direct GOPRIVATE=github.com/stubbedev/* go get github.com/stubbedev/lys-desktop@main github.com/stubbedev/lys-secrets@main github.com/stubbedev/lys-ui@main github.com/stubbedev/lys-lib@main
-    go mod tidy
-    nix flake update lys-desktop lys-secrets lys-wm
-    just vendor-hash
+    nix run github:stubbedev/lys-ci#bump-lys
 
 # Set nix/package.nix's vendorHash to the hash of the modules go.sum pins.
 vendor-hash:

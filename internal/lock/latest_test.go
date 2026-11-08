@@ -3,39 +3,26 @@ package lock
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"slices"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stubbedev/lys-desktop/config"
+	"github.com/stubbedev/lys-lib/testbuild"
 	"golang.org/x/sys/unix"
 )
 
-func goroutineID() uint64 {
-	buf := make([]byte, 64)
-	n := runtime.Stack(buf, false)
-	id, _, _ := strings.Cut(strings.TrimPrefix(string(buf[:n]), "goroutine "), " ")
-	v, err := strconv.ParseUint(id, 10, 64)
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
 func TestABlockedLogindHoldsNeitherTheLockNorTheRelease(t *testing.T) {
 	h := newHarness(t, func(l *config.LoginConfig) { l.Lock.GracePeriodMS = 0 })
-	loop := goroutineID()
+	loop := testbuild.GoroutineID()
 	var onLoop atomic.Int32
 	var mu sync.Mutex
 	var sent []bool
 	entered, release := make(chan struct{}, 8), make(chan struct{})
 	w := newLatest("logind", func(locked bool) {
-		if goroutineID() == loop {
+		if testbuild.GoroutineID() == loop {
 			onLoop.Add(1)
 		}
 		mu.Lock()
@@ -117,11 +104,11 @@ func TestAStdoutNobodyReadsLeavesTheLoopTicking(t *testing.T) {
 	if _, err := w.Write(make([]byte, 4096)); err != nil {
 		t.Fatal(err)
 	}
-	loop := goroutineID()
+	loop := testbuild.GoroutineID()
 	var onLoop atomic.Int32
 	writing := make(chan struct{}, 1)
 	line := newLatest("the locked line's reader", func(struct{}) {
-		if goroutineID() == loop {
+		if testbuild.GoroutineID() == loop {
 			onLoop.Add(1)
 		}
 		select {
