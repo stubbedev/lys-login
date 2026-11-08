@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -343,9 +344,21 @@ func TestWriteIcons(t *testing.T) {
 	if err := writeIcons(dir); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"ld-power-symbolic.svg", "ld-moon-symbolic.svg", "ld-rotate-ccw-symbolic.svg", "ld-chevron-down-symbolic.svg", "object-select-symbolic.svg", "ld-eye-symbolic.svg", "ld-eye-off-symbolic.svg"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+	for _, name := range themeIcons() {
+		if _, err := os.Stat(filepath.Join(dir, name+".svg")); err != nil {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestEveryEmbeddedGlyphIsAThemeIcon(t *testing.T) {
+	entries, err := embeddedIcons.ReadDir("assets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !slices.Contains(themeIcons(), strings.TrimSuffix(e.Name(), ".svg")) {
+			t.Errorf("assets/%s is embedded but no theme icon draws it", e.Name())
 		}
 	}
 }

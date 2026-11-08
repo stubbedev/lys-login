@@ -33,6 +33,9 @@ const (
 	peekConceal = "ld-eye-off-symbolic"
 )
 
+// Icons are the theme icons the prompt draws.
+func Icons() []string { return []string{peekReveal, peekConceal} }
+
 // Options configure one prompt.
 type Options struct {
 	// Font is the face the labels and entries shape with; the

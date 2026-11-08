@@ -348,9 +348,9 @@ func (s *screen) powerRow(font render.Font) *widget.Box {
 		name string
 		verb string
 	}{
-		{"ld-moon-symbolic", t("greeter-sleep"), "suspend"},
-		{"ld-rotate-ccw-symbolic", t("greeter-restart"), "reboot"},
-		{"ld-power-symbolic", t("greeter-shutdown"), "poweroff"},
+		{sleepIcon, t("greeter-sleep"), "suspend"},
+		{restartIcon, t("greeter-restart"), "reboot"},
+		{shutdownIcon, t("greeter-shutdown"), "poweroff"},
 	} {
 		btn := widget.NewButton(widget.NewThemeIcon(b.icon, powerIconPx), 0, 0)
 		btn.AddClass("lock-power-button", css.Ghost, css.Icon, css.Large)

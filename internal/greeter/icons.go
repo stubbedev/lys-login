@@ -8,14 +8,28 @@ import (
 
 	"github.com/stubbedev/lys-lib/atomicfile"
 	"github.com/stubbedev/lys-ui/widget"
+
+	loginscreen "github.com/stubbedev/lys-login/internal/screen"
 )
 
-// embeddedIcons are the glyphs the greeter shows (the power buttons,
-// the session picker's arrow and checkmark): pre-login there is no
+// embeddedIcons are the glyphs of themeIcons: pre-login there is no
 // icon theme to rely on.
 //
 //go:embed assets/*.svg
 var embeddedIcons embed.FS
+
+const (
+	sleepIcon         = "ld-moon-symbolic"
+	restartIcon       = "ld-rotate-ccw-symbolic"
+	shutdownIcon      = "ld-power-symbolic"
+	accessibilityIcon = "ld-accessibility-symbolic"
+)
+
+// themeIcons are the theme icons the greeter draws, each embedded as
+// assets/<name>.svg.
+func themeIcons() []string {
+	return append([]string{sleepIcon, restartIcon, shutdownIcon, accessibilityIcon}, loginscreen.Icons()...)
+}
 
 // installIcons is install_icons: the embedded glyphs written to
 // $XDG_RUNTIME_DIR/lys-greeter-icons (the temp dir without one) and
@@ -35,22 +49,19 @@ func installIcons() error {
 	return nil
 }
 
-// writeIcons materializes the embedded glyphs into dir.
+// writeIcons materializes the glyph of every theme icon into dir.
 func writeIcons(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // the session runtime dir, as install_icons uses it
 		return fmt.Errorf("greeter: icon dir %s: %w", dir, err)
 	}
-	entries, err := embeddedIcons.ReadDir("assets")
-	if err != nil {
-		return fmt.Errorf("greeter: embedded icons: %w", err)
-	}
-	for _, e := range entries {
-		data, err := embeddedIcons.ReadFile("assets/" + e.Name())
+	for _, name := range themeIcons() {
+		file := name + ".svg"
+		data, err := embeddedIcons.ReadFile("assets/" + file)
 		if err != nil {
-			return fmt.Errorf("greeter: embedded icon %s: %w", e.Name(), err)
+			return fmt.Errorf("greeter: embedded icon %s: %w", name, err)
 		}
-		if err := atomicfile.WriteFile(filepath.Join(dir, e.Name()), data, 0o600); err != nil {
-			return fmt.Errorf("greeter: icon %s: %w", e.Name(), err)
+		if err := atomicfile.WriteFile(filepath.Join(dir, file), data, 0o600); err != nil {
+			return fmt.Errorf("greeter: icon %s: %w", file, err)
 		}
 	}
 	return nil

@@ -147,7 +147,7 @@ func (s *screen) a11yButton(font render.Font) *widget.Box {
 		StickyKeys:   s.d.a11y.dispatch != nil,
 		SlowKeys:     s.d.a11y.dispatch != nil,
 	}
-	m.button = widget.NewButton(widget.NewThemeIcon("ld-accessibility-symbolic", powerIconPx), 0, 0)
+	m.button = widget.NewButton(widget.NewThemeIcon(accessibilityIcon, powerIconPx), 0, 0)
 	m.button.AddClass("lock-a11y-button", css.Ghost, css.Icon, css.Large)
 	m.button.SetAccessibleName(t("greeter-accessibility"))
 	m.button.SetCursorName("pointer")
