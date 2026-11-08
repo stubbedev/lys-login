@@ -6,17 +6,17 @@
 lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... [--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]
 ```
 
-| Flag | Default | What it does |
+| Flag | Default | Effect |
 | --- | --- | --- |
-| `--config PATH` | `/etc/lys-shell/config.yaml` | The lys-shell config used for theming. |
-| `--sessions DIR` | `/usr/local/share/wayland-sessions`, `/usr/share/wayland-sessions` | A Wayland session directory. Repeatable; replaces the defaults. |
-| `--xsessions DIR` | `/usr/local/share/xsessions`, `/usr/share/xsessions` | An X11 session directory, launched through `startx`. Repeatable; replaces the defaults. |
-| `--state PATH` | `$XDG_STATE_HOME/lys-greeter/last-session`, else under `$HOME/.local/state`, else `/var/lib/lys-greeter/last-session` | The file holding the last session id, with the username in a `last-user` file beside it. |
-| `--env KEY=VAL` | | Extra environment for the started session, after `XDG_SESSION_TYPE`, which the greeter sets from the session's kind (`wayland` for a `-- <argv>` session). Repeatable. |
-| `--hand-over` | off | Set by `lys-login daemon`: after a login the greeter stays up showing only its background until the daemon stops its compositor. Under greetd leave it off, and the greeter exits so greetd starts the session. |
-| `-- <argv...>` | | An explicit fallback session, offered as "Custom". |
+| `--config PATH` | `/etc/lys-shell/config.yaml` | lys-shell config to theme from. |
+| `--sessions DIR` | `/usr/local/share/wayland-sessions`, `/usr/share/wayland-sessions` | Wayland session directory. Repeatable; replaces the defaults. |
+| `--xsessions DIR` | `/usr/local/share/xsessions`, `/usr/share/xsessions` | X11 session directory, started through `startx`. Repeatable; replaces the defaults. |
+| `--state PATH` | `$XDG_STATE_HOME/lys-greeter/last-session`, else `$HOME/.local/state/lys-greeter/last-session`, else `/var/lib/lys-greeter/last-session` | Last-session file; other [state](/guide/configuration#state) goes beside it. |
+| `--env KEY=VAL` | | Extra session environment, applied after the `XDG_SESSION_TYPE` derived from the session kind. Repeatable. |
+| `--hand-over` | off | Set by the daemon: after a login, keep showing the background until the daemon stops the compositor. Without it the greeter exits so greetd can start the session. |
+| `-- <argv...>` | | Fallback session offered as "Custom" (type `wayland`). |
 
-It exits 2 on a malformed command line, or with no session to offer.
+Exits 2 on a malformed command line or when there is no session to offer.
 
 ## lys-login daemon
 
@@ -24,22 +24,22 @@ It exits 2 on a malformed command line, or with no session to offer.
 lys-login daemon [--vt N] [--service NAME] [--greeter-user NAME] [--compositor PATH] [--runtime-dir DIR] [--splash PATH] [--autologin USER [--autologin-session ID]] [-- <greet args...>]
 ```
 
-Run as root by its service. Everything after `--` goes to `lys-login greet`, and a
-session list that would be empty stops it at startup.
+Runs as root. Arguments after `--` go to `lys-login greet`; an empty session list
+stops it at startup.
 
-| Flag | Default | What it does |
+| Flag | Default | Effect |
 | --- | --- | --- |
-| `--vt N` | `1` | The virtual terminal. |
-| `--service NAME` | `lys-login` | The [PAM service](/guide/pam). |
-| `--greeter-user NAME` | `lys-greeter` | The account the greeter runs as. |
+| `--vt N` | `1` | Virtual terminal. |
+| `--service NAME` | `lys-login` | [PAM service](/guide/pam). |
+| `--greeter-user NAME` | `lys-greeter` | Account the greeter runs as. |
 | `--compositor PATH` | `lys-wm` | The greeter's compositor. |
-| `--runtime-dir DIR` | `/run/lys-login` | The directory for the sockets and the kiosk config. |
+| `--runtime-dir DIR` | `/run/lys-login` | Sockets and kiosk config. |
 | `--splash PATH` | | lys-splash, quit with `--retain-splash` once the greeter's first frame is presented. |
-| `--autologin USER` | | Log USER in once per boot, before the first greeter, through the `lys-login-autologin` [PAM service](/guide/pam#autologin). After USER logs out, the greeter shows. |
-| `--autologin-session ID` | the last session, else the first offered | The session the autologin starts: a session file's name, `-x11` for X11 ones. An ID no session has stops the daemon at startup. |
+| `--autologin USER` | | Log USER in once per boot via `lys-login-autologin` ([Autologin](/guide/pam#autologin)). |
+| `--autologin-session ID` | last session, else first | Session to autologin into (a session file's name, `-x11` suffix for X11). An unknown ID, or this flag without `--autologin`, stops the daemon at startup. |
 
-The packaged unit keeps these arguments in `LYS_LOGIN_DAEMON_ARGS`, for its `ExecStart`
-and its `ExecReload` alike:
+The packaged unit's `ExecStart` and `ExecReload` both use
+`LYS_LOGIN_DAEMON_ARGS`:
 
 ```text
 --vt 1 --service lys-login --greeter-user lys-greeter --compositor /usr/bin/lys-wm --splash /usr/bin/lys-splash -- --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
@@ -51,13 +51,16 @@ and its `ExecReload` alike:
 lys-login upgrade [-- <daemon args...>]
 ```
 
-Run as root from the new build, usually by `systemctl reload lys-login`. It moves the
-running daemon to that build and those arguments in place, and prints the program the
-daemon now runs. [Upgrading in place](/reference/architecture#upgrading-in-place) says
-what stays and what changes.
+Run as root from the new build, normally by `systemctl reload lys-login`. Moves
+the running daemon to this build and these arguments
+([Upgrading in place](/reference/architecture#upgrading-in-place)) and prints the
+program it now runs.
 
-It exits 0 once the new daemon has taken over. It exits 1 with the reason when the upgrade
-fails, and the old daemon keeps running. It exits 2 on arguments the daemon would refuse.
+| Exit | Meaning |
+| --- | --- |
+| 0 | The new daemon took over. |
+| 1 | The upgrade failed; the reason is printed and the old daemon keeps running. |
+| 2 | Arguments the daemon would refuse. |
 
 ## lys-login lock
 
@@ -65,8 +68,8 @@ fails, and the old daemon keeps running. It exits 2 on arguments the daemon woul
 lys-login lock
 ```
 
-No arguments. [The lock screen](/guide/lock-screen#the-contract-with-lys-shell) lists
-its output and exit codes.
+No arguments. Output and exit codes:
+[The lock screen](/guide/lock-screen#interface-with-lys-shell).
 
 ## lys-login apply-config
 
@@ -74,9 +77,8 @@ its output and exit codes.
 lys-login apply-config [--config PATH] <STAGED.yaml>
 ```
 
-Changes the login screen and prints the file it wrote. `--config` is root's: a user's
-change goes to the display manager, which writes the config it shows. See
-[Configuration](/guide/configuration#change-the-login-screen-from-your-session).
+Changes the login screen and prints the file written. `--config` is root-only.
+See [Configuration](/guide/configuration#change-the-login-screen-from-your-session).
 
 ## lys-login record-cursor
 
@@ -84,9 +86,9 @@ change goes to the display manager, which writes the config it shows. See
 lys-login record-cursor
 ```
 
-Hands the session's cursor to the display manager and prints the file it wrote. A session
-that names no cursor records nothing and exits 0. See
-[Configuration](/guide/configuration#the-cursor).
+Sends the session's cursor to the daemon and prints the file written. Exits 0
+without recording when the session names no cursor. See
+[Configuration](/guide/configuration#cursor).
 
 ## lys-login switch-user
 
@@ -94,19 +96,17 @@ that names no cursor records nothing and exits 0. See
 lys-login switch-user
 ```
 
-Run in a session the display manager started: locks the running sessions and shows a
-greeter on a free VT, where another user logs in beside them, or picks a user whose
-session runs to switch back to it without a password. The lock screen's Switch User
-button does the same; `login.lock.show-switch-user` turns it off. See
-[Switching users](/reference/architecture#switching-users).
+In a session started by the daemon: locks the running sessions and shows a
+greeter on a free VT. See [Switching users](/reference/architecture#switching-users).
 
 ## Internal modes
 
-`lys-login worker`, `lys-login daemon-resume` and `lys-login vault-unlock` are started by lys-login itself.
+`lys-login worker`, `lys-login daemon-resume` and `lys-login vault-unlock` are
+started by lys-login itself.
 
 ## Environment
 
-| Variable | What it does |
+| Variable | Effect |
 | --- | --- |
-| `LYS_UI_RENDERER` | `cpu` always draws on the CPU, `gpu` makes a GPU that cannot draw an error, and unset or `auto` picks. |
-| `XCURSOR_THEME`, `XCURSOR_SIZE` | The cursor, last in the [order](/guide/configuration#the-cursor) the greeter resolves it in. |
+| `LYS_UI_RENDERER` | `cpu` always draws on the CPU; `gpu` makes an unusable GPU an error; unset or `auto` picks. |
+| `XCURSOR_THEME`, `XCURSOR_SIZE` | Last step of [cursor resolution](/guide/configuration#cursor). |

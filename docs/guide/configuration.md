@@ -1,21 +1,20 @@
 # Configuration
 
-The greeter and the lock screen read the `login` section of the lys-shell
-config schema. The
+Both screens read the `login` section of the lys-shell config. The
 [login reference](https://stubbedev.github.io/lys-shell/config/login) on the
-lys-shell site lists every key with its type and default; this page says which
-screen reads what, from where.
+lys-shell site is the schema; this page covers what lys-login does with it.
+`lys-settings` edits these keys under **Login & Lock Screen** and **Greeter**.
 
 ## Which file
 
-| Screen | Reads | Why |
-| --- | --- | --- |
-| Greeter | `/etc/lys-shell/config.yaml` (`--config` overrides), then `runtime.yaml` beside it | It runs before anyone logs in, as an account that cannot read your home. |
-| Lock screen | Your own lys-shell config, `~/.config/lys-shell/config.yaml` | It runs in your session. |
+| Screen | Reads |
+| --- | --- |
+| Greeter | `/etc/lys-shell/config.yaml` (`--config` overrides), then `runtime.yaml` beside it |
+| Lock screen | Your config, `~/.config/lys-shell/config.yaml` |
 
-Copy or symlink your config to the system path if you want the greeter to follow
-it. A config the greeter cannot load logs the reason and the greeter runs on the
-defaults.
+The greeter runs as an account that cannot read your home: copy or symlink your
+config to the system path to share it. A config the greeter cannot load is
+logged and the defaults are used.
 
 ```yaml
 # /etc/lys-shell/config.yaml
@@ -25,38 +24,45 @@ login:
   background-mode: color
   background-color: "#1e1e2e"
   greeter:
-    show-user-list: true
     cursor-size: 24
 ```
 
-The former top-level `greeter` and `lock` sections still load: each key moves to
-its place in `login`, with a warning naming the new key.
-
-## Who reads which key
+## Keys
 
 | Key | Greeter | Lock screen |
 | --- | --- | --- |
 | `styling`, `general.font-sans` | yes | yes |
 | `login.background-mode`, `background-image`, `background-color`, `blur` | yes | yes |
-| `wallpaper.wallpaper`, for `background-mode: wallpaper` | yes | yes |
+| `wallpaper.wallpaper` (for `background-mode: wallpaper`) | yes | yes |
 | `login.show-clock`, `clock-format`, `date-format` | yes | yes |
 | `login.max-attempts`, `show-failed-attempts` | no | yes |
 | `login.lock.*` | no | yes |
 | `animations`, `bitwarden.unlock-with-session` | no | yes |
 | `login.greeter.*` | yes | no |
 
-The greeter carries no user stylesheet, as there is no user yet.
-`lys-settings` edits these under **Login & Lock Screen** and **Greeter**.
+The greeter applies no user stylesheet.
+
+`login.greeter`:
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `show-user-list` | bool | `true` | Show the [user list](/guide/getting-started#the-greeter). |
+| `show-power-buttons` | bool | `true` | Show suspend, restart and shut down. |
+| `cursor-theme` | string | `""` | Cursor theme; empty resolves it as described [below](#cursor). |
+| `cursor-size` | int | `24` | Cursor size; when not set explicitly it is resolved like the theme. |
+| `screen-reader` | string | `orca` | Program the accessibility menu starts. |
+
+`login.lock` is described on [The lock screen](/guide/lock-screen#configuration).
 
 ## Change the login screen from your session
 
 `lys-login apply-config <STAGED.yaml>` writes login keys to
-`/etc/lys-shell/runtime.yaml`, so a hand-written `config.yaml` is never
-clobbered and other tables in the overlay stay. The **Apply to login screen**
-button in `lys-settings` runs it for you. The next greeter shows the change.
+`/etc/lys-shell/runtime.yaml`, leaving `config.yaml` and other tables in the
+overlay untouched. The **Apply to login screen** button in `lys-settings` runs it.
+The next greeter shows the change.
 
-The staged file holds a `login` table, or its keys at the top level. Only these
-keys are taken, relative to `login`:
+The staged file holds a `login` table or its keys at top level. Only these keys,
+relative to `login`, are taken:
 
 ```text
 background-mode  background-image  background-color  blur
@@ -65,115 +71,87 @@ greeter.show-user-list  greeter.show-power-buttons
 greeter.cursor-theme  greeter.cursor-size
 ```
 
-With `background-mode: image`, the image is read with your rights, up to 32 MiB,
-and copied beside the overlay as `greeter-background<ext>`, so the greeter never
-needs access to your files.
+With `background-mode: image`, the image (at most 32 MiB) is read with your
+rights and copied beside the overlay as `greeter-background<ext>`.
 
-Who may run it depends on what runs the greeter:
+Who may run it:
 
-- **Under `lys-login daemon`,** the user logged in through it, as themselves. It
-  hands the change to the daemon over `/run/lys-login/apply.sock`, with no
-  polkit. The daemon takes a change from root and from the user whose session it
-  runs, so while the greeter is up only root can.
-- **Under greetd, or with no session,** root: `sudo lys-login apply-config`, with
-  `--config PATH` for another system config. When the button in `lys-settings`
-  fails, it offers **Apply as administrator**, which does this through `pkexec`.
+- **Under `lys-login daemon`**: root, or the user whose session the daemon runs,
+  through `/run/lys-login/apply.sock`. While only the greeter is up, only root.
+- **Under greetd or without a session**: root, writing directly
+  (`sudo lys-login apply-config`, `--config PATH` for another system config).
+  When the `lys-settings` button fails it offers **Apply as administrator**,
+  which runs this through `pkexec`.
 
-## The cursor
+## Cursor
 
 An explicit `login.greeter.cursor-theme` or `cursor-size` wins. Otherwise the
-greeter shows the cursor of the last user to log in, or of the only user if
-there is one. Size and theme are resolved separately, in this order:
+greeter uses the cursor of the last user to log in, or the only user. Theme and
+size are resolved separately, first match wins:
 
-1. **The record the session left.** `lys-login record-cursor` sends the session's
-   `XCURSOR_THEME` and `XCURSOR_SIZE` (or `HYPRCURSOR_SIZE`) over
-   `/run/lys-login/cursor.sock`. The daemon takes it only from the user whose
-   session it runs and keeps it world-readable in
-   `/var/lib/lys-login/cursor/<uid>`, so it works from a `0700` home and however
-   the cursor was set. lys-shell runs it at startup; under another session, run
-   it from the compositor's autostart. There is no record under greetd, which has
-   no daemon to keep it.
-2. **That user's dotfiles,** best effort, as the greeter's account must be able
-   to enter the home (`chmod o+x "$HOME"`): the Hyprland config (`env =
-   XCURSOR_*`, `hyprctl setcursor`, following `source =` includes), niri's
-   `cursor` block, sway's `seat … xcursor_theme`, with the compositor of the
-   remembered session first; then GTK's `settings.ini` and
-   `~/.icons/default/index.theme`.
-3. **The `XCURSOR_THEME` and `XCURSOR_SIZE` environment,** then the size default.
+1. **The session's record.** `lys-login record-cursor` sends `XCURSOR_THEME` and
+   `XCURSOR_SIZE` (or `HYPRCURSOR_SIZE`) over `/run/lys-login/cursor.sock`. The
+   daemon accepts it only from the user whose session it runs and stores it in
+   `/var/lib/lys-login/cursor/<uid>`. lys-shell runs it at startup; under other
+   sessions run it from the compositor's autostart. Not available under greetd.
+2. **That user's dotfiles**, if the greeter account can enter the home
+   (`chmod o+x "$HOME"`): Hyprland (`env = XCURSOR_*`, `hyprctl setcursor`,
+   following `source =`), niri's `cursor` block, sway's
+   `seat … xcursor_theme` (the remembered session's compositor first), then GTK
+   `settings.ini` and `~/.icons/default/index.theme`.
+3. **`XCURSOR_THEME` and `XCURSOR_SIZE`** in the environment, then the default.
 
-Under the daemon, the configured or recorded cursor goes into the greeter's lys-wm
-kiosk config, so lys-wm draws it and the greeter inherits it. The daemon reads no
-dotfiles itself, as it runs as root.
+Under the daemon the cursor goes into the greeter's lys-wm kiosk config. The theme
+must be installed system-wide, where the greeter account can read it; otherwise
+lys-wm draws its built-in arrow.
 
-The theme itself has to be readable by the greeter's account, which a theme
-installed only in your `0700` home is not: install it system-wide. With no theme
-it can open, lys-wm draws its built-in arrow.
+Under `displayManager = "greetd"` the NixOS module passes the system's
+`XCURSOR_THEME` and `XCURSOR_SIZE` (`environment.sessionVariables`, then
+`environment.variables`) with `XCURSOR_PATH=/run/current-system/sw/share/icons`
+to cage and the greeter. On other greetd setups set these in the greetd command.
 
-The NixOS module adds one thing under `displayManager = "greetd"`: it passes the
-system's `XCURSOR_THEME` and `XCURSOR_SIZE`
-(`environment.sessionVariables`, then `environment.variables`) to cage and the
-greeter, with `XCURSOR_PATH=/run/current-system/sw/share/icons`, where a theme
-from `environment.systemPackages` lands. On other greetd setups pass
-`XCURSOR_THEME` and `XCURSOR_PATH` in the greetd command.
+## Keyboard layout
 
-## The keyboard layout
+Under the daemon the greeter uses the system layout. On each greeter start the
+daemon reads `X11Layout`, `X11Model`, `X11Variant` and `X11Options` from
+systemd-localed (2 s timeout), else `/etc/X11/xorg.conf.d/00-keyboard.conf`, else
+`XKBLAYOUT`, `XKBMODEL`, `XKBVARIANT`, `XKBOPTIONS` in `/etc/vconsole.conf`, and
+writes it to the kiosk config as `input.keyboard`. Set it with
+`localectl set-x11-keymap de`, or `services.xserver.xkb.layout` on NixOS. A
+layout lys-wm cannot compile is logged and lys-wm's US default is used.
 
-Under the daemon, the greeter types with the system's keyboard layout. Each time
-the greeter starts, the daemon asks systemd-localed (`localectl status`, the
-`X11Layout`, `X11Model`, `X11Variant` and `X11Options` of
-`org.freedesktop.locale1`), waiting 2 seconds at most. Without localed it reads
-`/etc/X11/xorg.conf.d/00-keyboard.conf`, then the `XKBLAYOUT`, `XKBMODEL`,
-`XKBVARIANT` and `XKBOPTIONS` of `/etc/vconsole.conf`. The layout goes into the
-greeter's lys-wm kiosk config as `input.keyboard`. Set it with
-`localectl set-x11-keymap de`, or on NixOS with `services.xserver.xkb.layout`,
-which localed reads.
-
-A layout lys-wm could not compile is logged and left out, so the greeter still
-comes up, with lys-wm's default US layout.
-
-With more than one layout (`localectl set-x11-keymap de,us`), a chip in the top
-right corner of the greeter shows the one the password is typed in (`DE`, `US`).
-Clicking it moves to the next layout, as does the switch key the XKB options
-name, such as `grp:caps_toggle` or `grp:alt_shift_toggle`. The greeter remembers
-the layout each user logged in with and switches to it when that user is chosen
-or remembered. Under greetd the chip only shows the layout: switching by click
-needs lys-wm.
+With several layouts (`localectl set-x11-keymap de,us`) a chip in the top right
+shows the active one. Clicking it or the XKB switch option (`grp:caps_toggle`,
+`grp:alt_shift_toggle`, …) cycles layouts. The greeter remembers each user's
+layout and switches to it when that user is chosen. Under greetd the chip only
+displays the layout.
 
 ## Accessibility
 
-The accessibility button beside the power buttons opens a menu, reachable by
-Tab and toggled with Space or Enter:
+The accessibility button beside the power buttons opens a menu (Tab to reach,
+Space or Enter to toggle):
 
-- **Screen reader** starts `login.greeter.screen-reader` (`orca` from the PATH by
-  default) and serves the greeter over AT-SPI; Super+Alt+S toggles it without
-  the menu. Its row is hidden when the program is not installed. The NixOS module
-  makes at-spi2-core D-Bus activatable for this.
-- **Large text** scales the login screen's text by 1.5, live.
-- **High contrast** switches the login screen to its `prefers-contrast: more`
-  styles, live.
-- **Sticky keys** and **Slow keys** (300 ms) turn on lys-wm's
-  `input.keyboard.sticky_keys` and `slow_keys` in the kiosk. They need lys-wm, so
-  under greetd their rows are hidden.
+| Option | Effect |
+| --- | --- |
+| Screen reader | Starts `login.greeter.screen-reader` and serves the greeter over AT-SPI. Super+Alt+S toggles it. Hidden if the program is missing. |
+| Large text | Scales text by 1.5. |
+| High contrast | Uses the `prefers-contrast: more` styles. |
+| Sticky keys | lys-wm's `input.keyboard.sticky_keys`. Hidden under greetd. |
+| Slow keys | lys-wm's `slow_keys`, 300 ms. Hidden under greetd. |
 
-The choices are the machine's, kept for the next greeter, so a reader that was
-on comes back at the next boot. A user's own settings are not touched, and with
-every option off the greeter starts no accessibility process.
+Choices apply to the machine and persist to the next greeter. With every option
+off, no accessibility process runs. The NixOS module enables
+`services.gnome.at-spi2-core` by default for the screen reader.
 
-## What it remembers
+## State
 
-The last session goes in the `--state` file, the last username in a
-`last-user` file beside it, and the layout each user logged in with in
-`last-layout/<user>`, and the accessibility choices in an `accessibility` file.
-The display manager's unit and the NixOS module use `/var/lib/lys-greeter/`,
-`0700` and owned by the greeter's account: `lys-greeter`, or `greeter` under
-greetd.
+Kept beside the `--state` file (`/var/lib/lys-greeter/`, mode `0700`, owned by
+`lys-greeter`, or `greeter` under greetd):
 
-## Who the user list shows
-
-`show-user-list` offers accounts with a UID from 1000 to 59999 and a login
-shell. Where AccountsService runs, it leaves out any account marked
-`SystemAccount=true` in `/var/lib/AccountsService/users/<name>`, such as a
-spare administrator account. Without AccountsService, or if it does not
-answer within 2 seconds, every such account is listed.
-
-A left-out account still logs in by typing its name.
+| File | Holds |
+| --- | --- |
+| `last-session` (the `--state` file) | Last session id |
+| `last-user` | Last username |
+| `last-layout/<user>` | Each user's keyboard layout |
+| `accessibility` | Accessibility choices |
+| `cache/` | The greeter's `XDG_CACHE_HOME` |

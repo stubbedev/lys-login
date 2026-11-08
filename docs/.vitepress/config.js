@@ -22,15 +22,14 @@ export default lysConfig({
       text: 'Install',
       items: [
         { text: 'NixOS', link: '/install/nixos' },
-        { text: 'Debian and Ubuntu', link: '/install/debian' },
-        { text: 'Fedora', link: '/install/fedora' },
+        { text: 'Debian, Ubuntu and Fedora', link: '/install/packages' },
         { text: 'Other systems', link: '/install/other' },
       ],
     },
     {
       text: 'Reference',
       items: [
-        { text: 'How it fits together', link: '/reference/architecture' },
+        { text: 'Architecture', link: '/reference/architecture' },
         { text: 'Command line', link: '/reference/cli' },
         { text: 'Development', link: '/reference/development' },
       ],

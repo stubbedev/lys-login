@@ -1,15 +1,14 @@
 # Other systems
 
-There are two ways to run it on a system without a package: the display manager from
-the release archive, or only the greeter, under greetd.
+Run the display manager from the release archive, or only the greeter under greetd.
 
-## The display manager from the archive
+## Display manager from the archive
 
-The release's `lys-login-<version>-<arch>-linux.tar.gz` (`x86_64` or `aarch64`) holds the files the packages
-install, with both distributions' PAM services under `pam/`. The binary asks for
-the standard program interpreter, and the unit names `/usr/bin/lys-login` and
-`/usr/bin/lys-wm`; lys-wm has an archive of its own in
-[its releases](https://github.com/stubbedev/lys-wm/releases). From the unpacked
+`lys-login-<version>-<arch>-linux.tar.gz` (`x86_64`, `aarch64`) holds the binary,
+unit, sysusers and tmpfiles files, and both distributions' PAM files under `pam/`.
+The binary uses the standard program interpreter; the unit expects
+`/usr/bin/lys-login` and `/usr/bin/lys-wm` (lys-wm has its own archive in
+[its releases](https://github.com/stubbedev/lys-wm/releases)). From the unpacked
 directory:
 
 ```sh
@@ -22,17 +21,15 @@ sudo systemd-tmpfiles --create lys-login.conf
 sudo systemctl daemon-reload
 ```
 
-Then write `/etc/pam.d/lys-login` for your distribution from the file under `pam/`
-closest to it ([PAM services](/guide/pam)), and switch display managers:
+Write `/etc/pam.d/lys-login` (and `lys-login-autologin` for autologin) from the
+closest file under `pam/` ([PAM services](/guide/pam)), then:
 
 ```sh
 sudo systemctl disable gdm
 sudo systemctl enable lys-login
 ```
 
-## The greeter under greetd
-
-Point greetd's `default_session` at the greeter, hosted by cage:
+## Greeter under greetd
 
 ```toml
 # /etc/greetd/config.toml
@@ -41,51 +38,48 @@ command = "cage -s -- lys-login greet --config /etc/lys-shell/config.yaml --stat
 user = "greeter"
 ```
 
-greetd starts the kiosk compositor, whose single client is the greeter, and replaces
-it with your chosen session on login:
-
 ```text
-greetd → cage -s → lys-login greet → (login) → your compositor
+greetd → cage -s → lys-login greet → (login) → your session
 ```
 
-- The greeter runs as the greetd user with no usable home, so its config lives at a
-  system path, `/etc/lys-shell/config.yaml` by default.
-- Create the state directory, writable by the greetd user:
+- Create the state directory:
   `install -d -o greeter -g greeter -m 0700 /var/lib/lys-greeter`.
-- Sessions come from `/usr/local/share/wayland-sessions` and
-  `/usr/share/wayland-sessions`, and the same for `xsessions`. `--sessions DIR` and
-  `--xsessions DIR` override them.
-- Append an explicit fallback session with `-- sway`. It is offered as "Custom", and
-  is the only entry when there are no session files.
-
-Under greetd there is no daemon, so `lys-login record-cursor` has nothing to talk to
-and `apply-config` needs root. See [Configuration](/guide/configuration).
+- Sessions come from `/usr/local/share/wayland-sessions`,
+  `/usr/share/wayland-sessions` and the matching `xsessions`; `--sessions DIR`
+  and `--xsessions DIR` replace them.
+- `-- sway` appends a fallback session offered as "Custom".
+- There is no daemon, so `record-cursor` is unavailable and `apply-config` needs
+  root.
 
 ### home-manager
 
-`lys-login.homeManagerModules.default` with `programs.lys-login.greeter.enable`
-installs cage and a `lys-greeter-session` wrapper, cage and the greeter in one
-command, to point greetd at. It passes its arguments on to `lys-login greet`:
+`lys-login.homeManagerModules.default` options, under `programs.lys-login`:
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `enable` | bool | `false` | Install `lys-login`. |
+| `package` | package | this flake's | The lys-login package. |
+| `lock.enable` | bool | `false` | Warn with the steps to create the lock screen's PAM service. |
+| `lock.pamService` | string | `"lys-shell"` | The service name used in that warning. |
+| `greeter.enable` | bool | `false` | Install cage and the `lys-greeter-session` wrapper, and warn with the greetd setup left to do. |
+| `greeter.cagePackage` | package | `pkgs.cage` | The kiosk compositor. |
+| `greeter.renderer` | `"auto"` or `"software"` | `"auto"` | `software` bakes the CPU/pixman variables into the wrapper. |
+| `greeter.settings` | YAML | `{}` | Written to `$XDG_CONFIG_HOME/lys-shell/greeter.yaml`; copy it where the greetd user can read it. |
+
+`lys-greeter-session` runs cage and the greeter, passing its arguments to
+`lys-login greet`:
 
 ```text
 lys-greeter-session --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session
 ```
 
-home-manager cannot manage greetd or PAM, so the module warns with what is left to
-do. Its `greeter.settings` go to `$XDG_CONFIG_HOME/lys-shell/greeter.yaml`; copy them
-somewhere the greetd user can read. `programs.lys-login.enable` alone installs the
-binary for the lock screen.
-
 ### Rendering without a GPU
 
-The login screen needs no GPU: it draws on the CPU when Vulkan is not available.
-`LYS_UI_RENDERER=cpu` forces that. For cage, set `WLR_RENDERER=pixman` and
-`WLR_DRM_NO_MODIFIERS=1`. The home-manager wrapper sets all three with
-`greeter.renderer = "software"`. This suits VMs and hosts where GPU setup is
-unreliable.
-
-On a host that is not NixOS, the nix-built package needs
-[nixGL](https://github.com/nix-community/nixGL) around the whole launch for the GPU:
+The greeter draws on the CPU when Vulkan is unavailable; `LYS_UI_RENDERER=cpu`
+forces it. For cage set `WLR_RENDERER=pixman` and `WLR_DRM_NO_MODIFIERS=1`.
+`greeter.renderer = "software"` sets all three. On a non-NixOS host, run the
+nix-built package under [nixGL](https://github.com/nix-community/nixGL) for GPU
+rendering:
 
 ```text
 nixGLIntel lys-greeter-session --config /etc/lys-shell/config.yaml --state /var/lib/lys-greeter/last-session

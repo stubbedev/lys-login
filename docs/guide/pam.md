@@ -1,71 +1,66 @@
 # PAM services
 
-lys-login has no authentication of its own: both screens run a PAM conversation
-and show what PAM asks, so a one-time code or an expired password works wherever
-the service asks for it.
+lys-login has no authentication of its own. Both screens run a PAM conversation
+and show whatever PAM asks.
 
-| Service | Used by | Calls | Where it comes from |
-| --- | --- | --- | --- |
-| `lys-login` (`--service`) | The display manager, for each login | authenticate, account check, credentials, open session | Package, NixOS module |
-| `lys-login` (`--service`) | The display manager, for the greeter's own session | credentials, open session; nothing to authenticate | Package, NixOS module |
-| `login.lock.pam-service` | The lock screen | authenticate, account check | See [below](#the-lock-screen-s-service) |
+| Service | Used by | PAM calls |
+| --- | --- | --- |
+| `lys-login` (`--service`) | Each login through the daemon | authenticate, account, credentials, open session |
+| `lys-login` (`--service`) | The greeter's own session | credentials, open session |
+| `lys-login-autologin` | [Autologin](#autologin) | as `lys-login`, authenticating with `pam_permit` |
+| `login.lock.pam-service` | The lock screen | authenticate, account |
 
-Under greetd, greetd runs the login with its own service, and lys-login only
-talks to it.
+Under greetd, greetd authenticates with its own service.
+
+The Debian/Ubuntu and Fedora packages install `lys-login`, `lys-login-autologin`
+and `lys-shell` into `/etc/pam.d`, from
+[`resources/pam/`](https://github.com/stubbedev/lys-login/tree/main/resources/pam).
+The NixOS module declares them.
 
 ## The display manager's service
 
 It needs a session stack with `pam_systemd`, which registers the greeter and each
-login with logind on the seat and VT the daemon hands it. The workers put
-`XDG_SESSION_TYPE` (`wayland` for the greeter and Wayland sessions, `x11` for
-X11 sessions, `wayland` for a custom session unless `--env` says otherwise),
-`XDG_SESSION_CLASS` (`greeter` or `user`),
-`XDG_SEAT=seat0` and `XDG_VTNR` in the PAM environment for it.
+login with logind. The workers set in the PAM environment:
 
-- **Debian and Ubuntu:** the usual display-manager stack over `common-auth`,
-  `common-account`, `common-session` and `common-password`, with `pam_systemd`
-  from the common session
-  ([`resources/pam/debian/lys-login`](https://github.com/stubbedev/lys-login/blob/main/resources/pam/debian/lys-login)).
-- **Fedora:** over `password-auth` and `postlogin`
-  ([`resources/pam/fedora/lys-login`](https://github.com/stubbedev/lys-login/blob/main/resources/pam/fedora/lys-login)).
-- **NixOS:** `security.pam.services.lys-login.startSession = true`, set by the
-  module.
+| Variable | Value |
+| --- | --- |
+| `XDG_SESSION_TYPE` | `wayland` for the greeter and Wayland sessions, `x11` for X11 sessions; a custom session is `wayland` unless `--env` overrides it |
+| `XDG_SESSION_CLASS` | `greeter` or `user` |
+| `XDG_SEAT` | `seat0` |
+| `XDG_VTNR` | The session's VT |
 
-Elsewhere, start from one of these and adjust the includes to your distribution.
+- **Debian, Ubuntu**: `common-auth`, `common-account`, `common-session`,
+  `common-password`.
+- **Fedora**: `password-auth` and `postlogin`.
+- **NixOS**: `security.pam.services.lys-login.startSession = true`.
+
+Elsewhere, adapt one of the packaged files.
 
 ## Autologin
 
-`--autologin` logs its user in through a second service, `lys-login-autologin`, which
-asks nothing: `pam_permit` authenticates, and the account and session stacks are the
-display manager's. Once it has, the worker reads the `cryptsetup` key
-systemd-cryptsetup left in the kernel keyring at boot, if any, and hands that
-passphrase to the [keyring](#the-keyring) as it hands a typed one. (PAM keeps
-`PAM_AUTHTOK` from applications, so what `pam_systemd_loadkey` sets is for the modules
-later in the stack, such as `pam_gnome_keyring`, not for the worker.) Where the
-disk's passphrase is also the login keyring's password, the one prompt at boot
-unlocks the disk, logs in and opens the keyring, as FileVault does.
+`--autologin USER` logs USER in once per boot, before the first greeter, through
+`lys-login-autologin`: `pam_systemd_loadkey` then `pam_permit`, with the account,
+session and password stacks of the display manager. If it fails the greeter
+shows. After USER logs out the greeter shows.
 
-Without a key there (no LUKS, a TPM unlock, initramfs-tools' cryptroot) the autologin
-still runs, the keyring stays locked until the lock screen opens it, and the worker
-logs which it was. A passphrase that is not the keyring's logs one warning and leaves
-it locked the same way. The daemon's unit runs with `KeyringMode=inherit`, so it sees
-the key systemd-cryptsetup left in root's keyring.
+The worker then reads the `cryptsetup` key that systemd-cryptsetup left in the
+kernel keyring at boot and hands it to the [keyring](#the-keyring) like a typed
+password. The unit runs with `KeyringMode=inherit` to see that key. When the
+disk passphrase is also the keyring password, one prompt at boot unlocks the disk,
+logs in and opens the keyring.
 
-The packages ship it
-([Debian](https://github.com/stubbedev/lys-login/blob/main/resources/pam/debian/lys-login-autologin),
-[Fedora](https://github.com/stubbedev/lys-login/blob/main/resources/pam/fedora/lys-login-autologin)),
-and the NixOS module declares it. `login.lock.lock-on-start` still locks the session as
-it starts, for those who want a lock on arrival.
+With no key there (no LUKS, TPM unlock, initramfs-tools' cryptroot) or a
+passphrase the keyring rejects, the worker logs it and the keyring stays locked
+until the lock screen opens it. `login.lock.lock-on-start` locks the session as
+it starts.
 
 ## The lock screen's service
 
-The lock screen authenticates against the service `login.lock.pam-service` names
-in your lys-shell config. The config's default is `system-auth`, which exists on
-Arch and Fedora but not on Debian or NixOS.
+The lock screen authenticates against `login.lock.pam-service`, default
+`system-auth`. That service exists on Arch and Fedora but not on Debian or NixOS.
 
-- **Debian, Ubuntu, Fedora:** the package installs a `lys-shell` service, over
-  `common-auth` and `common-account` or `system-auth`. Point the config at it,
-  the name the NixOS and home-manager modules use too:
+- **Debian, Ubuntu, Fedora**: the package installs `lys-shell` (over
+  `common-auth`/`common-account`, or `system-auth`). Point the config at it:
 
   ```yaml
   login:
@@ -73,13 +68,12 @@ Arch and Fedora but not on Debian or NixOS.
       pam-service: lys-shell
   ```
 
-- **NixOS:** `programs.lys-login.lock.enable = true` declares the service
-  `lock.pamService` names, `lys-shell` by default. Set the same name in the
-  config. Its gnome-keyring lines are on unless `services.lys-secrets.enable` is
-  set.
-- **Elsewhere:** home-manager cannot write `/etc/pam.d`, so its
-  `programs.lys-login.lock.enable` only warns with these steps. Name an existing
-  service, or create `/etc/pam.d/lys-shell`:
+  Fedora's default `system-auth` also works.
+- **NixOS**: `programs.lys-login.lock.enable = true` declares the service named
+  by `lock.pamService` (default `lys-shell`). Set the same name in the config.
+  Its gnome-keyring lines are enabled unless `services.lys-secrets.enable` is set.
+- **Elsewhere** (home-manager's `lock.enable` only prints these steps): name an
+  existing service or create `/etc/pam.d/lys-shell`:
 
   ```text
   auth     required   pam_unix.so
@@ -91,24 +85,25 @@ Arch and Fedora but not on Debian or NixOS.
   session  optional   pam_gnome_keyring.so auto_start
   ```
 
-  `pam_unix` must be `required`, not `sufficient`: a sufficient pass skips the
-  keyring lines below it. Those lines are `optional`, so they do nothing without
-  gnome-keyring. Debian and Ubuntu package the module as `libpam-gnome-keyring`.
+  `pam_unix` must be `required`: `sufficient` skips the keyring lines. The
+  keyring lines are `optional` and do nothing without gnome-keyring (Debian
+  package `libpam-gnome-keyring`).
 
 ## The keyring
 
-Neither screen needs a PAM module to open your keyring. After a successful
-authentication the password goes to the login collection of lys-secrets, else to
-gnome-keyring, either started on the session's D-Bus when it is not running yet.
-A failure there is logged and never blocks the login or the unlock. Under the
-display manager it is a warning in `journalctl -u lys-login -p warning`. KWallet
-is the exception: it opens only through `pam_kwallet` in the PAM stack. [How it fits together](/reference/architecture#the-keyring) has the
-display manager's side of this.
+No PAM module is needed to open the keyring. After a successful authentication
+the password goes to the login collection of lys-secrets, else gnome-keyring,
+starting either on the session bus if needed. When PAM changes an expired
+password, the lys-secrets collection is re-keyed to the new one. Failures are
+logged (`journalctl -u lys-login -p warning` under the daemon) and never block the
+login or unlock.
+
+KWallet opens only through `pam_kwallet` in the PAM stack.
+[Architecture](/reference/architecture#the-keyring) has the details.
 
 ## Test a service
 
-[pamtester](https://pamtester.sourceforge.net/) runs a service without logging
-out, which is how the distribution VM check tests `lys-shell`:
+[pamtester](https://pamtester.sourceforge.net/) runs a service without logging out:
 
 ```sh
 pamtester lys-shell "$USER" authenticate

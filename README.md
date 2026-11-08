@@ -5,8 +5,7 @@
 <h1 align="center">lys-login</h1>
 
 <p align="center">
-  The lys desktop's login screen: one screen in two modes, the greeter and the
-  lock screen, plus a display manager of its own, in pure Go.
+  The lys desktop's display manager, greeter and lock screen, in pure Go.
 </p>
 
 <p align="center">
@@ -15,57 +14,36 @@
   <a href="https://stubbedev.github.io/lys-login/"><img src="https://img.shields.io/badge/docs-stubbedev.github.io-informational?style=for-the-badge" alt="Documentation"></a>
 </p>
 
-- `lys-login daemon`: the display manager, a root service that shows the greeter
-  in a lys-wm kiosk and starts your session through PAM, with no greetd or cage.
-- `lys-login greet`: the greeter, under `lys-login daemon` or under greetd in a
-  cage kiosk.
-- `lys-login lock`: the session lock on `ext-session-lock-v1`, which
-  [lys-shell](https://github.com/stubbedev/lys-shell) starts.
-- `lys-login upgrade`: moves the running display manager to a new build in place,
-  with no logout. Sessions keep running, and a failed upgrade leaves the old daemon
-  running and says why.
+| Command | What it is |
+| --- | --- |
+| `lys-login daemon` | The display manager: a root service that shows the greeter in a lys-wm kiosk and starts sessions through PAM. |
+| `lys-login greet` | The greeter, under `lys-login daemon` or under greetd in a cage kiosk. |
+| `lys-login lock` | The session lock on `ext-session-lock-v1`, started by [lys-shell](https://github.com/stubbedev/lys-shell). |
+| `lys-login upgrade` | Moves the running display manager to a new build without ending sessions. |
 
-It shares the desktop's look and its `login` config section with lys-shell. After
-authenticating it unlocks the login collection of
-[lys-secrets](https://github.com/stubbedev/lys-secrets), else a running
-gnome-keyring.
+Both screens read the `login` section of the lys-shell config. A successful login
+or unlock opens the login collection of
+[lys-secrets](https://github.com/stubbedev/lys-secrets), else gnome-keyring.
 
 ## Install
 
-On NixOS, add the flake as an input, import `lys-login.nixosModules.default` and
-enable the module, which runs lys-login as the display manager:
+NixOS: import `lys-login.nixosModules.default` from the flake and set
 
 ```nix
 programs.lys-login.greeter.enable = true;
 ```
 
-Each [release](https://github.com/stubbedev/lys-login/releases) carries a `.deb`
-and an `.rpm` for x86_64 and aarch64, and an archive for other systems. Install the package with
-lys-wm, then switch display managers:
+Debian, Ubuntu, Fedora: install the `.deb` or `.rpm` from the
+[releases](https://github.com/stubbedev/lys-login/releases) together with lys-wm, then
 
 ```sh
 sudo systemctl disable gdm
 sudo systemctl enable lys-login
 ```
 
-For the lock screen, lys-shell runs `lys-login lock` from the PATH. Set
-`login.lock.pam-service: lys-shell` in your lys-shell config, the PAM service the
-packages install and `programs.lys-login.lock.enable` declares on NixOS.
-
-## Documentation
-
-The [documentation site](https://stubbedev.github.io/lys-login/) has
-[install steps per distribution](https://stubbedev.github.io/lys-login/guide/getting-started#install),
-[configuration](https://stubbedev.github.io/lys-login/guide/configuration),
-[PAM services](https://stubbedev.github.io/lys-login/guide/pam),
-[how the daemon, greeter and workers fit together](https://stubbedev.github.io/lys-login/reference/architecture)
-and [development](https://stubbedev.github.io/lys-login/reference/development).
-
-## The lys family
-
-lys-login is part of the lys desktop. The `lys` menu of the
-[documentation site](https://stubbedev.github.io/lys-login/) links the rest of the
-family.
+Other systems use the release archive or run the greeter under greetd. See the
+[documentation](https://stubbedev.github.io/lys-login/) for every install path,
+configuration, PAM setup and architecture.
 
 ## License
 

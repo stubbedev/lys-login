@@ -1,46 +1,58 @@
 # Development
 
-The dev shell (`nix develop`, or `direnv allow`) is lys-shell's: the pinned Go
-toolchain, the lint stack, fonts, and the headless sway and private D-Bus the tests
-start.
+`nix develop` (or `direnv allow`) gives lys-shell's dev shell: the pinned Go
+toolchain, the lint stack, fonts, and the headless sway and private D-Bus the
+tests use.
 
-| Recipe | What it does |
+| Recipe | Effect |
 | --- | --- |
-| `just check` | Every release gate in order: vet, lint, test, race, build |
-| `just test` | `go test -shuffle=on ./...` |
-| `just race` | The suite under the race detector |
-| `just lint` | Formatting and `golangci-lint run` against `.golangci.yml` |
-| `just fmt` | Format every Go source in place |
-| `just login-vm` | The display manager in a NixOS VM (needs KVM) |
-| `just keyring-vm` | The login keyring with the real gnome-keyring in a NixOS VM (needs KVM) |
-| `just upgrade-vm` | The daemon upgraded in place in a NixOS VM (needs KVM): a session and its lock screen survive a switch to a second build, a refused and a failed upgrade leave the old daemon running and say why, and the next greeter and lock screen are new |
-| `just greetd-vm` | The greeter under greetd in a cage kiosk in a NixOS VM, on GLES2 over llvmpipe and on pixman (needs KVM) |
-| `just distro-vm <debian\|fedora>` | The `.deb` or `.rpm` built, installed and logged in through in a cloud VM (needs KVM and network in the guest) |
-| `just bump-lys` | lys-shell, lys-secrets, lys-ui and lys-lib to their heads, then the vendor hash |
-| `just vendor-hash` | Recompute `nix/package.nix`'s `vendorHash` after a go.mod change |
-| `just dist` | The release binary in `dist/`, asking for the standard loader, with the wordlist notice |
+| `just check` | Release gates in order: vet, lint, no-fused, test, race, build. |
+| `just vet` | `go vet ./...` |
+| `just lint` | `golangci-lint fmt --diff` and `golangci-lint run` (`.golangci.yml`). |
+| `just no-fused` | Fail on float products fused into FMA. |
+| `just test [args]` | `go test -shuffle=on ./...` |
+| `just race` | Tests under the race detector. |
+| `just build` | Compile every package. |
+| `just fmt` | Format all Go sources (gofumpt, gci). |
+| `just dist` | Release binary in `dist/`, pure Go, with the standard loader and the wordlist notice. |
+| `just distro-vm <debian\|fedora>` | Build, install and log in through the `.deb` or `.rpm` in a cloud VM (KVM, guest network). |
+| `just bump-lys` | Move lys-shell, lys-secrets, lys-ui and lys-lib to their heads, update flake inputs and the vendor hash. |
+| `just vendor-hash` | Recompute `vendorHash` in `nix/package.nix`. |
+| `just release-patch\|minor\|major` | Tag and push the next release from a clean default branch with green CI. |
 
-`nix flake check` checks the package and the module and runs the login VM.
+NixOS VM checks (KVM), each `just <name>`:
 
-The greeter logs `greeter: ready: ...` once its first frame is on screen and
-the compositor gives it the keyboard with a field of the form focused. A
-compositor drops keys while no surface holds its keyboard, so a VM check waits
-for that line before typing, and no pixel can stand in for it.
+| Check | Covers |
+| --- | --- |
+| `login-vm` | Daemon, greeter in lys-wm, wrong and right password, logind session, lys-secrets unlock, greeter returns. |
+| `greetd-vm` | Greeter under greetd and cage, on GLES2/llvmpipe and on pixman. |
+| `keyring-vm` | gnome-keyring started and unlocked without its PAM module; warnings for a rejected password and no keyring. |
+| `upgrade-vm` | In-place upgrade with a session and lock screen; refused and failed upgrades. |
+| `switch-vm` | Fast user switching, upgrade with two sessions, logout, stop. |
+| `autologin-vm` | Autologin, greeter after logout, LUKS passphrase opening the keyring. |
+| `rekey-vm` | A changed password re-keys the login collection. |
+| `keyboard-vm` | System layout, layout switching, per-user layout. |
+| `lock-vm` | Lock screen status row, layout switch, fprintd match and mismatch. |
+| `accessibility-vm` | Accessibility menu, Super+Alt+S with Orca, persistence. |
+| `x11-session-vm` | X11 session registered as `x11`, greeter as `wayland`. |
+| `wallclock-vm` | Setting the wall clock updates the login clock. |
+
+`nix flake check` runs every check in `nix/checks.nix`.
+
+The greeter logs `greeter: ready: ...` once its first frame is on screen and it
+holds keyboard focus on a form field. VM checks wait for that line before typing.
 
 ## CI and releases
 
-`.github/workflows/ci.yml` runs `just check` and the package check, and builds the
-archive, the `.deb` and the `.rpm` the way a release does (`package.yml`, with
-`scripts/ci/` and `packaging/`). It installs and runs each package
-(`scripts/ci/smoke-test.sh`), so a packaging break shows before a tag. The VMs need KVM
-and run locally.
+| Workflow | Does |
+| --- | --- |
+| `ci.yml` | `just check` and the package check on x86_64 and aarch64; the `login`, `keyring`, `upgrade`, `greetd`, `wallclock` and `x11-session` VMs; builds and smoke-tests the archive, `.deb` and `.rpm` via `package.yml`. |
+| `release.yml` | On a `vX.Y.Z` tag: the packages, `SHA256SUMS` and a GitHub release. |
+| `security.yml` | CodeQL, Grype, govulncheck; dependency review on PRs. |
+| `vendor-hash.yml` | Updates `vendorHash` on PRs that change `go.mod`/`go.sum`. |
+| `docs.yml` | Builds and deploys this site on pushes to `main` that touch `docs/`. |
 
-Pushing a tag `vX.Y.Z` runs `release.yml`: the same packages at that version, their
-`SHA256SUMS`, and a GitHub release with generated notes.
-
-`.github/workflows/security.yml` runs CodeQL (Go and GitHub Actions), Grype and
-govulncheck, uploading findings to code scanning; dependency review gates pull requests.
-Dependabot keeps the module and the workflows current.
+Dependabot updates Go modules, workflows and the site's npm packages.
 
 ## This site
 
@@ -50,6 +62,5 @@ npm install
 npm run dev
 ```
 
-`.github/workflows/docs.yml` builds and deploys it on every push to `main`, with the
-theme and workflow shared across the family from
+The theme and docs workflow come from
 [lys-docs-theme](https://github.com/stubbedev/lys-docs-theme).

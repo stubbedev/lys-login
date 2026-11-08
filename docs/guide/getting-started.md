@@ -1,82 +1,68 @@
 # Getting started
 
-lys-login is the lys desktop's login screen: one screen in two modes, the
-greeter and the lock screen, plus a display manager of its own.
+lys-login is one binary with these modes:
 
 | Command | What it is |
 | --- | --- |
-| `lys-login daemon` | The display manager: a root service on a VT. |
-| `lys-login greet` | The greeter, under `lys-login daemon` or under greetd in a cage kiosk. |
-| `lys-login lock` | The session lock on `ext-session-lock-v1`, which lys-shell starts. |
-| `lys-login apply-config` | Changes the login screen the system shows, from your session. |
-| `lys-login record-cursor` | Hands your session's cursor to the display manager for the next greeter. |
+| `lys-login daemon` | The display manager, a root service on a VT. |
+| `lys-login greet` | The greeter, under `lys-login daemon` or under greetd. |
+| `lys-login lock` | The session lock, started by lys-shell. |
+| `lys-login upgrade` | Moves the running daemon to a new build in place. |
+| `lys-login apply-config` | Changes the login screen from your session. |
+| `lys-login record-cursor` | Hands your session's cursor to the daemon for the next greeter. |
+| `lys-login switch-user` | Locks the running sessions and shows a greeter for another user. |
 
 [Command line](/reference/cli) lists every flag.
 
 ## Install
 
-| System | How | Page |
-| --- | --- | --- |
-| NixOS | Flake input and system module | [NixOS](/install/nixos) |
-| Debian, Ubuntu | `.deb` from the release | [Debian and Ubuntu](/install/debian) |
-| Fedora | `.rpm` from the release | [Fedora](/install/fedora) |
-| Anything else | Release archive, or the greeter under greetd | [Other systems](/install/other) |
+| System | Page |
+| --- | --- |
+| NixOS | [NixOS](/install/nixos) |
+| Debian, Ubuntu, Fedora | [Debian, Ubuntu and Fedora](/install/packages) |
+| Anything else, or under greetd | [Other systems](/install/other) |
 
-Releases carry x86_64 and aarch64 packages, and the flake builds for both.
+Releases and the flake cover x86_64 and aarch64.
 
-## What you need
+## Requirements
 
-- **libpam.** The binary is pure Go and loads it at runtime.
-- **lys-wm** for the display manager, which shows the greeter in a lys-wm
-  kiosk. The NixOS module brings its own; the packages recommend it.
-- **A session to log into:** a `*.desktop` file in `wayland-sessions` or
-  `xsessions`, the same files sddm and gdm read. Without one
-  `lys-login daemon` and `lys-login greet` refuse to start and name the
-  directories they looked in. X11 entries start through `startx`, which must
-  be on the session's PATH.
+- **libpam**, loaded at runtime.
+- **lys-wm** for the display manager.
+- **A session file**: a `*.desktop` file in `wayland-sessions` or `xsessions`.
+  Without one, `daemon` and `greet` refuse to start and name the directories
+  searched. X11 sessions start through `startx`, which must be on the session's
+  PATH.
 - **A compositor with `ext-session-lock-v1`** for the lock screen.
-- **lys-secrets or gnome-keyring**, optional, for the keyring to open with the
-  login.
-- **libvulkan**, optional. The login screen draws on the GPU where it can and
-  on the CPU otherwise.
+- Optional: **lys-secrets** or **gnome-keyring** to open with the login;
+  **libvulkan** for GPU drawing (the CPU is used otherwise); **AccountsService**
+  to hide system accounts from the user list.
 
-## What the greeter offers
+## The greeter
 
-- **Session picker.** Wayland and X11 sessions in one list sorted by name, X11
-  entries labelled `(X11)`. The last one used is pre-selected, and the picker
-  hides when there is only one.
-- **User list.** Accounts from `/etc/passwd` with a UID from 1000 to 59999 and
-  a login shell, as avatars from AccountsService
-  (`/var/lib/AccountsService/icons/<user>`) or `~/.face`. It hides above 8
-  users; the username field always works.
-- **Remembered username,** pre-filled with focus on the password field.
-- **PAM's own words.** Prompts past the password, such as a one-time code or an
-  expired password, appear on screen, and so does the reason for a refusal. A
-  wrong password keeps the greeter up for the next attempt.
-- **Caps Lock warning** under the password field.
-- **Sleep, restart and shut down buttons,** which run `systemctl suspend`,
-  `systemctl reboot` and `systemctl poweroff`.
-- **Localized labels,** in en-US and French, through lys-shell's translations.
+- **Session picker**: Wayland and X11 sessions sorted by name, X11 ones labelled
+  `(X11)`. The last one used is preselected. Hidden when there is only one.
+- **User list**: accounts with UID 1000–59999 and a login shell, minus those
+  AccountsService marks `SystemAccount=true` (2 s timeout). Avatars come from
+  `/var/lib/AccountsService/icons/<user>` or `~/.face`. Hidden above 8 users;
+  typing a name always works.
+- **Remembered username**, prefilled with focus on the password.
+- **PAM conversation**: extra prompts (one-time codes, expired password changes)
+  and refusal reasons appear on screen. A wrong password keeps the greeter up.
+- **Caps Lock warning.**
+- **Keyboard layout chip** when the system has more than one layout; see
+  [Configuration](/guide/configuration#keyboard-layout).
+- **Accessibility menu**; see [Configuration](/guide/configuration#accessibility).
+- **Power buttons**: `systemctl suspend`, `reboot` and `poweroff`.
+- **Translations**: en-US and French, from lys-shell.
 
-## When something is wrong
+## Troubleshooting
 
-The display manager logs to the journal, with each greeter's and each login's
-worker on the same unit:
+The daemon, its greeters and its workers log to one unit:
 
 ```sh
 journalctl -b -u lys-login
 ```
 
-A greeter that fails to come up is retried every 2 seconds, and the unit itself
-restarts if the daemon exits. To test a PAM service without logging out, see
+A greeter that fails to start is retried every 2 seconds; the unit restarts if
+the daemon exits. To test a PAM service without logging out, see
 [PAM services](/guide/pam#test-a-service).
-
-## Next
-
-- [Configuration](/guide/configuration): the look, the cursor, changing the
-  login screen from your session.
-- [PAM services](/guide/pam): which service does what.
-- [The lock screen](/guide/lock-screen): triggers and the contract with
-  lys-shell.
-- [How it fits together](/reference/architecture): the daemon, the greeter and
-  the workers.

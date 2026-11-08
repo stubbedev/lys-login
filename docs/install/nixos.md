@@ -1,6 +1,6 @@
 # NixOS
 
-Add the flake as an input and import the module:
+Add the flake and import the module:
 
 ```nix
 {
@@ -22,49 +22,44 @@ Add the flake as an input and import the module:
 }
 ```
 
-## The display manager
-
-`enable` alone is a working setup. It runs `lys-login daemon` as
-`display-manager.service`, showing the greeter in the lys-wm of lys-login's flake
-input, and adds the `lys-login` PAM service, the `lys-greeter` system user and
-the state directory, with neither greetd nor cage.
+## Display manager
 
 ```nix
 programs.lys-login.greeter = {
   enable = true;
-  # Theme it like your desktop: the full lys-shell config schema. The greeter
-  # honours styling, login.* and wallpaper.
   settings = {
     styling.appearance = "dark";
     login.background-mode = "color";
     login.background-color = "#1e1e2e";
-    login.greeter.cursor-size = 24;
   };
 };
 ```
 
-`settings` becomes `/etc/lys-shell/config.yaml`, and
-[Configuration](/guide/configuration) covers what it holds.
+This runs `lys-login daemon` as `display-manager.service` with the lys-wm from
+lys-login's flake input, and adds the `lys-login` and `lys-login-autologin` PAM
+services, the `lys-greeter` user and `/var/lib/lys-greeter`. `settings` becomes
+`/etc/lys-shell/config.yaml` ([Configuration](/guide/configuration)). Sessions
+come from the NixOS sessions directory, which collects every installed
+compositor's session file.
 
-Sessions come from the aggregate NixOS sessions directory, which holds the session
-files of every installed compositor.
+`nixos-rebuild switch` never restarts the unit. When it changed, the switch
+reloads it, which [upgrades the daemon in place](/reference/architecture#upgrading-in-place).
+If the upgrade fails the old daemon keeps running, the switch exits 4 and lists
+`lys-login-upgrade-failed.service`, whose status has the reason.
 
-The unit never restarts on `nixos-rebuild switch`, which would end your session. When
-it changed, the switch reloads it, and that
-[upgrades the daemon in place](/reference/architecture#upgrading-in-place): your session
-and a lock screen that is up keep running, and the next greeter, login and lock screen use
-the new build. A failed upgrade leaves the old daemon running; the switch then exits 4 and
-lists `lys-login-upgrade-failed.service`, whose status gives the reason. The first switch
-from a build older than this feature fails that way too, since that daemon has no
-`upgrade.sock`; it takes the new build at the next reboot.
-
-To show the greeter in the lys-wm your desktop runs:
+To use the lys-wm your desktop runs:
 
 ```nix
 programs.lys-login.greeter.compositorPackage = config.programs.lys-wm.package;
 ```
 
-## The lock screen
+With [lys-splash](https://github.com/stubbedev/lys-splash) as boot splash, set
+`greeter.splashPackage`. The unit then conflicts with `lys-splash-quit.service`,
+runs `lys-splash deactivate` before lys-wm starts, and the daemon runs
+`lys-splash quit --retain-splash` once the greeter's first frame is presented,
+so there is no blank frame.
+
+## Lock screen
 
 ```nix
 programs.lys-login = {
@@ -73,50 +68,40 @@ programs.lys-login = {
 };
 ```
 
-`enable` puts `lys-login` on the PATH, which `greeter.enable` does too.
-`lock.enable` adds the [PAM service](/guide/pam#the-lock-screen-s-service) the
-unlock needs. Set `login.lock.pam-service` in your lys-shell config to match
-`lock.pamService`, `lys-shell` by default.
-
-## With lys-splash
-
-With [lys-splash](https://github.com/stubbedev/lys-splash) as the boot splash, set
-`greeter.splashPackage` to it. The greeter then takes the screen from the splash
-without a blank frame, as GDM does from plymouth: the unit conflicts with
-`lys-splash-quit.service` and runs `lys-splash deactivate` before lys-wm starts,
-which keeps the splash's frame, and the daemon runs
-`lys-splash quit --retain-splash` once the greeter's first frame is presented.
+`enable` (or `greeter.enable`) puts `lys-login` on the PATH. `lock.enable` adds
+the [PAM service](/guide/pam#the-lock-screen-s-service). Set
+`login.lock.pam-service` in your lys-shell config to `lock.pamService`.
 
 ## Under greetd
 
-`greeter.displayManager = "greetd"` runs the greeter under greetd in a cage kiosk
-instead, with its state owned by greetd's `greeter` user.
+`greeter.displayManager = "greetd"` runs the greeter under greetd in a cage kiosk,
+with state owned by greetd's `greeter` user.
 
 ## Options
 
 All under `programs.lys-login`.
 
-| Option | Default | What it does |
-| --- | --- | --- |
-| `enable` | `false` | `lys-login` on the PATH. |
-| `package` | this flake's | The lys-login package. |
-| `autologin.user` | `null` | An account the display manager logs in once per boot, before the first greeter; see [Autologin](/guide/pam#autologin). |
-| `autologin.session` | `null` | The session id it starts; null takes the last session, else the first offered. |
-| `lock.enable` | `false` | Declares the lock screen's PAM service. |
-| `lock.pamService` | `"lys-shell"` | Its name. |
-| `greeter.enable` | `false` | The greeter, run by `greeter.displayManager`. |
-| `greeter.displayManager` | `"lys-login"` | `lys-login`: `lys-login daemon` on `greeter.vt`. `greetd`: greetd with a cage kiosk. |
-| `greeter.compositorPackage` | lys-login's lys-wm input | The lys-wm the daemon shows the greeter in. |
-| `greeter.splashPackage` | `null` | lys-splash, when it is the boot splash. |
-| `greeter.vt` | `1` | The VT the daemon runs on. |
-| `greeter.settings` | `{}` | Written to `/etc/lys-shell/config.yaml` when set. |
-| `greeter.session.dirs` | NixOS sessions dir | Directories scanned for Wayland `*.desktop` session files. |
-| `greeter.session.x11Dirs` | NixOS xsessions dir | The same for X11, launched through `startx`; `[]` disables them. `startx` must be on the session's PATH, typically through `services.xserver.enable`. |
-| `greeter.session.command` | `""` | An explicit fallback session, offered as "Custom", and the only entry when the directories yield none. |
-| `greeter.session.environment` | `[]` | Extra `KEY=value` entries for the started session. |
-| `greeter.cagePackage` | `pkgs.cage` | Under greetd: the kiosk compositor. |
-| `greeter.renderer` | `"auto"` | Under greetd: `software` puts cage on its pixman renderer and the greeter on the CPU. The display manager takes only `auto`, as lys-wm falls back to software itself. |
-| `greeter.graphicsWrapper` | `[]` | Under greetd: a command prefix around the whole launch, such as a nixGL wrapper. The display manager takes none. |
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `enable` | bool | `false` | `lys-login` on the PATH. |
+| `package` | package | this flake's | The lys-login package. |
+| `autologin.user` | null or string | `null` | Account logged in once per boot before the first greeter ([Autologin](/guide/pam#autologin)). Requires `displayManager = "lys-login"`. |
+| `autologin.session` | null or string | `null` | Session id to start (a session file's name, `-x11` suffix for X11); null takes the last session, else the first. |
+| `lock.enable` | bool | `false` | Declare the lock screen's PAM service. |
+| `lock.pamService` | string | `"lys-shell"` | Its name. |
+| `greeter.enable` | bool | `false` | Run the greeter via `greeter.displayManager`. |
+| `greeter.displayManager` | `"lys-login"` or `"greetd"` | `"lys-login"` | `lys-login`: the daemon on `greeter.vt`. `greetd`: greetd with cage. |
+| `greeter.compositorPackage` | package | lys-login's lys-wm input | lys-wm for the greeter kiosk. |
+| `greeter.splashPackage` | null or package | `null` | lys-splash, when it is the boot splash. |
+| `greeter.vt` | positive int | `1` | VT the daemon runs on. |
+| `greeter.settings` | YAML | `{}` | Written to `/etc/lys-shell/config.yaml` when non-empty. |
+| `greeter.session.dirs` | list of strings | NixOS `wayland-sessions` | Directories of Wayland session files. |
+| `greeter.session.x11Dirs` | list of strings | NixOS `xsessions` | X11 session files, started through `startx` (needs it on the PATH, e.g. `services.xserver.enable`). `[]` disables X11. |
+| `greeter.session.command` | string | `""` | Fallback session offered as "Custom"; the only entry when no session files exist. |
+| `greeter.session.environment` | list of strings | `[]` | Extra `KEY=value` for every session. |
+| `greeter.cagePackage` | package | `pkgs.cage` | greetd only: the kiosk compositor. |
+| `greeter.renderer` | `"auto"` or `"software"` | `"auto"` | greetd only: `software` puts cage on pixman and the greeter on the CPU. |
+| `greeter.graphicsWrapper` | list of strings | `[]` | greetd only: command prefix around the launch, e.g. nixGL. |
 
-The module refuses to evaluate when no session can be offered, or when `renderer`
-or `graphicsWrapper` are set under the display manager.
+Evaluation fails when no session can be offered, when `autologin.user` is set
+under greetd, or when `renderer` or `graphicsWrapper` is changed under the daemon.

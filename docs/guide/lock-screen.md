@@ -1,90 +1,82 @@
 # The lock screen
 
 `lys-login lock` locks the session with `ext-session-lock-v1`, one surface per
-output, and exits once it unlocks. The compositor keeps the session locked if the
-process dies.
+output, and exits on unlock. If the process dies the compositor keeps the session
+locked. lys-shell runs `lys-login` from the PATH; the unlock needs a
+[PAM service](/guide/pam#the-lock-screen-s-service).
 
-lys-shell runs `lys-login lock` from the PATH, so installing lys-login is enough
-for the binary. It also needs a [PAM service](/guide/pam#the-lock-screen-s-service).
+## Triggers
 
-## Upgrades
+lys-shell starts the lock for:
 
-[Upgrading the display manager in place](/reference/architecture#upgrading-in-place) leaves a
-lock screen that is up alone: it keeps the session locked on its old build until it unlocks,
-and its unlock still opens the login collection. The next lock is the new build, once
-`lys-login` on the PATH is.
-
-## What locks the session
-
-lys-shell starts it for:
-
-- logind's Lock signal, which is what `loginctl lock-session` and idle daemons
-  send;
+- logind's Lock signal (`loginctl lock-session`, idle daemons);
 - `lys-shell lock`;
-- `login.lock.lock-on-start`, for autologin setups;
-- a lock found held when the shell starts.
+- `login.lock.lock-on-start`;
+- a lock already held when the shell starts.
 
-The lock is a process of its own, so it outlives a shell restart, and lys-shell
-starts it again if it dies with the session still locked.
+The lock is its own process, so it survives a shell restart; lys-shell restarts it
+if it dies while the session is locked. It reports state to logind with
+`SetLockedHint` and unlocks by password or on logind's Unlock signal.
 
-The screen reports its state to logind with `SetLockedHint`. It unlocks by
-password or on logind's Unlock signal.
+## What it shows
 
-## What the screen shows
-
-Under the clock, the track a media player is playing (MPRIS on the session bus),
-with play/pause and next; only the player's local cover art is drawn, nothing is
-fetched while locked. In the top right corner, the battery's charge from UPower,
-absent on a machine without a battery, and the keyboard layout chip when the
-keymap has more than one layout: a click or the compositor's layout keys switch
-it, so the password can be typed in the right layout. `login.lock.show-media` and
-`login.lock.show-battery` turn the first two off. None of it repaints while
-nothing changes.
-
-## Switch user
-
-Under lys-login's display manager, with a second account on the machine, the lock screen
-offers Switch User. It leaves this session running and locked, and shows a greeter on
-another VT; see [Switching users](/reference/architecture#switching-users).
-`login.lock.show-switch-user` turns it off.
+- Clock and date.
+- The current MPRIS track with play/pause and next. Only local cover art is drawn.
+- Battery charge from UPower, on machines with a battery.
+- The keyboard layout chip when the keymap has several layouts; click it or use the
+  compositor's layout keys to switch.
+- **Switch User**, under lys-login's display manager when another account
+  exists. It leaves this session locked and shows a greeter on another VT; see
+  [Switching users](/reference/architecture#switching-users).
+- The failed-attempt count.
 
 ## Fingerprint
 
-With fprintd and a finger enrolled for the session user, the lock asks fprintd to
-verify alongside the password prompt, and a matching finger unlocks without the
-password. Typing the password while the reader waits works as before and stops
-the reader. A finger that does not match counts as a failed attempt, and the
-reader waits for the next one until `login.max-attempts` is reached. Without
-fprintd or an enrolled finger nothing changes; `login.lock.fingerprint` turns it
-off. A fingerprint opens no keyring, since no password was typed.
+With fprintd and an enrolled finger, the lock verifies a fingerprint alongside the
+password prompt; a match unlocks. Typing a password stops the reader. A
+non-matching finger counts as a failed attempt. A fingerprint unlock opens no
+keyring.
 
-## Failed attempts
+## Keyring and vault
 
-`login.show-failed-attempts` shows the count. `login.max-attempts` blocks further
-input once reached, and the session stays locked; `0` means no limit. These two
-keys belong to the lock screen: the greeter ignores them. A fingerprint that does
-not match counts as an attempt.
+The verified password opens the login collection of lys-secrets, else a running
+gnome-keyring. Under autologin this is where the keyring is first opened.
 
-## What an unlock opens
+With `bitwarden.unlock-with-session` (default off) the password is also tried
+once per unlock on the Bitwarden vault, through a helper process that reads it
+from a pipe.
 
-The verified password also opens the login collection of lys-secrets, else a
-running gnome-keyring. Under autologin the lock screen is the first place the
-password appears, so this is what opens the keyring there.
+## Configuration
 
-With `bitwarden.unlock-with-session`, off by default, it also tries the password
-on the Bitwarden vault, once per unlock, through a helper process that receives it
-on a pipe. That is only useful when the master password is the login password.
+`login.lock`, plus the two lock-only `login` keys:
 
-## The contract with lys-shell
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `login.lock.enabled` | bool | `true` | Off makes `lys-login lock` exit 4 without locking. |
+| `login.lock.lock-on-start` | bool | `false` | lys-shell locks as the session starts. |
+| `login.lock.grace-period-ms` | uint | `0` | Pressing Enter within this time after locking unlocks without a password. |
+| `login.lock.blank-timeout-ms` | uint | `0` | Blank the lock screen after this idle time; any key restores it. `0` never blanks. |
+| `login.lock.pam-service` | string | `system-auth` | PAM service for the unlock. |
+| `login.lock.show-media` | bool | `true` | Show the media track. |
+| `login.lock.show-battery` | bool | `true` | Show the battery. |
+| `login.lock.fingerprint` | bool | `true` | Use fprintd. |
+| `login.lock.show-switch-user` | bool | `true` | Offer Switch User. |
+| `login.max-attempts` | uint | `0` | Block input after this many failures; the session stays locked. `0` is unlimited. |
+| `login.show-failed-attempts` | bool | `true` | Show the failure count. |
 
-`lys-login lock` takes no arguments. `shell/lockclient` in lys-shell holds the
-other side, and `cmd/lys-login/lock_test.go` pins it against the real binary.
+## Interface with lys-shell
+
+`lys-login lock` takes no arguments. lys-shell's `shell/lockclient` is the other
+side; `cmd/lys-login/lock_test.go` tests the contract against the binary.
 
 | Signal | Meaning |
 | --- | --- |
 | `locked` on stdout | The compositor confirmed the lock. |
-| Exit 0 | The session unlocked. |
-| Exit 1 | Any other failure. |
-| Exit 2 | It was given an argument. |
+| Exit 0 | Unlocked. |
+| Exit 1 | Other failure. |
+| Exit 2 | Given an argument. |
 | Exit 3 | Another lys-login already holds this session locked. |
-| Exit 4 | The lock never took: `login.lock.enabled` is off, or the compositor lacks the protocol or refused. |
+| Exit 4 | The lock never took: `login.lock.enabled` is off, or the compositor lacks or refused the protocol. |
+
+During a [display manager upgrade](/reference/architecture#upgrading-in-place) a
+lock screen that is up keeps running on its old build until it unlocks.
