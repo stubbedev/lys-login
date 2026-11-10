@@ -110,12 +110,12 @@ func (u *upgrader) read(conn *net.UnixConn) (UpgradeRequest, error) {
 	if err := conn.SetDeadline(time.Now().Add(exchangeTimeout)); err != nil {
 		return UpgradeRequest{}, fmt.Errorf("bound the request: %w", err)
 	}
-	uid, err := peercred.UID(conn)
+	cred, err := peercred.Of(conn)
 	if err != nil {
 		return UpgradeRequest{}, fmt.Errorf("who asks: %w", err)
 	}
-	if !u.mayUpgrade(uid) {
-		return UpgradeRequest{}, fmt.Errorf("only root may upgrade the display manager, not uid %d", uid)
+	if !u.mayUpgrade(cred.UID) {
+		return UpgradeRequest{}, fmt.Errorf("only root may upgrade the display manager, not uid %d", cred.UID)
 	}
 	var req UpgradeRequest
 	if err := json.NewDecoder(io.LimitReader(conn, UpgradeSocket.MaxRequest)).Decode(&req); err != nil {

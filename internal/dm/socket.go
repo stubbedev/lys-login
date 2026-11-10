@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/stubbedev/lys-lib/peercred"
 
 	"github.com/stubbedev/lys-login/dmsocket"
 	"github.com/stubbedev/lys-login/greeterconfig"
@@ -46,26 +46,16 @@ const RuntimeDirEnv = "LYS_LOGIN_RUNTIME_DIR"
 const exchangeTimeout = 30 * time.Second
 
 type peer struct {
-	uid uint32
-	pid int32
+	peercred.Credentials
+	conn *net.UnixConn
 }
 
 func peerOf(conn *net.UnixConn) (peer, error) {
-	raw, err := conn.SyscallConn()
+	cred, err := peercred.Of(conn)
 	if err != nil {
 		return peer{}, fmt.Errorf("who asks: %w", err)
 	}
-	var cred *unix.Ucred
-	var credErr error
-	if err := raw.Control(func(fd uintptr) {
-		cred, credErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-	}); err != nil {
-		return peer{}, fmt.Errorf("who asks: %w", err)
-	}
-	if credErr != nil {
-		return peer{}, fmt.Errorf("who asks: SO_PEERCRED: %w", credErr)
-	}
-	return peer{uid: cred.Uid, pid: cred.Pid}, nil
+	return peer{Credentials: cred, conn: conn}, nil
 }
 
 type sessionOwners struct {
@@ -145,13 +135,13 @@ func (s Socket[T]) answer(conn *net.UnixConn, handle handler[T]) error {
 	var req T
 	if err := json.NewDecoder(io.LimitReader(conn, s.MaxRequest)).Decode(&req); err != nil {
 		refusal := dmsocket.Refuse(dmsocket.Invalid, "malformed request: "+err.Error())
-		return send(conn, dmsocket.Answer("", refusal), fmt.Errorf("decode uid %d's request: %w", p.uid, err))
+		return send(conn, dmsocket.Answer("", refusal), fmt.Errorf("decode uid %d's request: %w", p.UID, err))
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	path, err := handle(ctx, p, req)
 	if err != nil {
-		return send(conn, dmsocket.Answer("", err), fmt.Errorf("refused uid %d: %w", p.uid, err))
+		return send(conn, dmsocket.Answer("", err), fmt.Errorf("refused uid %d: %w", p.UID, err))
 	}
 	return send(conn, dmsocket.Answer(path, nil), nil)
 }
@@ -186,7 +176,7 @@ func TakeScreenFromSplash(runtimeDir string) func() {
 func handOverSplash(isGreeter func(uid uint32) bool, quit func() error) handler[Presented] {
 	var once sync.Once
 	return func(_ context.Context, p peer, _ Presented) (string, error) {
-		if p.uid != 0 && !isGreeter(p.uid) {
+		if p.UID != 0 && !isGreeter(p.UID) {
 			return "", dmsocket.Refuse(dmsocket.Unauthorized, "only the greeter may take the screen from the splash")
 		}
 		once.Do(func() {
@@ -219,10 +209,10 @@ func quitSplash(splash string) func() error {
 // user's record under dir.
 func recordCursor(owner *sessionOwners, dir string) handler[cursorrecord.Cursor] {
 	return func(_ context.Context, p peer, c cursorrecord.Cursor) (string, error) {
-		if !owner.runs(p.uid) {
+		if !owner.runs(p.UID) {
 			return "", dmsocket.Refuse(dmsocket.Unauthorized, "only the user logged in here may record their session's cursor")
 		}
-		return cursorrecord.Write(dir, p.uid, c)
+		return cursorrecord.Write(dir, p.UID, c)
 	}
 }
 
@@ -230,12 +220,12 @@ const switchQueueWait = 5 * time.Second
 
 func askSwitch(owner *sessionOwners, switches chan<- struct{}) handler[SwitchRequest] {
 	return func(_ context.Context, p peer, _ SwitchRequest) (string, error) {
-		if p.uid != 0 && !owner.runs(p.uid) {
+		if p.UID != 0 && !owner.runs(p.UID) {
 			return "", dmsocket.Refuse(dmsocket.Unauthorized, "only root and the users logged in here may switch users")
 		}
 		select {
 		case switches <- struct{}{}:
-			log.Printf("dm: uid %d asked to switch users", p.uid)
+			log.Printf("dm: uid %d asked to switch users", p.UID)
 			return "", nil
 		case <-time.After(switchQueueWait):
 			return "", fmt.Errorf("the daemon took no switch in %s", switchQueueWait)

@@ -5,23 +5,26 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/stubbedev/lys-lib/dbustest"
+	"github.com/stubbedev/lys-lib/peercred"
+	"github.com/stubbedev/lys-lib/polkit"
+	"github.com/stubbedev/lys-lib/polkit/polkittest"
 
 	"github.com/stubbedev/lys-login/dmsocket"
 	"github.com/stubbedev/lys-login/greeterconfig"
-	"github.com/stubbedev/lys-login/internal/polkitauth/polkitauthtest"
 )
 
 var colorChange = greeterconfig.Change{Staged: "login:\n  background-color: \"#ff0000\"\n"}
 
-func serveApplyAt(t *testing.T, owner *sessionOwners, polkit authorizer) (runtimeDir, runtime string) {
+func serveApplyAt(t *testing.T, owner *sessionOwners, ask authorizer) (runtimeDir, runtime string) {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), "config.yaml")
-	return serveAt(t, ApplySocket, applyChange(owner.authorizeApply(polkit), &sync.RWMutex{}, cfg)), filepath.Join(filepath.Dir(cfg), "runtime.yaml")
+	return serveAt(t, ApplySocket, applyChange(owner.authorizeApply(ask), &sync.RWMutex{}, cfg)), filepath.Join(filepath.Dir(cfg), "runtime.yaml")
 }
 
 type polkitCalls struct {
@@ -44,15 +47,15 @@ func (c *polkitCalls) seen() []peer {
 
 func TestApplyIsTheLoggedInUsersOrPolkits(t *testing.T) {
 	owner := newSessionOwners()
-	polkit := &polkitCalls{}
-	dir, runtime := serveApplyAt(t, owner, polkit.refuse)
+	asked := &polkitCalls{}
+	dir, runtime := serveApplyAt(t, owner, asked.refuse)
 	me := me(t)
 
 	_, err := ApplySocket.Send(dir, colorChange)
 	if r, ok := refusal(err); !ok || r != dmsocket.Unauthorized || !strings.Contains(err.Error(), "polkit says no") {
 		t.Errorf("without a session: %v, want polkit's refusal", err)
 	}
-	if peers := polkit.seen(); len(peers) != 1 || peers[0].uid != me || peers[0].pid != int32(os.Getpid()) {
+	if peers := asked.seen(); len(peers) != 1 || peers[0].UID != me || peers[0].PID != int32(os.Getpid()) {
 		t.Errorf("polkit was asked about %+v, want this process", peers)
 	}
 	owner.add(me + 1)
@@ -71,7 +74,7 @@ func TestApplyIsTheLoggedInUsersOrPolkits(t *testing.T) {
 	if data, _ := os.ReadFile(path); path != runtime || !strings.Contains(string(data), "#ff0000") {
 		t.Errorf("wrote %s: %q", path, data)
 	}
-	if n := len(polkit.seen()); n != 2 {
+	if n := len(asked.seen()); n != 2 {
 		t.Errorf("polkit was asked %d times, want only for the users without a session", n)
 	}
 
@@ -83,24 +86,24 @@ func TestApplyIsTheLoggedInUsersOrPolkits(t *testing.T) {
 
 func TestAuthorizeApply(t *testing.T) {
 	owner := newSessionOwners()
-	polkit := &polkitCalls{}
-	authorize := owner.authorizeApply(polkit.refuse)
+	asked := &polkitCalls{}
+	authorize := owner.authorizeApply(asked.refuse)
 	ctx := context.Background()
-	if authorize(ctx, peer{uid: 0}) != nil || authorize(ctx, peer{uid: 1000}) == nil {
+	if authorize(ctx, peer{UID: 0}) != nil || authorize(ctx, peer{UID: 1000}) == nil {
 		t.Error("without a session only root may apply")
 	}
 	owner.add(1000)
-	if authorize(ctx, peer{uid: 0}) != nil || authorize(ctx, peer{uid: 1000}) != nil || authorize(ctx, peer{uid: 1001}) == nil {
+	if authorize(ctx, peer{UID: 0}) != nil || authorize(ctx, peer{UID: 1000}) != nil || authorize(ctx, peer{UID: 1001}) == nil {
 		t.Error("with 1000's session root and 1000 may apply, 1001 only through polkit")
 	}
-	if peers := polkit.seen(); len(peers) != 2 || peers[0].uid != 1000 || peers[1].uid != 1001 {
+	if peers := asked.seen(); len(peers) != 2 || peers[0].UID != 1000 || peers[1].UID != 1001 {
 		t.Errorf("polkit was asked about %+v, want 1000 without a session and 1001", peers)
 	}
 }
 
 func TestApplyRefusesAnInvalidChangeBeforeAskingPolkit(t *testing.T) {
-	polkit := &polkitCalls{}
-	dir, runtime := serveApplyAt(t, newSessionOwners(), polkit.refuse)
+	asked := &polkitCalls{}
+	dir, runtime := serveApplyAt(t, newSessionOwners(), asked.refuse)
 	me(t)
 	for name, c := range map[string]greeterconfig.Change{
 		"no login keys":      {Staged: "general:\n  foo: 1\n"},
@@ -113,7 +116,7 @@ func TestApplyRefusesAnInvalidChangeBeforeAskingPolkit(t *testing.T) {
 			t.Errorf("%s: %v, want an invalid change", name, err)
 		}
 	}
-	if peers := polkit.seen(); len(peers) != 0 {
+	if peers := asked.seen(); len(peers) != 0 {
 		t.Errorf("invalid changes asked polkit about %+v", peers)
 	}
 	if _, err := os.Stat(runtime); !errors.Is(err, os.ErrNotExist) {
@@ -121,19 +124,66 @@ func TestApplyRefusesAnInvalidChangeBeforeAskingPolkit(t *testing.T) {
 	}
 }
 
+func kernelNamesPeersByPIDFD(t *testing.T) bool {
+	t.Helper()
+	opened := make(chan error, 1)
+	s := Socket[SwitchRequest]{dmsocket.Endpoint[SwitchRequest]{Name: "pidfd.sock", MaxRequest: 64, Exchange: exchangeTimeout}}
+	dir := serveAt(t, s, func(_ context.Context, p peer, _ SwitchRequest) (string, error) {
+		pidfd, err := peercred.PIDFDOf(p.conn)
+		if err == nil {
+			err = pidfd.Close()
+		}
+		opened <- err
+		return "", nil
+	})
+	if _, err := s.Send(dir, SwitchRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	err := <-opened
+	if err != nil && !errors.Is(err, peercred.ErrNoPIDFD) {
+		t.Fatal(err)
+	}
+	return err == nil
+}
+
+func openPIDFDsOfThisProcess(t *testing.T) int {
+	t.Helper()
+	const dir = "/proc/self/fdinfo"
+	fds, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	self := "\nPid:\t" + strconv.Itoa(os.Getpid()) + "\n"
+	n := 0
+	for _, fd := range fds {
+		info, err := os.ReadFile(filepath.Join(dir, fd.Name()))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(info), self) {
+			n++
+		}
+	}
+	return n
+}
+
 func TestApplyAsksPolkitForTheCallingProcess(t *testing.T) {
 	me := me(t)
-	fake := polkitauthtest.Start(t, polkitauthtest.Denied)
+	fake := polkittest.Start(t, polkittest.Denied)
 	dir, runtime := serveApplyAt(t, newSessionOwners(), askPolkit)
-	for _, c := range []struct {
+	refused := []struct {
 		name   string
-		answer polkitauthtest.Result
+		answer polkit.AuthorizationResult
 		want   dmsocket.Refusal
 	}{
-		{"denied", polkitauthtest.Denied, dmsocket.Unauthorized},
-		{"no agent", polkitauthtest.Challenge, dmsocket.Unauthorized},
-		{"dismissed", polkitauthtest.Dismissed, dmsocket.Dismissed},
-	} {
+		{"denied", polkittest.Denied, dmsocket.Unauthorized},
+		{"no agent", polkittest.Challenge, dmsocket.Unauthorized},
+		{"dismissed", polkittest.Dismissed, dmsocket.Dismissed},
+	}
+	for _, c := range refused {
 		fake.Answer(c.answer)
 		_, err := ApplySocket.Send(dir, colorChange)
 		if r, ok := refusal(err); !ok || r != c.want || !strings.Contains(err.Error(), string(applyAction)) {
@@ -143,16 +193,30 @@ func TestApplyAsksPolkitForTheCallingProcess(t *testing.T) {
 	if _, err := os.Stat(runtime); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("an unauthorized change wrote runtime.yaml: %v", err)
 	}
-	fake.Answer(polkitauthtest.Authorized)
+	fake.Answer(polkittest.Authorized)
 	if path, err := ApplySocket.Send(dir, colorChange); err != nil || path != runtime {
 		t.Fatalf("authorized: %s, %v", path, err)
 	}
-	for _, c := range fake.Checks.Load() {
-		d := c.Subject.Details
-		if c.Action != string(applyAction) || c.Flags != 1 || c.Subject.Kind != "unix-process" ||
-			d["pid"].Value() != uint32(os.Getpid()) || d["uid"].Value() != int32(me) || d["start-time"].Value() == uint64(0) {
-			t.Errorf("polkit check = %+v", c)
+	wantPIDFD := 0
+	if kernelNamesPeersByPIDFD(t) {
+		wantPIDFD = os.Getpid()
+	}
+	checks := fake.Checks.Load()
+	if len(checks) != len(refused)+1 {
+		t.Fatalf("polkit was asked %d times, want once per request: %+v", len(checks), checks)
+	}
+	for _, c := range checks {
+		process, ok := c.Subject.(polkit.UnixProcess)
+		if !ok || c.Action != applyAction || c.Flags != polkit.AllowUserInteraction ||
+			process.PID != uint32(os.Getpid()) || process.UID != me || process.StartTime == 0 {
+			t.Errorf("polkit check = %+v, want this process asked about with interaction", c)
 		}
+		if c.PIDFD != wantPIDFD {
+			t.Errorf("the check's subject carried a pidfd of pid %d, want %d: the caller's own where the kernel gives one", c.PIDFD, wantPIDFD)
+		}
+	}
+	if n := openPIDFDsOfThisProcess(t); n != 0 {
+		t.Errorf("%d pidfds of the caller are still open after its requests were answered", n)
 	}
 }
 

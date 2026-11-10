@@ -68,7 +68,7 @@ func TestSocketsAnswerWithTheCallersCredentials(t *testing.T) {
 	if _, err := s.Send(dir, SwitchRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	if p := <-got; p.uid != uint32(os.Getuid()) || p.pid != int32(os.Getpid()) {
+	if p := <-got; p.UID != uint32(os.Getuid()) || p.PID != int32(os.Getpid()) {
 		t.Errorf("peer = %+v, want uid %d pid %d", p, os.Getuid(), os.Getpid())
 	}
 }
