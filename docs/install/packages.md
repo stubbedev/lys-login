@@ -18,6 +18,10 @@ sudo dnf install ./lys-login-<version>-*.x86_64.rpm ./lys-wm-<version>-*.x86_64.
 | Depends | `libpam0g`, `libpam-systemd`, `libx11-data`, `xkb-data`, `systemd` | `pam`, `libX11-common`, `xkeyboard-config`, `systemd`, `policycoreutils` |
 | Recommends | `lys-wm`, `lys-secrets`, `accountsservice`, `polkitd`, `libvulkan1`, `mesa-vulkan-drivers` | `lys-wm`, `lys-secrets`, `accountsservice`, `polkit`, `vulkan-loader`, `mesa-vulkan-drivers` |
 
+lys-wm renders with Vulkan; on a card without a Vulkan driver, such as a VM's
+virtio-gpu, put `LYS_WM_RENDERER=gles` in `/etc/environment`
+([Rendering without a GPU](/install/other#rendering-without-a-gpu)).
+
 ## What it installs
 
 - `/usr/bin/lys-login`;

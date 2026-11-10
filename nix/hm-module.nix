@@ -27,7 +27,7 @@ self: {
   greeterSession = pkgs.writeShellScriptBin "lys-greeter-session" ''
     exec env ${greeterCursorEnv} ${
       lib.optionalString (cfg.greeter.renderer == "software")
-      "WLR_RENDERER=pixman WLR_DRM_NO_MODIFIERS=1 LYS_UI_RENDERER=cpu "
+      (lib.concatStrings (lib.mapAttrsToList (k: v: "${k}=${v} ") (import ./software-render-env.nix).cage))
     }${lib.getExe cfg.greeter.cagePackage} -s -- \
       ${lib.getExe cfg.package} greet "$@"
   '';

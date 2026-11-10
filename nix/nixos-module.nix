@@ -11,17 +11,17 @@ self: {
   # writable by the greeter's user; the tmpfiles rules below create it.
   greeterStateDir = "/var/lib/lys-greeter";
 
-  # Forces both render layers onto their software paths: wlroots' pixman
-  # renderer (DRM dumb buffers, no EGL/GBM) for cage, and lys-ui's CPU renderer
-  # (shared memory, no Vulkan) for the greeter client. This needs no GPU vendor
-  # driver at all, so it always renders — on a VM, a driverless box, or a
-  # non-NixOS install without nixGL. `renderer = "auto"` omits these and lets
-  # each layer try acceleration and fall back to software on its own.
-  softwareRenderEnv = [
-    "WLR_RENDERER=pixman"
-    "WLR_DRM_NO_MODIFIERS=1"
-    "LYS_UI_RENDERER=cpu"
-  ];
+  softwareRenderEnv = import ./software-render-env.nix;
+
+  greeterCompositor =
+    if cfg.greeter.renderer == "software"
+    then
+      pkgs.runCommand "lys-wm-software" {nativeBuildInputs = [pkgs.makeBinaryWrapper];} ''
+        makeBinaryWrapper ${lib.getExe' cfg.greeter.compositorPackage "lys-wm"} $out/bin/lys-wm ${
+          lib.concatStringsSep " " (lib.mapAttrsToList (k: v: "--set ${k} ${lib.escapeShellArg v}") softwareRenderEnv.lys-wm)
+        }
+      ''
+    else cfg.greeter.compositorPackage;
 
   # cage draws its own cursor until the greeter window maps (and wlroots scales
   # it per output). Give both cage and the greeter the same cursor as the
@@ -94,7 +94,7 @@ self: {
     envPrefix =
       "env "
       + lib.concatStringsSep " " (
-        cursorEnv ++ lib.optionals (cfg.greeter.renderer == "software") softwareRenderEnv
+        cursorEnv ++ lib.optionals (cfg.greeter.renderer == "software") (lib.mapAttrsToList (k: v: "${k}=${v}") softwareRenderEnv.cage)
       )
       + " ";
   in
@@ -111,7 +111,7 @@ self: {
       "--greeter-user"
       "lys-greeter"
       "--compositor"
-      (lib.getExe' cfg.greeter.compositorPackage "lys-wm")
+      (lib.getExe' greeterCompositor "lys-wm")
     ]
     ++ lib.optionals (cfg.greeter.splashPackage != null) [
       "--splash"
@@ -278,18 +278,21 @@ in {
         ];
         default = "auto";
         description = ''
-          Render path for the greeter stack under greetd. The `lys-login`
-          display manager takes only `auto`: lys-wm picks its GPU or renders
-          in software on its own.
+          Render path for the greeter and its compositor.
 
-          `auto` sets nothing: wlroots (cage) uses its GLES2 renderer, which
-          needs a GPU driver. It refuses Mesa's software driver, so on a host
-          without one cage exits and greetd keeps restarting it.
-          `software` forces both cage and the greeter onto their software paths
-          (wlroots pixman + the greeter's CPU drawing), which needs no GPU driver
-          at all. Use `software` on VMs, headless-ish boxes, or any host where
-          GL init is unreliable and you would rather guarantee the login screen
-          renders.
+          `auto` sets nothing. Under the `lys-login` display manager lys-wm
+          renders with Vulkan, so on a card without a Vulkan driver (a VM's
+          virtio-gpu, say) it stops. Under greetd wlroots (cage) uses its GLES2
+          renderer, which needs a GPU driver. It refuses Mesa's software driver,
+          so on a host without one cage exits and greetd keeps restarting it.
+          `software` needs no GPU vendor driver at all: the greeter draws on
+          the CPU (`LYS_UI_RENDERER=cpu`), and its compositor renders with
+          GLES on dumb buffers under the daemon (`LYS_WM_RENDERER=gles`, set by
+          wrapping `compositorPackage`) or with pixman under greetd
+          (`WLR_RENDERER=pixman`). It reaches the greeter's compositor only, not
+          the sessions it starts. Use `software` on VMs, headless-ish boxes, or
+          any host where GPU init is unreliable and you would rather guarantee
+          the login screen renders.
         '';
       };
 
@@ -417,10 +420,6 @@ in {
 
     (lib.mkIf (cfg.greeter.enable && cfg.greeter.displayManager == "lys-login") {
       assertions = [
-        {
-          assertion = cfg.greeter.renderer == "auto";
-          message = ''programs.lys-login.greeter.renderer = "${cfg.greeter.renderer}" sets cage's and the greeter's render path under greetd; the "lys-login" display manager does not read it, and lys-wm falls back to software rendering on its own. Leave renderer at "auto".'';
-        }
         {
           assertion = cfg.greeter.graphicsWrapper == [];
           message = ''programs.lys-login.greeter.graphicsWrapper wraps the greetd launch of cage; the "lys-login" display manager does not run it. Leave graphicsWrapper empty.'';

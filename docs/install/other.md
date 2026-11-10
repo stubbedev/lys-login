@@ -78,8 +78,14 @@ lys-greeter-session --config /etc/lys-shell/config.yaml --state /var/lib/lys-gre
 ### Rendering without a GPU
 
 The greeter draws on the CPU when Vulkan is unavailable; `LYS_UI_RENDERER=cpu`
-forces it. For cage set `WLR_RENDERER=pixman` and `WLR_DRM_NO_MODIFIERS=1`.
-`greeter.renderer = "software"` sets all three. On a non-NixOS host, run the
+forces it. The display manager's lys-wm renders with Vulkan and stops on a card
+without a Vulkan driver, such as a VM's virtio-gpu; `LYS_WM_RENDERER=gles` makes
+it render with GLES, on llvmpipe when no GPU driver is there. The greeter's
+lys-wm gets its environment from PAM, not from the unit, so put the line in
+`/etc/environment` (read by `pam_env`), where lys-wm sessions find it too.
+For cage set `WLR_RENDERER=pixman` and `WLR_DRM_NO_MODIFIERS=1`.
+The home-manager `greeter.renderer = "software"` sets the cage and greeter
+variables. On a non-NixOS host, run the
 nix-built package under [nixGL](https://github.com/nix-community/nixGL) for GPU
 rendering:
 

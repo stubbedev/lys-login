@@ -148,13 +148,22 @@
             ${lib.optionalString (has "LYS_UI_RENDERER" "auto" || has "WLR_RENDERER" "auto") ''echo "renderer = auto forces a software path" >&2; exit 1''}
             touch $out
           '';
-        daemon-render-assertion = let
+        daemon-software-render = let
+          envLysWm = pkgs.writeShellScriptBin "lys-wm" ''echo "LYS_WM_RENDERER=''${LYS_WM_RENDERER-} LYS_UI_RENDERER=''${LYS_UI_RENDERER-}"'';
+          system = renderer:
+            daemonSystem {
+              inherit renderer;
+              compositorPackage = envLysWm;
+            };
+          compositor = renderer: lib.head (lib.splitString " " (lib.last (lib.splitString " --compositor " (system renderer).systemd.services.lys-login.serviceConfig.ExecStart)));
           rejects = greeter: needle: lib.any (lib.hasInfix needle) (failedAssertions (daemonSystem greeter));
         in
-          pkgs.runCommand "lys-login-daemon-render-assertion" {} ''
-            ${lib.optionalString (!rejects {renderer = "software";} "greeter.renderer") ''echo "renderer = software passed evaluation under the lys-login display manager" >&2; exit 1''}
+          pkgs.runCommand "lys-login-daemon-software-render" {} ''
+            ${lib.optionalString (failedAssertions (system "software") != []) ''echo "renderer = software failed evaluation under the lys-login display manager" >&2; exit 1''}
+            [ "$(${compositor "software"})" = "LYS_WM_RENDERER=gles LYS_UI_RENDERER=cpu" ] || { echo "renderer = software leaves the daemon's lys-wm on Vulkan or the greeter on the GPU" >&2; exit 1; }
+            [ "$(${compositor "auto"})" = "LYS_WM_RENDERER= LYS_UI_RENDERER=" ] || { echo "renderer = auto forces a software path on the daemon's lys-wm" >&2; exit 1; }
             ${lib.optionalString (!rejects {graphicsWrapper = ["nixGL"];} "greeter.graphicsWrapper") ''echo "a graphicsWrapper passed evaluation under the lys-login display manager" >&2; exit 1''}
-            ${lib.optionalString (rejects {} "greeter.renderer" || rejects {} "greeter.graphicsWrapper") ''echo "the default renderer and graphicsWrapper were rejected" >&2; exit 1''}
+            ${lib.optionalString (rejects {} "greeter.graphicsWrapper") ''echo "the default graphicsWrapper was rejected" >&2; exit 1''}
             touch $out
           '';
         default-display-manager = let
