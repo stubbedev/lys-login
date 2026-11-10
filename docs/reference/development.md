@@ -39,6 +39,10 @@ NixOS VM checks (KVM), each `just <name>`:
 
 `nix flake check` runs every check in `nix/checks.nix`.
 
+The VM checks show the greeter on virtio-gpu, which has no Vulkan driver, so
+`nix/tests/greeter-vm.nix` sets `LYS_WM_RENDERER=gles` in the session variables
+for the greeter's lys-wm and the lys-wm sessions.
+
 The greeter logs `greeter: ready: ...` once its first frame is on screen and it
 holds keyboard focus on a form field. VM checks wait for that line before typing.
 

@@ -17,7 +17,10 @@
       "-vga none"
       "-device virtio-gpu-pci"
     ];
-    environment.sessionVariables.LIBGL_ALWAYS_SOFTWARE = "1";
+    environment.sessionVariables = {
+      LIBGL_ALWAYS_SOFTWARE = "1";
+      LYS_WM_RENDERER = "gles";
+    };
     hardware.graphics.enable = true;
     hardware.graphics.extraPackages = [pkgs.mesa];
     fonts.packages = [pkgs.inter];
