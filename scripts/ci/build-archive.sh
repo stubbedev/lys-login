@@ -19,6 +19,7 @@ cp "${DIST_DIR}/lys-login" "${DIST_DIR}/eff_large_wordlist.NOTICE" LICENSE \
 	resources/lys-login.service \
 	resources/lys-login.sysusers \
 	resources/lys-login.tmpfiles \
+	resources/dev.stubbe.lys.login.policy \
 	"${STAGING}/"
 cp -r resources/pam "${STAGING}/"
 tar czf "${STAGING}.tar.gz" "${STAGING}"

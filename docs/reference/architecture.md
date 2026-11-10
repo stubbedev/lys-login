@@ -130,7 +130,7 @@ is restarted by systemd like any crash.
 | Path | Access | Purpose |
 | --- | --- | --- |
 | `/run/lys-login/greeter.sock` | Greeter account (`0600`) | greetd protocol. |
-| `/run/lys-login/apply.sock` | Root, users with a running session | [`apply-config`](/guide/configuration#change-the-login-screen-from-your-session). |
+| `/run/lys-login/apply.sock` | Root, users with a running session, others through polkit | [`apply-config`](/guide/configuration#change-the-login-screen-from-your-session). |
 | `/run/lys-login/cursor.sock` | Users with a running session | [`record-cursor`](/guide/configuration#cursor). |
 | `/run/lys-login/splash.sock` | Root, greeter account | Greeter's first frame; quits lys-splash. |
 | `/run/lys-login/upgrade.sock` | Root | [`upgrade`](/reference/cli#lys-login-upgrade). |

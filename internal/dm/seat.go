@@ -79,7 +79,7 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 	}
 	gate := &sync.RWMutex{}
 	d.u = &upgrader{o: o, requests: make(chan *pendingUpgrade), listeners: l, cards: c.cards, gate: gate, mayUpgrade: may, drain: loginDrain}
-	go ApplySocket.serve(l.apply, gated(gate, applyChange(d.owners, o.GreeterConfig)))
+	go ApplySocket.serve(l.apply, applyChange(d.owners.authorizeApply(askPolkit), gate, o.GreeterConfig))
 	go CursorSocket.serve(l.cursor, gated(gate, recordCursor(d.owners, o.CursorDir)))
 	go SplashSocket.serve(l.splash, handOverSplash(o.isGreeter, quitSplash(o.Splash)))
 	go SwitchSocket.serve(l.switchUser, gated(gate, askSwitch(d.owners, d.switches)))

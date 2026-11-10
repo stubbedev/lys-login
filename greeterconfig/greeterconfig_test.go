@@ -1,6 +1,7 @@
 package greeterconfig
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func stageWrite(t *testing.T, dir, text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return Write(c, filepath.Join(dir, "config.yaml"))
+	return checkWrite(c, filepath.Join(dir, "config.yaml"))
 }
 
 func TestWriteKeepsOnlyTheAllowlistedKeys(t *testing.T) {
@@ -99,7 +100,7 @@ func TestImageBackgrounds(t *testing.T) {
 	if err != nil || c.Image != nil {
 		t.Fatalf("color mode: %+v, %v", c, err)
 	}
-	dest, err = Write(c, filepath.Join(dir, "config.yaml"))
+	dest, err = checkWrite(c, filepath.Join(dir, "config.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,18 +126,55 @@ func TestWriteRefusesAMalformedChange(t *testing.T) {
 		"an oversized image":   {Staged: image, Image: &Image{Ext: ".png", Data: make([]byte, MaxImage+1)}},
 		"an oversized staging": {Staged: "show-clock: true\n" + strings.Repeat("#", MaxStaged)},
 	} {
-		if _, err := Write(c, cfg); err == nil {
-			t.Errorf("%s: written", name)
+		if _, err := checkWrite(c, cfg); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", name, err)
 		}
 	}
 	if entries, _ := os.ReadDir(filepath.Join(dir, "etc")); len(entries) != 0 {
 		t.Errorf("a refused change left %v", entries)
 	}
-	dest, err := Write(Change{Staged: image, Image: &Image{Data: []byte("x")}}, cfg)
+	dest, err := checkWrite(Change{Staged: image, Image: &Image{Data: []byte("x")}}, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := readRuntime(t, dest)["login"].(map[string]any)["background-image"]; got != filepath.Join(dir, "etc", "greeter-background.img") {
 		t.Errorf("an image without an extension went to %v", got)
+	}
+}
+
+func checkWrite(c Change, configPath string) (string, error) {
+	checked, err := c.Check()
+	if err != nil {
+		return "", err
+	}
+	return Write(checked, configPath)
+}
+
+func TestNewChangeReadsTheImageWithTheCallersRights(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "wall.jpg")
+	if err := os.WriteFile(src, []byte("JPEG"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewChange("login:\n  background-mode: image\n  background-image: " + src + "\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Image == nil || c.Image.Ext != ".jpg" || string(c.Image.Data) != "JPEG" {
+		t.Errorf("image = %+v", c.Image)
+	}
+	if _, err := c.Check(); err != nil {
+		t.Errorf("a change NewChange made fails Check: %v", err)
+	}
+	for name, staged := range map[string]string{
+		"no login keys": "general:\n  foo: 1\n",
+		"not YAML":      "login: [",
+		"oversized":     "show-clock: true\n" + strings.Repeat("#", MaxStaged),
+	} {
+		if _, err := NewChange(staged); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
+	if _, err := NewChange("login:\n  background-mode: image\n  background-image: /nonexistent/x.png\n"); err == nil || errors.Is(err, ErrInvalid) {
+		t.Errorf("an unreadable image: %v, want a read failure", err)
 	}
 }

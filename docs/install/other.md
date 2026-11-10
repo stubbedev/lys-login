@@ -5,7 +5,8 @@ Run the display manager from the release archive, or only the greeter under gree
 ## Display manager from the archive
 
 `lys-login-<version>-<arch>-linux.tar.gz` (`x86_64`, `aarch64`) holds the binary,
-unit, sysusers and tmpfiles files, and both distributions' PAM files under `pam/`.
+unit, sysusers and tmpfiles files, the polkit action, and both distributions' PAM
+files under `pam/`.
 The binary uses the standard program interpreter; the unit expects
 `/usr/bin/lys-login` and `/usr/bin/lys-wm` (lys-wm has its own archive in
 [its releases](https://github.com/stubbedev/lys-wm/releases)). From the unpacked
@@ -16,6 +17,7 @@ sudo install -m 0755 lys-login /usr/bin/lys-login
 sudo install -m 0644 lys-login.service /usr/lib/systemd/system/
 sudo install -D -m 0644 lys-login.sysusers /usr/lib/sysusers.d/lys-login.conf
 sudo install -D -m 0644 lys-login.tmpfiles /usr/lib/tmpfiles.d/lys-login.conf
+sudo install -D -m 0644 dev.stubbe.lys.login.policy /usr/share/polkit-1/actions/dev.stubbe.lys.login.policy
 sudo systemd-sysusers lys-login.conf
 sudo systemd-tmpfiles --create lys-login.conf
 sudo systemctl daemon-reload
@@ -48,8 +50,8 @@ greetd → cage -s → lys-login greet → (login) → your session
   `/usr/share/wayland-sessions` and the matching `xsessions`; `--sessions DIR`
   and `--xsessions DIR` replace them.
 - `-- sway` appends a fallback session offered as "Custom".
-- There is no daemon, so `record-cursor` is unavailable and `apply-config` needs
-  root.
+- There is no daemon, so `record-cursor` and the `lys-settings` apply button are
+  unavailable, and `apply-config` needs root.
 
 ### home-manager
 

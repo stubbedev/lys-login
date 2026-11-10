@@ -1,6 +1,7 @@
 package dm
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,50 +11,31 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
-	"github.com/stubbedev/lys-lib/peercred"
+	"golang.org/x/sys/unix"
 
+	"github.com/stubbedev/lys-login/dmsocket"
+	"github.com/stubbedev/lys-login/greeterconfig"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
-	"github.com/stubbedev/lys-login/internal/greeterconfig"
 )
 
-// DefaultRuntimeDir is where the daemon keeps its sockets and the
-// kiosk config unless told otherwise.
-const DefaultRuntimeDir = "/run/lys-login"
-
-// ErrNoDaemon is no display manager listening for a request.
-var ErrNoDaemon = errors.New("lys-login's display manager is not running")
+const DefaultRuntimeDir = dmsocket.DefaultRuntimeDir
 
 // Socket is one of the display manager's sockets in its runtime
 // directory, open to every local user, taking one request of type T
 // per connection. The daemon decides by the peer's uid what it does
 // with a request.
-type Socket[T any] struct {
-	name string
-	// maxRequest bounds a request on the wire.
-	maxRequest int64
-	exchange   time.Duration
-}
+type Socket[T any] struct{ dmsocket.Endpoint[T] }
 
 var (
-	// ApplySocket takes a change of the login screen from `lys-login
-	// apply-config`, from root and from the user whose session runs.
-	ApplySocket = Socket[greeterconfig.Change]{
-		name:       "apply.sock",
-		maxRequest: (greeterconfig.MaxStaged+greeterconfig.MaxImage)/3*4 + 4096,
-		exchange:   exchangeTimeout,
-	}
-	// CursorSocket takes the cursor of the session that runs from
-	// `lys-login record-cursor`, for the greeter to show next.
-	CursorSocket  = Socket[cursorrecord.Cursor]{name: "cursor.sock", maxRequest: 4096, exchange: exchangeTimeout}
-	SplashSocket  = Socket[Presented]{name: "splash.sock", maxRequest: 64, exchange: exchangeTimeout}
-	UpgradeSocket = Socket[UpgradeRequest]{name: "upgrade.sock", maxRequest: 1 << 20, exchange: upgradeExchange}
-	SwitchSocket  = Socket[SwitchRequest]{name: "switch.sock", maxRequest: 64, exchange: exchangeTimeout}
+	ApplySocket   = Socket[greeterconfig.Change]{dmsocket.Apply}
+	CursorSocket  = Socket[cursorrecord.Cursor]{dmsocket.Endpoint[cursorrecord.Cursor]{Name: "cursor.sock", MaxRequest: 4096, Exchange: exchangeTimeout}}
+	SplashSocket  = Socket[Presented]{dmsocket.Endpoint[Presented]{Name: "splash.sock", MaxRequest: 64, Exchange: exchangeTimeout}}
+	UpgradeSocket = Socket[UpgradeRequest]{dmsocket.Endpoint[UpgradeRequest]{Name: "upgrade.sock", MaxRequest: 1 << 20, Exchange: upgradeExchange}}
+	SwitchSocket  = Socket[SwitchRequest]{dmsocket.Endpoint[SwitchRequest]{Name: "switch.sock", MaxRequest: 64, Exchange: exchangeTimeout}}
 )
 
 type Presented struct{}
@@ -62,20 +44,30 @@ type SwitchRequest struct{}
 
 const RuntimeDirEnv = "LYS_LOGIN_RUNTIME_DIR"
 
-// Path is the socket in runtimeDir.
-func (s Socket[T]) Path(runtimeDir string) string { return filepath.Join(runtimeDir, s.name) }
-
-// maxReply bounds the daemon's answer.
-const maxReply = 64 << 10
-
 // exchangeTimeout bounds one exchange on most sockets.
 const exchangeTimeout = 30 * time.Second
 
-// reply is the daemon's answer: the file the request went to, or why
-// it was refused.
-type reply struct {
-	Path  string `json:"path,omitempty"`
-	Error string `json:"error,omitempty"`
+type peer struct {
+	uid uint32
+	pid int32
+}
+
+func peerOf(conn *net.UnixConn) (peer, error) {
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return peer{}, fmt.Errorf("who asks: %w", err)
+	}
+	var cred *unix.Ucred
+	var credErr error
+	if err := raw.Control(func(fd uintptr) {
+		cred, credErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
+	}); err != nil {
+		return peer{}, fmt.Errorf("who asks: %w", err)
+	}
+	if credErr != nil {
+		return peer{}, fmt.Errorf("who asks: SO_PEERCRED: %w", credErr)
+	}
+	return peer{uid: cred.Uid, pid: cred.Pid}, nil
 }
 
 type sessionOwners struct {
@@ -107,10 +99,6 @@ func (o *sessionOwners) runs(uid uint32) bool {
 	return o.uids[uid] > 0
 }
 
-// mayApply is whether uid may change the login screen: root, and the
-// user whose session runs.
-func (o *sessionOwners) mayApply(uid uint32) bool { return uid == 0 || o.runs(uid) }
-
 // listen binds the socket in runtimeDir, open to every local user;
 // serve's handler decides who may do anything.
 func (s Socket[T]) listen(runtimeDir string) (*net.UnixListener, error) {
@@ -129,9 +117,9 @@ func (s Socket[T]) listen(runtimeDir string) (*net.UnixListener, error) {
 	return ln, nil
 }
 
-// handler carries out a request from uid and returns the file it went
-// to, or the refusal the client sees.
-type handler[T any] func(uid uint32, req T) (string, error)
+// handler carries out a request from a peer within ctx and returns the
+// file it went to, or the refusal the client sees.
+type handler[T any] func(ctx context.Context, p peer, req T) (string, error)
 
 // serve answers each connection on ln with handle until ln closes.
 func (s Socket[T]) serve(ln *net.UnixListener, handle handler[T]) {
@@ -143,93 +131,46 @@ func (s Socket[T]) serve(ln *net.UnixListener, handle handler[T]) {
 		go func() {
 			defer func() { _ = conn.Close() }()
 			if err := s.answer(conn, handle); err != nil {
-				log.Printf("dm: %s: %v", s.name, err)
+				log.Printf("dm: %s: %v", s.Name, err)
 			}
 		}()
 	}
 }
 
 func (s Socket[T]) answer(conn *net.UnixConn, handle handler[T]) error {
-	_ = conn.SetDeadline(time.Now().Add(s.exchange))
-	uid, err := peercred.UID(conn)
+	deadline := time.Now().Add(s.Exchange)
+	_ = conn.SetDeadline(deadline)
+	p, err := peerOf(conn)
 	if err != nil {
 		return err
 	}
 	var req T
-	if err := json.NewDecoder(io.LimitReader(conn, s.maxRequest)).Decode(&req); err != nil {
-		return send(conn, reply{Error: "malformed request: " + err.Error()}, fmt.Errorf("decode uid %d's request: %w", uid, err))
+	if err := json.NewDecoder(io.LimitReader(conn, s.MaxRequest)).Decode(&req); err != nil {
+		refusal := dmsocket.Refuse(dmsocket.Invalid, "malformed request: "+err.Error())
+		return send(conn, dmsocket.Answer("", refusal), fmt.Errorf("decode uid %d's request: %w", p.uid, err))
 	}
-	path, err := handle(uid, req)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	path, err := handle(ctx, p, req)
 	if err != nil {
-		return send(conn, reply{Error: err.Error()}, fmt.Errorf("refused uid %d: %w", uid, err))
+		return send(conn, dmsocket.Answer("", err), fmt.Errorf("refused uid %d: %w", p.uid, err))
 	}
-	return send(conn, reply{Path: path}, nil)
+	return send(conn, dmsocket.Answer(path, nil), nil)
 }
 
 // send writes r, returning cause, or the write's failure without one.
-func send(conn net.Conn, r reply, cause error) error {
+func send(conn net.Conn, r dmsocket.Reply, cause error) error {
 	if err := json.NewEncoder(conn).Encode(r); err != nil && cause == nil {
 		return fmt.Errorf("reply: %w", err)
 	}
 	return cause
 }
 
-// Send hands req to the display manager whose runtime directory is
-// runtimeDir and returns the file it went to; ErrNoDaemon without one.
-func (s Socket[T]) Send(runtimeDir string, req T) (string, error) {
-	path := s.Path(runtimeDir)
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
-		return "", fmt.Errorf("%w (no %s)", ErrNoDaemon, path)
-	}
-	if err != nil {
-		return "", fmt.Errorf("connect to %s: %w", path, err)
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(s.exchange))
-	// A daemon that refuses by who is asking answers without reading the request,
-	// so a failed send can still leave its answer to read.
-	sent := json.NewEncoder(conn).Encode(req)
-	if sent == nil {
-		sent = conn.CloseWrite()
-	}
-	var r reply
-	if err := json.NewDecoder(io.LimitReader(conn, maxReply)).Decode(&r); err != nil {
-		if sent != nil {
-			return "", fmt.Errorf("send to %s: %w", path, sent)
-		}
-		return "", fmt.Errorf("read the display manager's answer on %s: %w", path, err)
-	}
-	if r.Error != "" {
-		return "", fmt.Errorf("the display manager refused: %s", r.Error)
-	}
-	return r.Path, nil
-}
-
-// applyChange writes the changes owner allows to the greeter's config
-// at configPath, one at a time.
-func applyChange(owner *sessionOwners, configPath string) handler[greeterconfig.Change] {
-	var mu sync.Mutex
-	return func(uid uint32, c greeterconfig.Change) (string, error) {
-		if !owner.mayApply(uid) {
-			return "", errors.New("only root and the user logged in here may change the login screen")
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		path, err := greeterconfig.Write(c, configPath)
-		if err != nil {
-			return "", err
-		}
-		log.Printf("dm: uid %d changed the login screen", uid)
-		return path, nil
-	}
-}
-
 func gated[T any](gate *sync.RWMutex, handle handler[T]) handler[T] {
-	return func(uid uint32, req T) (string, error) {
+	return func(ctx context.Context, p peer, req T) (string, error) {
 		gate.RLock()
 		defer gate.RUnlock()
-		return handle(uid, req)
+		return handle(ctx, p, req)
 	}
 }
 
@@ -246,9 +187,9 @@ func TakeScreenFromSplash(runtimeDir string) func() {
 
 func handOverSplash(isGreeter func(uid uint32) bool, quit func() error) handler[Presented] {
 	var once sync.Once
-	return func(uid uint32, _ Presented) (string, error) {
-		if uid != 0 && !isGreeter(uid) {
-			return "", errors.New("only the greeter may take the screen from the splash")
+	return func(_ context.Context, p peer, _ Presented) (string, error) {
+		if p.uid != 0 && !isGreeter(p.uid) {
+			return "", dmsocket.Refuse(dmsocket.Unauthorized, "only the greeter may take the screen from the splash")
 		}
 		once.Do(func() {
 			if err := quit(); err != nil {
@@ -279,24 +220,24 @@ func quitSplash(splash string) func() error {
 // recordCursor writes the cursor of the session owner runs to its
 // user's record under dir.
 func recordCursor(owner *sessionOwners, dir string) handler[cursorrecord.Cursor] {
-	return func(uid uint32, c cursorrecord.Cursor) (string, error) {
-		if !owner.runs(uid) {
-			return "", errors.New("only the user logged in here may record their session's cursor")
+	return func(_ context.Context, p peer, c cursorrecord.Cursor) (string, error) {
+		if !owner.runs(p.uid) {
+			return "", dmsocket.Refuse(dmsocket.Unauthorized, "only the user logged in here may record their session's cursor")
 		}
-		return cursorrecord.Write(dir, uid, c)
+		return cursorrecord.Write(dir, p.uid, c)
 	}
 }
 
 const switchQueueWait = 5 * time.Second
 
 func askSwitch(owner *sessionOwners, switches chan<- struct{}) handler[SwitchRequest] {
-	return func(uid uint32, _ SwitchRequest) (string, error) {
-		if uid != 0 && !owner.runs(uid) {
-			return "", errors.New("only root and the users logged in here may switch users")
+	return func(_ context.Context, p peer, _ SwitchRequest) (string, error) {
+		if p.uid != 0 && !owner.runs(p.uid) {
+			return "", dmsocket.Refuse(dmsocket.Unauthorized, "only root and the users logged in here may switch users")
 		}
 		select {
 		case switches <- struct{}{}:
-			log.Printf("dm: uid %d asked to switch users", uid)
+			log.Printf("dm: uid %d asked to switch users", p.uid)
 			return "", nil
 		case <-time.After(switchQueueWait):
 			return "", fmt.Errorf("the daemon took no switch in %s", switchQueueWait)

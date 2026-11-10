@@ -21,6 +21,8 @@ import (
 
 	"github.com/stubbedev/lys-lib/peercred"
 	"golang.org/x/sys/unix"
+
+	"github.com/stubbedev/lys-login/dmsocket"
 )
 
 const (
@@ -59,11 +61,7 @@ func answerUpgrade(conn *net.UnixConn, path string, cause error) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(exchangeTimeout)); err != nil {
 		return fmt.Errorf("bound the answer: %w", err)
 	}
-	r := reply{Path: path}
-	if cause != nil {
-		r = reply{Error: cause.Error()}
-	}
-	return send(conn, r, nil)
+	return send(conn, dmsocket.Answer(path, cause), nil)
 }
 
 type upgrader struct {
@@ -87,7 +85,7 @@ func (u *upgrader) serve() {
 		}
 		go func() {
 			if err := u.take(conn); err != nil {
-				log.Printf("dm: %s: %v", UpgradeSocket.name, err)
+				log.Printf("dm: %s: %v", UpgradeSocket.Name, err)
 			}
 		}()
 	}
@@ -120,7 +118,7 @@ func (u *upgrader) read(conn *net.UnixConn) (UpgradeRequest, error) {
 		return UpgradeRequest{}, fmt.Errorf("only root may upgrade the display manager, not uid %d", uid)
 	}
 	var req UpgradeRequest
-	if err := json.NewDecoder(io.LimitReader(conn, UpgradeSocket.maxRequest)).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(conn, UpgradeSocket.MaxRequest)).Decode(&req); err != nil {
 		return UpgradeRequest{}, fmt.Errorf("malformed upgrade request: %w", err)
 	}
 	if !filepath.IsAbs(req.Exec) {
@@ -191,11 +189,11 @@ func (a *upgradeAttempt) collect(sessions []*session) error {
 		RuntimeDir: a.u.o.RuntimeDir,
 		Client:     take(a.req.conn, "the upgrade's client"),
 		Listeners: handedListeners{
-			Apply:   take(a.u.listeners.apply, ApplySocket.name),
-			Cursor:  take(a.u.listeners.cursor, CursorSocket.name),
-			Splash:  take(a.u.listeners.splash, SplashSocket.name),
-			Upgrade: take(a.u.listeners.upgrade, UpgradeSocket.name),
-			Switch:  take(a.u.listeners.switchUser, SwitchSocket.name),
+			Apply:   take(a.u.listeners.apply, ApplySocket.Name),
+			Cursor:  take(a.u.listeners.cursor, CursorSocket.Name),
+			Splash:  take(a.u.listeners.splash, SplashSocket.Name),
+			Upgrade: take(a.u.listeners.upgrade, UpgradeSocket.Name),
+			Switch:  take(a.u.listeners.switchUser, SwitchSocket.Name),
 		},
 		Rollback: rollback{Args: a.u.o.Args, Env: os.Environ()},
 	}
@@ -563,19 +561,19 @@ func adoptListeners(h handedListeners, track func(io.Closer)) (*listeners, error
 	}
 	var l listeners
 	var err error
-	if l.apply, err = listener(h.Apply, ApplySocket.name); err != nil {
+	if l.apply, err = listener(h.Apply, ApplySocket.Name); err != nil {
 		return nil, err
 	}
-	if l.cursor, err = listener(h.Cursor, CursorSocket.name); err != nil {
+	if l.cursor, err = listener(h.Cursor, CursorSocket.Name); err != nil {
 		return nil, err
 	}
-	if l.splash, err = listener(h.Splash, SplashSocket.name); err != nil {
+	if l.splash, err = listener(h.Splash, SplashSocket.Name); err != nil {
 		return nil, err
 	}
-	if l.upgrade, err = listener(h.Upgrade, UpgradeSocket.name); err != nil {
+	if l.upgrade, err = listener(h.Upgrade, UpgradeSocket.Name); err != nil {
 		return nil, err
 	}
-	if l.switchUser, err = listener(h.Switch, SwitchSocket.name); err != nil {
+	if l.switchUser, err = listener(h.Switch, SwitchSocket.Name); err != nil {
 		return nil, err
 	}
 	return &l, nil

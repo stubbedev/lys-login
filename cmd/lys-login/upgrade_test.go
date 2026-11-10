@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stubbedev/lys-login/dmsocket"
 	"github.com/stubbedev/lys-login/internal/dm"
 )
 
@@ -34,7 +35,7 @@ func TestUpgradeSaysWhenNoDaemonListens(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(short) })
 	runtime := filepath.Join(short, "no-daemon")
 	code, out := runSelf(t, "upgrade", "--", "--runtime-dir", runtime, "--", "--", "/bin/sh")
-	if code != 1 || !strings.Contains(out, dm.ErrNoDaemon.Error()) || !strings.Contains(out, runtime) {
+	if code != 1 || !strings.Contains(out, dmsocket.ErrNoDaemon.Error()) || !strings.Contains(out, runtime) {
 		t.Errorf("exit %d: %s", code, out)
 	}
 }

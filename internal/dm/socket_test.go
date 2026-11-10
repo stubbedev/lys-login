@@ -1,20 +1,19 @@
 package dm
 
 import (
+	"context"
 	"errors"
 	"io/fs"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stubbedev/lys-lib/sockdir"
 
+	"github.com/stubbedev/lys-login/dmsocket"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
-	"github.com/stubbedev/lys-login/internal/greeterconfig"
 )
 
 // serveAt runs s with handle in a scratch runtime directory and
@@ -28,22 +27,11 @@ func serveAt[T any](t *testing.T, s Socket[T], handle handler[T]) string {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	if fi, err := os.Stat(s.Path(dir)); err != nil || fi.Mode().Perm() != 0o666 {
-		t.Fatalf("%s is %v, %v; want every local user able to connect", s.name, fi, err)
+		t.Fatalf("%s is %v, %v; want every local user able to connect", s.Name, fi, err)
 	}
 	go s.serve(ln, handle)
 	return dir
 }
-
-// serveApplyAt runs the apply socket for a greeter config in a scratch
-// directory and returns the runtime directory and the config's
-// runtime.yaml.
-func serveApplyAt(t *testing.T, owner *sessionOwners) (runtimeDir, runtime string) {
-	t.Helper()
-	cfg := filepath.Join(t.TempDir(), "config.yaml")
-	return serveAt(t, ApplySocket, applyChange(owner, cfg)), filepath.Join(filepath.Dir(cfg), "runtime.yaml")
-}
-
-var colorChange = greeterconfig.Change{Staged: "login:\n  background-color: \"#ff0000\"\n"}
 
 // me is the test's uid, which must not be root's: root may always
 // apply.
@@ -56,80 +44,51 @@ func me(t *testing.T) uint32 {
 	return uid
 }
 
-// The user whose session runs changes the login screen; nobody else
-// does while the greeter is up or someone else is logged in.
-func TestApplyIsTheLoggedInUsers(t *testing.T) {
-	owner := newSessionOwners()
-	dir, runtime := serveApplyAt(t, owner)
-	me := me(t)
-
-	if _, err := ApplySocket.Send(dir, colorChange); err == nil || !strings.Contains(err.Error(), "logged in") {
-		t.Errorf("without a session: %v, want a refusal", err)
+func refusal(err error) (dmsocket.Refusal, bool) {
+	refused, ok := errors.AsType[*dmsocket.RefusedError](err)
+	if !ok {
+		return 0, false
 	}
-	owner.add(me + 1)
-	if _, err := ApplySocket.Send(dir, colorChange); err == nil {
-		t.Error("another user's session let this one apply")
-	}
-	if _, err := os.Stat(runtime); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("a refused change wrote runtime.yaml: %v", err)
-	}
-
-	owner.add(me)
-	path, err := ApplySocket.Send(dir, colorChange)
-	if err != nil {
-		t.Fatalf("the session's user: %v", err)
-	}
-	if data, _ := os.ReadFile(path); path != runtime || !strings.Contains(string(data), "#ff0000") {
-		t.Errorf("wrote %s: %q", path, data)
-	}
-
-	owner.remove(me)
-	if _, err := ApplySocket.Send(dir, colorChange); err == nil {
-		t.Error("the session's end left its user able to apply")
-	}
-}
-
-func TestMayApply(t *testing.T) {
-	owner := newSessionOwners()
-	if !owner.mayApply(0) || owner.mayApply(1000) {
-		t.Error("without a session only root may apply")
-	}
-	owner.add(1000)
-	if !owner.mayApply(0) || !owner.mayApply(1000) || owner.mayApply(1001) {
-		t.Error("with 1000's session root and 1000 may apply, 1001 not")
-	}
-	if owner.runs(0) || !owner.runs(1000) {
-		t.Error("with 1000's session only 1000's session runs")
-	}
-}
-
-func TestApplyRefusesAMalformedChange(t *testing.T) {
-	owner := newSessionOwners()
-	owner.add(uint32(os.Getuid()))
-	dir, _ := serveApplyAt(t, owner)
-	if _, err := ApplySocket.Send(dir, greeterconfig.Change{Staged: "general:\n  foo: 1\n"}); err == nil || !strings.Contains(err.Error(), "no recognised login screen keys") {
-		t.Errorf("no login keys: %v", err)
-	}
-	conn, err := net.Dial("unix", ApplySocket.Path(dir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = conn.Close() }()
-	_, _ = conn.Write([]byte("not json"))
-	_ = conn.(*net.UnixConn).CloseWrite()
-	reply := make([]byte, 256)
-	n, _ := conn.Read(reply)
-	if !strings.Contains(string(reply[:n]), "malformed request") {
-		t.Errorf("garbage = %q, want a refusal", reply[:n])
-	}
+	return refused.Refusal, true
 }
 
 func TestSendWithoutADaemon(t *testing.T) {
-	if _, err := ApplySocket.Send(sockdir.Dir(t), colorChange); !errors.Is(err, ErrNoDaemon) {
+	if _, err := CursorSocket.Send(sockdir.Dir(t), cursorrecord.Cursor{Theme: "Bibata"}); !errors.Is(err, dmsocket.ErrNoDaemon) {
 		t.Errorf("no daemon = %v, want ErrNoDaemon", err)
 	}
-	if _, err := CursorSocket.Send(sockdir.Dir(t), cursorrecord.Cursor{Theme: "Bibata"}); !errors.Is(err, ErrNoDaemon) {
-		t.Errorf("no daemon = %v, want ErrNoDaemon", err)
+}
+
+func TestSocketsAnswerWithTheCallersCredentials(t *testing.T) {
+	got := make(chan peer, 1)
+	s := Socket[SwitchRequest]{dmsocket.Endpoint[SwitchRequest]{Name: "peer.sock", MaxRequest: 64, Exchange: exchangeTimeout}}
+	dir := serveAt(t, s, func(_ context.Context, p peer, _ SwitchRequest) (string, error) {
+		got <- p
+		return "", nil
+	})
+	if _, err := s.Send(dir, SwitchRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if p := <-got; p.uid != uint32(os.Getuid()) || p.pid != int32(os.Getpid()) {
+		t.Errorf("peer = %+v, want uid %d pid %d", p, os.Getuid(), os.Getpid())
+	}
+}
+
+func TestAMalformedRequestIsInvalid(t *testing.T) {
+	s := Socket[SwitchRequest]{dmsocket.Endpoint[SwitchRequest]{Name: "small.sock", MaxRequest: 8, Exchange: exchangeTimeout}}
+	var handled atomic.Int32
+	dir := serveAt(t, s, func(context.Context, peer, SwitchRequest) (string, error) {
+		handled.Add(1)
+		return "", nil
+	})
+	raw := Socket[string]{dmsocket.Endpoint[string]{Name: s.Name, Exchange: exchangeTimeout}}
+	for name, req := range map[string]string{"over the bound": strings.Repeat("x", 64), "not the request": "x"} {
+		_, err := raw.Send(dir, req)
+		if r, ok := refusal(err); !ok || r != dmsocket.Invalid || !strings.Contains(err.Error(), "malformed request") {
+			t.Errorf("%s: %v, want an invalid request", name, err)
+		}
+	}
+	if n := handled.Load(); n != 0 {
+		t.Errorf("malformed requests reached the handler %d times", n)
 	}
 }
 
@@ -244,47 +203,5 @@ func TestQuitSplashWithoutSplash(t *testing.T) {
 	}
 	if err := quitSplash(failing)(); err == nil || !strings.Contains(err.Error(), "no daemon") {
 		t.Errorf("a failing lys-splash: %v, want its output", err)
-	}
-}
-
-// serveOnce answers one connection with answer and closes, reading nothing.
-func serveOnce(t *testing.T, s Socket[string], dir, answer string) {
-	t.Helper()
-	l, err := net.Listen("unix", s.Path(dir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = l.Close() })
-	go func() {
-		conn, err := l.Accept()
-		if err != nil {
-			return
-		}
-		_, _ = conn.Write([]byte(answer))
-		_ = conn.Close()
-	}()
-}
-
-// A request too large for the socket's buffer is still being written when
-// the daemon answers and closes, as it does refusing by who asks: the answer
-// is what the caller hears, not the broken pipe.
-func TestARefusalBeforeTheRequestIsReadStillReachesTheCaller(t *testing.T) {
-	s := Socket[string]{name: "refuse.sock", exchange: 5 * time.Second}
-	dir := sockdir.Dir(t)
-	serveOnce(t, s, dir, `{"error":"only root may"}`)
-	_, err := s.Send(dir, strings.Repeat("x", 1<<22))
-	if err == nil || !strings.Contains(err.Error(), "only root may") {
-		t.Fatalf("Send = %v, want the refusal", err)
-	}
-}
-
-// With no answer at all, the failed send is the error.
-func TestAFailedSendWithoutAnAnswerSaysSo(t *testing.T) {
-	s := Socket[string]{name: "silent.sock", exchange: 5 * time.Second}
-	dir := sockdir.Dir(t)
-	serveOnce(t, s, dir, "")
-	_, err := s.Send(dir, strings.Repeat("x", 1<<22))
-	if err == nil || !strings.Contains(err.Error(), "send to") {
-		t.Fatalf("Send = %v, want the failed send", err)
 	}
 }

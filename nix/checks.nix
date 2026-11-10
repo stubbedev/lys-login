@@ -172,6 +172,7 @@
             ${lib.optionalString system.services.greetd.enable ''echo "greeter.enable alone enabled greetd" >&2; exit 1''}
             ${lib.optionalString (!(runsDaemonIn fakeLysWm (daemonSystem {}))) ''echo "compositorPackage does not reach the daemon" >&2; exit 1''}
             ${lib.optionalString (!greetd.services.greetd.enable || greetd.systemd.services ? lys-login) ''echo "displayManager = greetd does not run greetd instead of the daemon" >&2; exit 1''}
+            ${lib.optionalString (!system.security.polkit.enable) ''echo "the lys-login daemon runs without polkit, which authorizes apply-config" >&2; exit 1''}
             touch $out
           '';
         # The package wraps the binary with the libraries it dlopens, libpam
@@ -180,6 +181,7 @@
           grep -q "${lib.getLib pkgs.pam}/lib" ${pkg}/bin/lys-login || { echo "lys-login lacks libpam on its library path" >&2; exit 1; }
           grep -q "${pkgs.xkeyboard-config}/share/X11/xkb" ${pkg}/bin/.lys-login-wrapped || { echo "lys-login lacks the keyboard data path" >&2; exit 1; }
           grep -q "${pkgs.libX11}/share/X11/locale" ${pkg}/bin/.lys-login-wrapped || { echo "lys-login lacks the locale data path" >&2; exit 1; }
+          grep -q '<action id="dev.stubbe.lys.login.apply-config">' ${pkg}/share/polkit-1/actions/dev.stubbe.lys.login.policy || { echo "lys-login does not install its polkit action" >&2; exit 1; }
           touch $out
         '';
       };

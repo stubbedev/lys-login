@@ -165,11 +165,11 @@ type namedFD struct {
 func (h handover) descriptors() []namedFD {
 	fds := []namedFD{
 		{"the upgrade's client", h.Client},
-		{ApplySocket.name, h.Listeners.Apply},
-		{CursorSocket.name, h.Listeners.Cursor},
-		{SplashSocket.name, h.Listeners.Splash},
-		{UpgradeSocket.name, h.Listeners.Upgrade},
-		{SwitchSocket.name, h.Listeners.Switch},
+		{ApplySocket.Name, h.Listeners.Apply},
+		{CursorSocket.Name, h.Listeners.Cursor},
+		{SplashSocket.Name, h.Listeners.Splash},
+		{UpgradeSocket.Name, h.Listeners.Upgrade},
+		{SwitchSocket.Name, h.Listeners.Switch},
 		{"the old program", h.Rollback.Exe},
 	}
 	for _, card := range h.Cards {

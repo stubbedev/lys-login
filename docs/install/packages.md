@@ -16,7 +16,7 @@ sudo dnf install ./lys-login-<version>-*.x86_64.rpm ./lys-wm-<version>-*.x86_64.
 | | Debian, Ubuntu | Fedora |
 | --- | --- | --- |
 | Depends | `libpam0g`, `libpam-systemd`, `libx11-data`, `xkb-data`, `systemd` | `pam`, `libX11-common`, `xkeyboard-config`, `systemd`, `policycoreutils` |
-| Recommends | `lys-wm`, `lys-secrets`, `accountsservice`, `libvulkan1`, `mesa-vulkan-drivers` | `lys-wm`, `lys-secrets`, `accountsservice`, `vulkan-loader`, `mesa-vulkan-drivers` |
+| Recommends | `lys-wm`, `lys-secrets`, `accountsservice`, `polkitd`, `libvulkan1`, `mesa-vulkan-drivers` | `lys-wm`, `lys-secrets`, `accountsservice`, `polkit`, `vulkan-loader`, `mesa-vulkan-drivers` |
 
 ## What it installs
 
@@ -26,7 +26,9 @@ sudo dnf install ./lys-login-<version>-*.x86_64.rpm ./lys-wm-<version>-*.x86_64.
 - the `lys-greeter` system user (sysusers.d) and `/var/lib/lys-greeter`
   (tmpfiles.d);
 - the PAM services `lys-login`, `lys-login-autologin` and `lys-shell`
-  ([PAM services](/guide/pam)).
+  ([PAM services](/guide/pam));
+- the polkit action `dev.stubbe.lys.login.apply-config`
+  ([Change the login screen](/guide/configuration#change-the-login-screen-from-your-session)).
 
 On Fedora with SELinux enabled, `/usr/bin/lys-login` is labelled `xdm_exec_t`;
 the label is removed on uninstall.

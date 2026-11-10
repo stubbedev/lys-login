@@ -45,6 +45,10 @@
 
       nativeBuildInputs = [pkgs.makeWrapper];
 
+      postInstall = ''
+        install -Dm0644 resources/dev.stubbe.lys.login.policy $out/share/polkit-1/actions/dev.stubbe.lys.login.policy
+      '';
+
       postFixup = ''
         wrapProgram $out/bin/lys-login --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath libs}"
       '';

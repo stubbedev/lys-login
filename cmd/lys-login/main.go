@@ -48,11 +48,11 @@ import (
 	"github.com/stubbedev/lys-desktop/shell/lockclient"
 	"github.com/stubbedev/lys-lib/xdg"
 
+	"github.com/stubbedev/lys-login/greeterconfig"
 	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
-	"github.com/stubbedev/lys-login/internal/greeterconfig"
 	"github.com/stubbedev/lys-login/internal/keyboard"
 	"github.com/stubbedev/lys-login/internal/lock"
 )
@@ -220,7 +220,7 @@ func applyConfig(args []string) int {
 		if *configPath == "" {
 			*configPath = config.GreeterConfigPath
 		}
-		dest, err = greeterconfig.Write(c, *configPath)
+		dest, err = writeConfig(c, *configPath)
 	} else {
 		dest, err = dm.ApplySocket.Send(dm.DefaultRuntimeDir, c)
 	}
@@ -230,6 +230,14 @@ func applyConfig(args []string) int {
 	}
 	fmt.Println("wrote", dest)
 	return 0
+}
+
+func writeConfig(c greeterconfig.Change, configPath string) (string, error) {
+	checked, err := c.Check()
+	if err != nil {
+		return "", err
+	}
+	return greeterconfig.Write(checked, configPath)
 }
 
 // recordCursor is `lys-login record-cursor`: run in a session the

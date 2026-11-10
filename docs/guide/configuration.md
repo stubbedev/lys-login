@@ -58,8 +58,8 @@ The greeter applies no user stylesheet.
 
 `lys-login apply-config <STAGED.yaml>` writes login keys to
 `/etc/lys-shell/runtime.yaml`, leaving `config.yaml` and other tables in the
-overlay untouched. The **Apply to login screen** button in `lys-settings` runs it.
-The next greeter shows the change.
+overlay untouched. The **Apply to login screen** button in `lys-settings` makes
+the same change. The next greeter shows the change.
 
 The staged file holds a `login` table or its keys at top level. Only these keys,
 relative to `login`, are taken:
@@ -76,12 +76,18 @@ rights and copied beside the overlay as `greeter-background<ext>`.
 
 Who may run it:
 
-- **Under `lys-login daemon`**: root, or the user whose session the daemon runs,
-  through `/run/lys-login/apply.sock`. While only the greeter is up, only root.
-- **Under greetd or without a session**: root, writing directly
-  (`sudo lys-login apply-config`, `--config PATH` for another system config).
-  When the `lys-settings` button fails it offers **Apply as administrator**,
-  which runs this through `pkexec`.
+- **Under `lys-login daemon`**: root and the user whose session the daemon runs,
+  through `/run/lys-login/apply.sock`. Anyone else is asked by polkit for the
+  action `dev.stubbe.lys.login.apply-config` (administrator authentication by
+  default, kept for a while in an active session). The daemon checks the change
+  before it asks, so an invalid one is refused without a prompt. The
+  **Apply to login screen** button in `lys-settings` sends the change to this
+  socket itself and says whether it was invalid, not authorized, or the
+  authentication was dismissed.
+- **Under greetd or without a session**: there is no daemon to ask. Root writes
+  directly (`sudo lys-login apply-config`, `--config PATH` for another system
+  config).
+
 
 ## Cursor
 

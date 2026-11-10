@@ -438,6 +438,7 @@ in {
       # authentication) and each login. startSession adds pam_systemd, which
       # registers both with logind on the seat and VT the daemon hands it.
       security.pam.services.lys-login.startSession = true;
+      security.polkit.enable = lib.mkDefault true;
       security.pam.services.lys-login-autologin.text = ''
         auth     requisite pam_nologin.so
         auth     [success=ok default=ignore] ${config.systemd.package}/lib/security/pam_systemd_loadkey.so

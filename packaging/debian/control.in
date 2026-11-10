@@ -23,6 +23,7 @@ Recommends:
  lys-wm,
  lys-secrets,
  accountsservice,
+ polkitd,
  libvulkan1,
  mesa-vulkan-drivers
 Provides: x-display-manager

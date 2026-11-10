@@ -26,4 +26,6 @@ override_dh_auto_install:
 	install -d debian/lys-login/etc/pam.d
 	install -m 0644 pam/debian/lys-login pam/debian/lys-login-autologin pam/debian/lys-shell debian/lys-login/etc/pam.d/
 
+	install -D -m 0644 dev.stubbe.lys.login.policy debian/lys-login/usr/share/polkit-1/actions/dev.stubbe.lys.login.policy
+
 	install -D -m 0644 eff_large_wordlist.NOTICE debian/lys-login/usr/share/doc/lys-login/eff_large_wordlist.NOTICE
