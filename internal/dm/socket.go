@@ -22,8 +22,6 @@ import (
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
 )
 
-const DefaultRuntimeDir = dmsocket.DefaultRuntimeDir
-
 // Socket is one of the display manager's sockets in its runtime
 // directory, open to every local user, taking one request of type T
 // per connection. The daemon decides by the peer's uid what it does

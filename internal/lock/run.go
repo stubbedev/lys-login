@@ -26,6 +26,7 @@ import (
 	"github.com/stubbedev/lys-ui/app"
 	"golang.org/x/sys/unix"
 
+	"github.com/stubbedev/lys-login/dmsocket"
 	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/dm"
 	"github.com/stubbedev/lys-login/internal/greeter"
@@ -285,7 +286,7 @@ func switchUser(shown bool) func() {
 	if users := greeter.ReadUsers(); len(users) < 2 {
 		return nil
 	}
-	if _, err := os.Stat(dm.SwitchSocket.Path(dm.DefaultRuntimeDir)); err != nil {
+	if _, err := os.Stat(dm.SwitchSocket.Path(dmsocket.DefaultRuntimeDir)); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			log.Printf("lock: no Switch user: %v", err)
 		}
@@ -293,7 +294,7 @@ func switchUser(shown bool) func() {
 	}
 	return func() {
 		go func() {
-			if _, err := dm.SwitchSocket.Send(dm.DefaultRuntimeDir, dm.SwitchRequest{}); err != nil {
+			if _, err := dm.SwitchSocket.Send(dmsocket.DefaultRuntimeDir, dm.SwitchRequest{}); err != nil {
 				log.Printf("lock: switch user: %v", err)
 			}
 		}()

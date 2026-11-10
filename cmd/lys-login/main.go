@@ -48,6 +48,7 @@ import (
 	"github.com/stubbedev/lys-desktop/shell/lockclient"
 	"github.com/stubbedev/lys-lib/xdg"
 
+	"github.com/stubbedev/lys-login/dmsocket"
 	"github.com/stubbedev/lys-login/greeterconfig"
 	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
@@ -222,7 +223,7 @@ func applyConfig(args []string) int {
 		}
 		dest, err = writeConfig(c, *configPath)
 	} else {
-		dest, err = dm.ApplySocket.Send(dm.DefaultRuntimeDir, c)
+		dest, err = dm.ApplySocket.Send(dmsocket.DefaultRuntimeDir, c)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login apply-config:", err)
@@ -257,7 +258,7 @@ func recordCursor(args []string) int {
 	if !ok {
 		return 0
 	}
-	dest, err := dm.CursorSocket.Send(dm.DefaultRuntimeDir, c)
+	dest, err := dm.CursorSocket.Send(dmsocket.DefaultRuntimeDir, c)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login record-cursor:", err)
 		return 1
@@ -271,7 +272,7 @@ func switchUser(args []string) int {
 		fmt.Fprintf(os.Stderr, "lys-login switch-user: unexpected argument %q\n", args[0])
 		return 2
 	}
-	if _, err := dm.SwitchSocket.Send(dm.DefaultRuntimeDir, dm.SwitchRequest{}); err != nil {
+	if _, err := dm.SwitchSocket.Send(dmsocket.DefaultRuntimeDir, dm.SwitchRequest{}); err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login switch-user:", err)
 		return 1
 	}
@@ -291,7 +292,7 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 	wo := workerFlags(fs)
 	greeterUser := fs.String("greeter-user", "lys-greeter", "account the greeter runs as")
 	compositor := fs.String("compositor", "lys-wm", "the greeter's compositor")
-	runtimeDir := fs.String("runtime-dir", dm.DefaultRuntimeDir, "directory for the greeter's socket and the display manager's")
+	runtimeDir := fs.String("runtime-dir", dmsocket.DefaultRuntimeDir, "directory for the greeter's socket and the display manager's")
 	splash := fs.String("splash", "", "lys-splash, quit with --retain-splash once the greeter's first frame is presented")
 	autologinUser := fs.String("autologin", "", "log this user in once per boot, before the first greeter")
 	autologinSession := fs.String("autologin-session", "", "the session id the autologin starts, else the last session or the first offered")
@@ -420,7 +421,7 @@ func worker(args []string) int {
 	user := fs.String("user", "lys-greeter", "the greeter's account")
 	var env multiFlag
 	fs.Var(&env, "env", "KEY=value for the greeter's compositor (repeatable)")
-	fs.StringVar(&wo.RuntimeDir, "runtime-dir", dm.DefaultRuntimeDir, "directory for the lock a session holds while it runs")
+	fs.StringVar(&wo.RuntimeDir, "runtime-dir", dmsocket.DefaultRuntimeDir, "directory for the lock a session holds while it runs")
 	fs.BoolVar(&wo.Autologin, "autologin", false, "log the user in with the autologin PAM service, which asks nothing")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
