@@ -279,9 +279,7 @@ func (p *systemPower) manager() (logind.Manager, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.conn == nil {
-		dialing, cancel := context.WithTimeout(context.Background(), logind.CallTimeout)
-		defer cancel()
-		conn, err := logind.Dial(dialing)
+		conn, err := logind.Dial(context.Background())
 		if err != nil {
 			return logind.Manager{}, err
 		}

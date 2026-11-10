@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/stubbedev/lys-lib/dbusx"
 	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 	"github.com/stubbedev/lys-lib/xkb"
 )
@@ -66,9 +67,9 @@ func (s Sources) Read(localedFailed func(error)) (Reading, error) {
 func fromLocaled(timeout time.Duration) (xkb.Names, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	conn, err := dbus.ConnectSystemBus(dbus.WithContext(ctx))
+	conn, err := dbusx.DialSystem(ctx, timeout)
 	if err != nil {
-		return xkb.Names{}, fmt.Errorf("keyboard: connect to the system bus: %w", err)
+		return xkb.Names{}, fmt.Errorf("keyboard: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
 	var props map[string]dbus.Variant

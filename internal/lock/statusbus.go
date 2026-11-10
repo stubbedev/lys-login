@@ -3,6 +3,7 @@ package lock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -10,12 +11,30 @@ import (
 	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-desktop/service/mpris"
 	"github.com/stubbedev/lys-desktop/service/upower"
+	"github.com/stubbedev/lys-lib/dbusx"
 	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 
 	"github.com/stubbedev/lys-login/internal/fprint"
 )
 
-const controlTimeout = 5 * time.Second
+const (
+	controlTimeout = 5 * time.Second
+	dialTimeout    = 5 * time.Second
+)
+
+type busDial func(context.Context) (*dbus.Conn, error)
+
+func dialSessionBus(context.Context) (*dbus.Conn, error) {
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return nil, fmt.Errorf("connect to the session bus: %w", err)
+	}
+	return conn, nil
+}
+
+func dialSystemBus(ctx context.Context) (*dbus.Conn, error) {
+	return dbusx.DialSystem(ctx, dialTimeout)
+}
 
 type busWatches struct {
 	invoke func(func())
@@ -24,13 +43,13 @@ type busWatches struct {
 
 func (b *busWatches) wait() { b.wg.Wait() }
 
-func (b *busWatches) run(what string, dial func(...dbus.ConnOption) (*dbus.Conn, error), body func(ctx context.Context, conn *dbus.Conn) error) (stop func()) {
+func (b *busWatches) run(what string, dial busDial, body func(ctx context.Context, conn *dbus.Conn) error) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.wg.Go(func() {
-		conn, err := dial()
+		conn, err := dial(ctx)
 		if err != nil {
 			if ctx.Err() == nil {
-				log.Printf("lock: %s: connect to the bus: %v", what, err)
+				log.Printf("lock: %s: %v", what, err)
 			}
 			return
 		}
@@ -71,7 +90,7 @@ func newSessionMedia(watches *busWatches, cfg config.MediaConfig) *sessionMedia 
 }
 
 func (m *sessionMedia) Watch(onChange func(nowPlaying, bool)) (stop func()) {
-	return m.watches.run("now playing", dbus.ConnectSessionBus, func(ctx context.Context, conn *dbus.Conn) error {
+	return m.watches.run("now playing", dialSessionBus, func(ctx context.Context, conn *dbus.Conn) error {
 		svc, err := mpris.New(conn, m.cfg.PlayersIgnored, m.cfg.PlayerPriority)
 		if err != nil {
 			return err
@@ -130,7 +149,7 @@ func (m *sessionMedia) Next(bus string) {
 }
 
 func (b *busWatches) battery(onChange func(batteryLevel, bool)) (stop func()) {
-	return b.run("battery", dbus.ConnectSystemBus, func(ctx context.Context, conn *dbus.Conn) error {
+	return b.run("battery", dialSystemBus, func(ctx context.Context, conn *dbus.Conn) error {
 		src := upower.NewOn(conn)
 		ticks, unsubscribe, err := src.Subscribe(ctx)
 		if err != nil {
@@ -162,7 +181,7 @@ func (b *busWatches) battery(onChange func(batteryLevel, bool)) (stop func()) {
 
 func (b *busWatches) fingerprint(user string) func(onResult func(fprint.Result)) (stop func()) {
 	return func(onResult func(fprint.Result)) func() {
-		return b.run("fingerprint", dbus.ConnectSystemBus, func(ctx context.Context, conn *dbus.Conn) error {
+		return b.run("fingerprint", dialSystemBus, func(ctx context.Context, conn *dbus.Conn) error {
 			log.Printf("lock: fingerprint: asking fprintd to verify %s", user)
 			err := fprint.Verify(ctx, conn, user, func(r fprint.Result) { b.post(ctx, func() { onResult(r) }) })
 			if errors.Is(err, fprint.ErrUnavailable) {

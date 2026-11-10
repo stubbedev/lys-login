@@ -2,6 +2,8 @@ package lock
 
 import (
 	"maps"
+	"net"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/stubbedev/lys-desktop/service/mpris"
 	"github.com/stubbedev/lys-desktop/service/upower"
 	"github.com/stubbedev/lys-lib/dbustest"
+	"github.com/stubbedev/lys-lib/sockdir"
 	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 	"github.com/stubbedev/lys-lib/third_party/godbus/prop"
 
@@ -266,5 +269,30 @@ func TestWithoutFprintdNoResultReachesTheLock(t *testing.T) {
 	watches.wait()
 	if len(loop) != 0 {
 		t.Error("a bus without fprintd posted to the lock")
+	}
+}
+
+func TestStoppingAWatchEndsItsDialOfASilentSystemBus(t *testing.T) {
+	sock := filepath.Join(sockdir.Dir(t), "silent")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path="+sock)
+	watches := &busWatches{invoke: func(func()) { t.Error("a silent bus posted to the lock") }}
+	stopBattery := watches.battery(func(batteryLevel, bool) {})
+	stopFingerprint := watches.fingerprint("ada")(func(fprint.Result) {})
+	stopBattery()
+	stopFingerprint()
+	ended := make(chan struct{})
+	go func() {
+		watches.wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+	case <-time.After(waitBound):
+		t.Fatalf("the watches still dial a silent system bus %v after they were stopped", waitBound)
 	}
 }

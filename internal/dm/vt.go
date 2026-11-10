@@ -49,9 +49,7 @@ func disallocateVT(vt int) error {
 }
 
 func withLogind(what string, do func(context.Context, logind.Manager) error) error {
-	dialing, cancel := context.WithTimeout(context.Background(), logind.CallTimeout)
-	conn, err := logind.Dial(dialing)
-	cancel()
+	conn, err := logind.Dial(context.Background())
 	if err != nil {
 		return fmt.Errorf("%s: %w", what, err)
 	}

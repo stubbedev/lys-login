@@ -186,9 +186,7 @@ func connectLogind() *pendingLogind {
 	p := &pendingLogind{life: life, end: end, done: make(chan struct{})}
 	go func() {
 		defer close(p.done)
-		dialing, cancel := context.WithTimeout(life, logind.CallTimeout)
-		conn, err := logind.Dial(dialing)
-		cancel()
+		conn, err := logind.Dial(life)
 		if err != nil {
 			log.Printf("lock: logind unavailable: %v", err)
 			return

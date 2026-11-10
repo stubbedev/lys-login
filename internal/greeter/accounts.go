@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/stubbedev/lys-lib/dbusx"
 	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 )
 
@@ -27,9 +28,9 @@ const (
 func withoutSystemAccounts(users []User, timeout time.Duration) []User {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	conn, err := dbus.ConnectSystemBus(dbus.WithContext(ctx))
+	conn, err := dbusx.DialSystem(ctx, timeout)
 	if err != nil {
-		log.Printf("greeter: listing every login user: no system bus: %v", err)
+		log.Printf("greeter: listing every login user: %v", err)
 		return users
 	}
 	defer func() {
