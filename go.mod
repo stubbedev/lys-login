@@ -4,9 +4,9 @@ go 1.27.3
 
 require (
 	github.com/stubbedev/lys-desktop v0.0.4-0.20261110193102-5ea83418512a
-	github.com/stubbedev/lys-lib v0.3.16-0.20261110191114-7b1f24564b03
+	github.com/stubbedev/lys-lib v0.3.16-0.20261110195851-df906f56bfcd
 	github.com/stubbedev/lys-secrets v0.3.17-0.20261110192813-7938031fb87a
-	github.com/stubbedev/lys-ui v0.2.20-0.20261110191859-c8e7bfcbbc56
+	github.com/stubbedev/lys-ui v0.2.20-0.20261110195922-c604e74fa8e9
 	github.com/stubbedev/memory-go v0.5.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0
