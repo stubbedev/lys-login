@@ -3,10 +3,10 @@ module github.com/stubbedev/lys-login
 go 1.27.3
 
 require (
-	github.com/stubbedev/lys-desktop v0.0.4-0.20261110163137-a1cadb1d5284
-	github.com/stubbedev/lys-lib v0.3.16-0.20261110160804-16a3c7a7cca2
-	github.com/stubbedev/lys-secrets v0.3.17-0.20261110162858-74b8bf696079
-	github.com/stubbedev/lys-ui v0.2.19
+	github.com/stubbedev/lys-desktop v0.0.4-0.20261110185809-3b2b356a2e02
+	github.com/stubbedev/lys-lib v0.3.16-0.20261110182728-31807303c464
+	github.com/stubbedev/lys-secrets v0.3.17-0.20261110185547-2854e8c280f6
+	github.com/stubbedev/lys-ui v0.2.20-0.20261110184735-77e43b9cf8cc
 	github.com/stubbedev/memory-go v0.5.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0
@@ -14,7 +14,6 @@ require (
 
 require (
 	github.com/ebitengine/purego v0.11.2 // indirect
-	github.com/jfreymuth/pulse v0.1.3 // indirect
 	github.com/kettek/apng v0.0.0-20250827064933-2bb5f5fcf253 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/image v0.47.0 // indirect
