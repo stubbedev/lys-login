@@ -1,13 +1,14 @@
 package greeter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"image"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/stubbedev/lys-desktop/config"
@@ -16,7 +17,9 @@ import (
 	"github.com/stubbedev/lys-desktop/outputsize"
 	"github.com/stubbedev/lys-desktop/shell/apptheme"
 	"github.com/stubbedev/lys-desktop/styling"
+	"github.com/stubbedev/lys-lib/logind"
 	"github.com/stubbedev/lys-lib/render"
+	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 
@@ -67,6 +70,8 @@ func Run(init Init) error {
 			log.Printf("greeter: close the clock: %v", err)
 		}
 	}()
+	var power systemPower
+	defer power.close()
 	var win *app.Window
 	var held widget.Widget
 	sheet := Stylesheet(init.Config)
@@ -97,17 +102,11 @@ func Run(init Init) error {
 			}
 			return win.WhenPresented(fn)
 		},
-		after:    time.After,
-		wall:     wall,
-		now:      wall.Now,
-		saveLast: SaveLast,
-		power: func(verb string) {
-			// logind allows each for the active local session without
-			// extra polkit rules.
-			if err := exec.Command("systemctl", verb).Run(); err != nil { //nolint:gosec // a fixed verb
-				log.Printf("greeter: power action %s failed: %v", verb, err)
-			}
-		},
+		after:        time.After,
+		wall:         wall,
+		now:          wall.Now,
+		saveLast:     SaveLast,
+		power:        power.press,
 		loadImage:    imagedecode.OpenOffHeap,
 		outputs:      func() []image.Point { return outputsize.Devices(sess.Outputs()) },
 		forget:       a.ForgetImage,
@@ -248,4 +247,54 @@ func Stylesheet(cfg *config.Config) *widget.Stylesheet {
 	}
 	apptheme.InstallWidgetTheme(p, cfg)
 	return widget.NewStylesheet(styling.BundleCSS(cfg, palette, p), apptheme.Priority)
+}
+
+// systemPower runs the power buttons' actions through logind, which
+// allows each for the active local session, on one system bus
+// connection: dialled on the first press, again after a failed dial, and
+// dropped by close.
+type systemPower struct {
+	mu   sync.Mutex
+	conn *dbus.Conn
+}
+
+func (p *systemPower) press(action logind.PowerAction) {
+	if err := p.run(action); err != nil {
+		log.Printf("greeter: %v", err)
+	}
+}
+
+func (p *systemPower) run(action logind.PowerAction) error {
+	m, err := p.manager()
+	if err != nil {
+		return fmt.Errorf("power action %s: %w", action, err)
+	}
+	if err := m.Power(context.Background(), action); err != nil {
+		return fmt.Errorf("power action %s: %w", action, err)
+	}
+	return nil
+}
+
+func (p *systemPower) manager() (logind.Manager, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn == nil {
+		dialing, cancel := context.WithTimeout(context.Background(), logind.CallTimeout)
+		defer cancel()
+		conn, err := logind.Dial(dialing)
+		if err != nil {
+			return logind.Manager{}, err
+		}
+		p.conn = conn
+	}
+	return logind.NewManager(p.conn), nil
+}
+
+func (p *systemPower) close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.conn != nil {
+		_ = p.conn.Close()
+		p.conn = nil
+	}
 }

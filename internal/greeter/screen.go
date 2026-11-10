@@ -14,6 +14,7 @@ import (
 	"github.com/stubbedev/lys-desktop/shell/reveal"
 	"github.com/stubbedev/lys-desktop/shell/widgets"
 	"github.com/stubbedev/lys-desktop/styling"
+	"github.com/stubbedev/lys-lib/logind"
 	"github.com/stubbedev/lys-lib/render"
 	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
@@ -79,7 +80,7 @@ type deps struct {
 	// saveLast stores a remembered value; it syncs, so never on the loop.
 	saveLast func(path, value string) error
 	// power runs a power action to its end, off the loop.
-	power func(verb string)
+	power func(logind.PowerAction)
 	// loadImage decodes the background (no blur in the greeter), its
 	// pixels in mem where it can.
 	loadImage func(mem *memory.Shared, path string) (imagedecode.Decoded, error)
@@ -344,19 +345,19 @@ func (s *screen) powerRow(font render.Font) *widget.Box {
 	row := widget.NewBox(widget.Row, 4*th.Spacing, 0)
 	row.AddClass("lock-power")
 	for _, b := range []struct {
-		icon string
-		name string
-		verb string
+		icon   string
+		name   string
+		action logind.PowerAction
 	}{
-		{sleepIcon, t("greeter-sleep"), "suspend"},
-		{restartIcon, t("greeter-restart"), "reboot"},
-		{shutdownIcon, t("greeter-shutdown"), "poweroff"},
+		{sleepIcon, t("greeter-sleep"), logind.Suspend},
+		{restartIcon, t("greeter-restart"), logind.Reboot},
+		{shutdownIcon, t("greeter-shutdown"), logind.PowerOff},
 	} {
 		btn := widget.NewButton(widget.NewThemeIcon(b.icon, powerIconPx), 0, 0)
 		btn.AddClass("lock-power-button", css.Ghost, css.Icon, css.Large)
 		btn.SetAccessibleName(b.name)
-		verb := b.verb
-		btn.OnClick = func() { go s.d.power(verb) }
+		action := b.action
+		btn.OnClick = func() { go s.d.power(action) }
 		name := widget.NewLabel(font, widgets.TextPx(styling.Caption, 1), b.name, 0)
 		name.AddClass("lock-power-name")
 		name.SetAlignment(render.AlignCenter)

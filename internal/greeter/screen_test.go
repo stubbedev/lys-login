@@ -17,6 +17,7 @@ import (
 	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-desktop/imagedecode"
 	"github.com/stubbedev/lys-desktop/shell/treetest"
+	"github.com/stubbedev/lys-lib/logind"
 	"github.com/stubbedev/lys-lib/render"
 	"github.com/stubbedev/lys-lib/testbuild"
 	"github.com/stubbedev/lys-ui/app"
@@ -74,8 +75,8 @@ type rig struct {
 	keyboard   bool
 	quit       int
 	powerMu    sync.Mutex
-	power      []string
-	onPower    func(verb string)
+	power      []logind.PowerAction
+	onPower    func(logind.PowerAction)
 	// background is what the background image decodes to; nil fails
 	// the decode.
 	background image.Image
@@ -161,13 +162,13 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 			}
 			return r.clockNow
 		},
-		power: func(verb string) {
+		power: func(action logind.PowerAction) {
 			if r.onPower != nil {
-				r.onPower(verb)
+				r.onPower(action)
 			}
 			r.powerMu.Lock()
 			defer r.powerMu.Unlock()
-			r.power = append(r.power, verb)
+			r.power = append(r.power, action)
 		},
 		loadImage: func(*memory.Shared, string) (imagedecode.Decoded, error) {
 			if r.background == nil {
@@ -198,9 +199,9 @@ func buildRig(t *testing.T, edit func(*Init), r *rig) *rig {
 	return r
 }
 
-// powerVerbs waits for n power actions to have run and returns them sorted: each
-// runs on its own goroutine.
-func (r *rig) powerVerbs(t *testing.T, n int) []string {
+// powerActions waits for n power actions to have run and returns them sorted:
+// each runs on its own goroutine.
+func (r *rig) powerActions(t *testing.T, n int) []logind.PowerAction {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -476,8 +477,8 @@ func TestGreeterUserRowAndPower(t *testing.T) {
 	if r := newRig(t, func(i *Init) { i.Config.Login.Greeter.ShowUserList = false }); len(r.s.users) != 0 {
 		t.Error("show-user-list off still listed users")
 	}
-	// The power buttons call systemctl's verbs, each named under its
-	// button.
+	// The power buttons run logind's power actions, each named under
+	// its button.
 	var buttons []*widget.Button
 	for _, w := range treetest.WithClass(r.s.root, "lock-power-button") {
 		buttons = append(buttons, w.(*widget.Button))
@@ -485,8 +486,8 @@ func TestGreeterUserRowAndPower(t *testing.T) {
 	for _, b := range buttons {
 		b.OnClick()
 	}
-	if got := r.powerVerbs(t, 3); !slices.Equal(got, []string{"poweroff", "reboot", "suspend"}) {
-		t.Errorf("power verbs = %v", got)
+	if got := r.powerActions(t, 3); !slices.Equal(got, []logind.PowerAction{logind.Suspend, logind.Reboot, logind.PowerOff}) {
+		t.Errorf("power actions = %v", got)
 	}
 	if got := treetest.Labels(r.s.power); !slices.Equal(got, []string{"Sleep", "Restart", "Shut down"}) {
 		t.Errorf("power names = %q", got)
@@ -798,7 +799,7 @@ func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 	loop := testbuild.GoroutineID()
 	var onLoop atomic.Int32
 	entered, release := make(chan struct{}, 3), make(chan struct{})
-	r.onPower = func(string) {
+	r.onPower = func(logind.PowerAction) {
 		if testbuild.GoroutineID() == loop {
 			onLoop.Add(1)
 		}
@@ -824,7 +825,7 @@ func TestAPowerActionNeverRunsOnTheLoop(t *testing.T) {
 		}
 	}
 	close(release)
-	r.powerVerbs(t, 3)
+	r.powerActions(t, 3)
 	if got := onLoop.Load(); got != 0 {
 		t.Errorf("%d power actions on the loop's goroutine", got)
 	}
