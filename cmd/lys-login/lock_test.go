@@ -10,12 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stubbedev/lys-desktop/service/logind"
-	"github.com/stubbedev/lys-desktop/service/logind/logindtest"
 	"github.com/stubbedev/lys-desktop/shell/lockclient"
 	"github.com/stubbedev/lys-desktop/swaytest"
 	"github.com/stubbedev/lys-desktop/testhome"
-	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
+	"github.com/stubbedev/lys-lib/logind"
+	"github.com/stubbedev/lys-lib/logind/logindtest"
 )
 
 // TestMain lets the test binary be lys-login: the tests re-exec it with
@@ -31,7 +30,7 @@ func TestMain(m *testing.M) {
 	testhome.Run(m)
 }
 
-const displaySession dbus.ObjectPath = "/org/freedesktop/login1/session/_1"
+const displaySession logind.SessionID = "1"
 
 type lockProcess struct {
 	cmd    *exec.Cmd
@@ -131,7 +130,7 @@ func TestLockWithoutACompositorFails(t *testing.T) {
 // unlocks (here by logind's Unlock signal).
 func TestLockReportsTheLockHoldsTheSessionAndExitsOnUnlock(t *testing.T) {
 	swaytest.Start(t)
-	fake := logindtest.StartUnit(t, displaySession)
+	fake := logindtest.StartUnit(t, logindtest.Config{Display: displaySession})
 	first := startLock(t)
 	first.lockedLine(t)
 
@@ -143,12 +142,16 @@ func TestLockReportsTheLockHoldsTheSessionAndExitsOnUnlock(t *testing.T) {
 		t.Fatal("the first lock exited while the session stayed locked")
 	}
 
-	conn := fake.Bus.Conn(t)
 	stop := make(chan struct{})
-	defer close(stop)
+	stopped := make(chan struct{})
+	defer func() {
+		close(stop)
+		<-stopped
+	}()
 	go func() {
+		defer close(stopped)
 		for {
-			_ = conn.Emit(displaySession, logind.SessionIf+".Unlock")
+			fake.Unlock(t, displaySession)
 			select {
 			case <-stop:
 				return

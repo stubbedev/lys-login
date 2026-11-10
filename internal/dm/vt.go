@@ -6,19 +6,14 @@ import (
 	"io"
 	"os"
 	"syscall"
-	"time"
 
-	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
+	"github.com/stubbedev/lys-lib/logind"
 	"golang.org/x/sys/unix"
 )
 
 const (
 	vtOpenQuery   = 0x5600
 	vtDisallocate = 0x5608
-	logindTimeout = 5 * time.Second
-	logindBus     = "org.freedesktop.login1"
-	logindPath    = dbus.ObjectPath("/org/freedesktop/login1")
-	logindManager = logindBus + ".Manager"
 )
 
 func freeVT() (int, io.Closer, error) {
@@ -53,20 +48,25 @@ func disallocateVT(vt int) error {
 	return nil
 }
 
-func callLogind(method string, args ...any) error {
-	ctx, cancel := context.WithTimeout(context.Background(), logindTimeout)
-	defer cancel()
-	conn, err := dbus.ConnectSystemBus(dbus.WithContext(ctx))
+func withLogind(what string, do func(context.Context, logind.Manager) error) error {
+	dialing, cancel := context.WithTimeout(context.Background(), logind.CallTimeout)
+	conn, err := logind.Dial(dialing)
+	cancel()
 	if err != nil {
-		return fmt.Errorf("connect to logind for %s: %w", method, err)
+		return fmt.Errorf("%s: %w", what, err)
 	}
 	defer func() { _ = conn.Close() }()
-	if err := conn.Object(logindBus, logindPath).CallWithContext(ctx, logindManager+"."+method, 0, args...).Err; err != nil {
-		return fmt.Errorf("logind %s%v: %w", method, args, err)
-	}
-	return nil
+	return do(context.Background(), logind.NewManager(conn))
 }
 
-func lockLogindSession(id string) error { return callLogind("LockSession", id) }
+func lockLogindSession(id string) error {
+	return withLogind("lock session "+id, func(ctx context.Context, m logind.Manager) error {
+		return m.LockSession(ctx, logind.SessionID(id))
+	})
+}
 
-func activateLogindSession(id string) error { return callLogind("ActivateSession", id) }
+func activateLogindSession(id string) error {
+	return withLogind("activate session "+id, func(ctx context.Context, m logind.Manager) error {
+		return m.ActivateSession(ctx, logind.SessionID(id))
+	})
+}

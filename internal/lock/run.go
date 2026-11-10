@@ -10,16 +10,18 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-desktop/imagedecode"
 	"github.com/stubbedev/lys-desktop/logging"
 	"github.com/stubbedev/lys-desktop/outputsize"
-	"github.com/stubbedev/lys-desktop/service/logind"
 	"github.com/stubbedev/lys-desktop/shell/apptheme"
 	"github.com/stubbedev/lys-desktop/shell/lockclient"
 	"github.com/stubbedev/lys-desktop/useraccount"
+	"github.com/stubbedev/lys-lib/logind"
+	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-ui/app"
 	"golang.org/x/sys/unix"
@@ -80,17 +82,14 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 		}
 	})
 	defer func() { lockedLine.drain(time.After(drainWait)) }()
-	logindLife, endLogind := context.WithCancel(context.Background())
-	defer endLogind()
-	ld := connectLogind(logindLife)
+	ld := connectLogind()
+	defer ld.close()
 	hints := newLatest("logind", func(locked bool) {
-		client := ld.wait()
-		if client == nil {
+		session := ld.wait()
+		if session == nil {
 			return
 		}
-		ctx, cancel := context.WithTimeout(logindLife, logind.CallTimeout)
-		defer cancel()
-		if err := client.SetLockedHint(ctx, locked); err != nil {
+		if err := session.SetLockedHint(ld.life, locked); err != nil {
 			log.Printf("lock: SetLockedHint failed (non-fatal): %v", err)
 		}
 	})
@@ -136,15 +135,11 @@ func Run(cfg *config.Config, stdout io.Writer, vaultHelper []string) error {
 			a.Invoke(func() { s.SetPicture(img) })
 		}
 	}()
-	go func() {
-		client := ld.wait()
-		if client == nil {
-			return
+	ld.follow(func(e logind.Event) {
+		if _, ok := e.(logind.Unlocked); ok {
+			a.Invoke(s.ForceUnlock)
 		}
-		if err := client.Listen(logindLife, func() {}, func() { a.Invoke(s.ForceUnlock) }); err != nil {
-			log.Printf("lock: logind Unlock unavailable: %v", err)
-		}
-	}()
+	})
 	// The lock is requested before the loop runs: Run returns at once
 	// while there is neither a window nor a lock to drive.
 	if err := s.Lock(); err != nil {
@@ -172,29 +167,82 @@ func sessionAccount() useraccount.Account {
 	return account
 }
 
-// pendingLogind is logind's client being connected off the way of the lock: a
-// system bus that does not answer must not hold the session unlocked, so the lock
-// goes ahead and what needs logind waits for it, at most logind.CallTimeout.
+// pendingLogind is the user's logind session being resolved off the way of
+// the lock: a system bus that does not answer must not hold the session
+// unlocked, so the lock goes ahead and what needs logind waits for it, each
+// step bounded by logind.CallTimeout. Its calls and watches end with close.
 type pendingLogind struct {
-	done   chan struct{}
-	client *logind.Client
+	life      context.Context
+	end       context.CancelFunc
+	done      chan struct{}
+	followers sync.WaitGroup
+	conn      *dbus.Conn
+	session   *logind.Session
 }
 
-func connectLogind(life context.Context) *pendingLogind {
-	p := &pendingLogind{done: make(chan struct{})}
+func connectLogind() *pendingLogind {
+	life, end := context.WithCancel(context.Background())
+	p := &pendingLogind{life: life, end: end, done: make(chan struct{})}
 	go func() {
 		defer close(p.done)
-		ctx, cancel := context.WithTimeout(life, logind.CallTimeout)
-		defer cancel()
-		p.client = logind.SystemClient(ctx, "lock")
+		dialing, cancel := context.WithTimeout(life, logind.CallTimeout)
+		conn, err := logind.Dial(dialing)
+		cancel()
+		if err != nil {
+			log.Printf("lock: logind unavailable: %v", err)
+			return
+		}
+		session, err := logind.NewManager(conn).GetSession(life, logind.AutoSession)
+		if err != nil {
+			log.Printf("lock: logind unavailable: %v", err)
+			_ = conn.Close()
+			return
+		}
+		p.conn, p.session = conn, &session
 	}()
 	return p
 }
 
-// wait is the client once connected, nil without logind.
-func (p *pendingLogind) wait() *logind.Client {
+// wait is the session once resolved, nil without logind.
+func (p *pendingLogind) wait() *logind.Session {
 	<-p.done
-	return p.client
+	return p.session
+}
+
+// follow runs handle, on a watch goroutine, for every signal logind sends
+// about the session until close.
+func (p *pendingLogind) follow(handle func(logind.Event)) {
+	p.followers.Go(func() {
+		session := p.wait()
+		if session == nil {
+			return
+		}
+		w, err := session.Watch(p.life, func(e logind.Event, err error) {
+			if err != nil {
+				log.Printf("lock: %v", err)
+				return
+			}
+			handle(e)
+		})
+		if err != nil {
+			log.Printf("lock: logind Unlock unavailable: %v", err)
+			return
+		}
+		<-w.Done()
+		if err := w.Stop(); err != nil {
+			log.Printf("lock: logind Unlock no longer followed: %v", err)
+		}
+	})
+}
+
+// close ends every call and watch and drops the connection.
+func (p *pendingLogind) close() {
+	p.end()
+	p.followers.Wait()
+	<-p.done
+	if p.conn != nil {
+		_ = p.conn.Close()
+	}
 }
 
 // runtimeTimer is a time.Timer as a Timer.
