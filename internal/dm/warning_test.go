@@ -57,11 +57,7 @@ func pipedLogin(t *testing.T) (*pendingLogin, *channel) {
 	t.Helper()
 	daemon, workerEnd := net.Pipe()
 	t.Cleanup(func() { _ = daemon.Close(); _ = workerEnd.Close() })
-	self, err := os.FindProcess(os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &pendingLogin{w: &worker{proc: self, ch: newChannel(daemon)}, cmd: []string{"session"}}, newChannel(workerEnd)
+	return &pendingLogin{w: standInWorker(t, daemon), cmd: []string{"session"}}, newChannel(workerEnd)
 }
 
 func runLogin(t *testing.T, login *pendingLogin, workerSide *channel, workerDoes func()) string {

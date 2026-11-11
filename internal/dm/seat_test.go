@@ -25,16 +25,26 @@ func recordingSeat(calls *consoleCalls) *seat {
 	return d
 }
 
-func pipedSession(t *testing.T, d *seat, user string, vt int, id string) *channel {
+func standInWorker(t *testing.T, daemonEnd net.Conn) *worker {
 	t.Helper()
-	daemonEnd, workerEnd := net.Pipe()
-	t.Cleanup(func() { _ = daemonEnd.Close(); _ = workerEnd.Close() })
 	self, err := os.FindProcess(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := self.Release(); err != nil {
+			t.Errorf("release the stand-in worker: %v", err)
+		}
+	})
+	return &worker{proc: self, ch: newChannel(daemonEnd)}
+}
+
+func pipedSession(t *testing.T, d *seat, user string, vt int, id string) *channel {
+	t.Helper()
+	daemonEnd, workerEnd := net.Pipe()
+	t.Cleanup(func() { _ = daemonEnd.Close(); _ = workerEnd.Close() })
 	uid := uint32(1000 + vt)
-	s := &session{w: &worker{proc: self, ch: newChannel(daemonEnd)}, cmd: []string{"session"}, uid: &uid, vt: vt, user: user, id: id}
+	s := &session{w: standInWorker(t, daemonEnd), cmd: []string{"session"}, uid: &uid, vt: vt, user: user, id: id}
 	d.adopt(s)
 	return newChannel(workerEnd)
 }

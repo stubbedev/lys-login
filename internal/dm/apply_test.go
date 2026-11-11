@@ -146,7 +146,7 @@ func kernelNamesPeersByPIDFD(t *testing.T) bool {
 	return err == nil
 }
 
-func openPIDFDsOfThisProcess(t *testing.T) int {
+func pidfdsOfThisProcess(t *testing.T) map[string]bool {
 	t.Helper()
 	const dir = "/proc/self/fdinfo"
 	fds, err := os.ReadDir(dir)
@@ -154,7 +154,7 @@ func openPIDFDsOfThisProcess(t *testing.T) int {
 		t.Fatal(err)
 	}
 	self := "\nPid:\t" + strconv.Itoa(os.Getpid()) + "\n"
-	n := 0
+	open := make(map[string]bool)
 	for _, fd := range fds {
 		info, err := os.ReadFile(filepath.Join(dir, fd.Name()))
 		if errors.Is(err, os.ErrNotExist) {
@@ -164,16 +164,17 @@ func openPIDFDsOfThisProcess(t *testing.T) int {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(info), self) {
-			n++
+			open[fd.Name()] = true
 		}
 	}
-	return n
+	return open
 }
 
 func TestApplyAsksPolkitForTheCallingProcess(t *testing.T) {
 	me := me(t)
 	fake := polkittest.Start(t, polkittest.Denied)
 	dir, runtime := serveApplyAt(t, newSessionOwners(), askPolkit)
+	before := pidfdsOfThisProcess(t)
 	refused := []struct {
 		name   string
 		answer polkit.AuthorizationResult
@@ -215,8 +216,14 @@ func TestApplyAsksPolkitForTheCallingProcess(t *testing.T) {
 			t.Errorf("the check's subject carried a pidfd of pid %d, want %d: the caller's own where the kernel gives one", c.PIDFD, wantPIDFD)
 		}
 	}
-	if n := openPIDFDsOfThisProcess(t); n != 0 {
-		t.Errorf("%d pidfds of the caller are still open after its requests were answered", n)
+	var left []string
+	for fd := range pidfdsOfThisProcess(t) {
+		if !before[fd] {
+			left = append(left, fd)
+		}
+	}
+	if len(left) != 0 {
+		t.Errorf("the requests left pidfds %v of the caller open after they were answered", left)
 	}
 }
 
