@@ -2,14 +2,19 @@ package greeter
 
 import (
 	"embed"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"sync"
 
 	"github.com/stubbedev/lys-desktop/resources"
 	"github.com/stubbedev/lys-lib/atomicfile"
 	"github.com/stubbedev/lys-lib/xdg"
+	"github.com/stubbedev/lys-ui/app"
 	"github.com/stubbedev/lys-ui/widget"
 
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
@@ -30,8 +35,46 @@ const (
 // themeIcons are the theme icons the greeter draws, each from the shared
 // bundle or assets/<name>.svg: pre-login there is no icon theme to rely on.
 func themeIcons() []string {
-	return append([]string{sleepIcon, restartIcon, shutdownIcon, accessibilityIcon}, loginscreen.Icons()...)
+	return slices.Concat(buttonIcons[:], loginscreen.Icons())
 }
+
+var buttonIcons = [...]string{sleepIcon, restartIcon, shutdownIcon, accessibilityIcon}
+
+func preloadButtonIcons(num, denom int) error {
+	var errs []error
+	for _, name := range buttonIcons {
+		if err := widget.PreloadThemeIcon(name, powerIconPx, num, denom); err != nil {
+			errs = append(errs, fmt.Errorf("greeter: preload the %s icon at %dpx for scale %d/%d: %w", name, powerIconPx, num, denom, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func outputScales(outputs []*app.Output) []int {
+	scales := make([]int, 0, len(outputs))
+	for _, out := range outputs {
+		scales = append(scales, out.Scale)
+	}
+	slices.Sort(scales)
+	return slices.Compact(scales)
+}
+
+type iconPreload struct {
+	scales  []int
+	pending sync.WaitGroup
+}
+
+func (p *iconPreload) start(decode func(num, denom int) error) {
+	p.pending.Go(func() {
+		for _, scale := range p.scales {
+			if err := decode(scale, 1); err != nil {
+				log.Print(err)
+			}
+		}
+	})
+}
+
+func (p *iconPreload) wait() { p.pending.Wait() }
 
 const iconsDirName = "lys-greeter-icons"
 

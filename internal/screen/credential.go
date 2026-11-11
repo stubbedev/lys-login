@@ -12,6 +12,10 @@
 package screen
 
 import (
+	"errors"
+	"fmt"
+	"log"
+
 	"github.com/stubbedev/lys-desktop/shell/widgets"
 	"github.com/stubbedev/lys-desktop/styling"
 	"github.com/stubbedev/lys-lib/render"
@@ -190,6 +194,16 @@ func label(font render.Font, px float64, classes ...string) *widget.Label {
 	return l
 }
 
+func (p *Prompt) PreloadIcons(num, denom int) error {
+	var errs []error
+	for _, name := range Icons() {
+		if err := widget.PreloadThemeIcon(name, p.iconPx, num, denom); err != nil {
+			errs = append(errs, fmt.Errorf("screen: preload the %s icon at %dpx for scale %d/%d: %w", name, p.iconPx, num, denom, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // preloadAt decodes both peek icons for the device scale num/denom the first time
 // a frame paints at it, since the first click would otherwise read and rasterize one
 // on the UI loop. It reads the disk, so it runs off it.
@@ -198,10 +212,9 @@ func (p *Prompt) preloadAt(num, denom int) {
 		return
 	}
 	p.preloaded = [2]int{num, denom}
-	px := p.iconPx
 	go func() {
-		for _, name := range [...]string{peekReveal, peekConceal} {
-			_ = widget.PreloadThemeIcon(name, px, num, denom)
+		if err := p.PreloadIcons(num, denom); err != nil {
+			log.Print(err)
 		}
 	}()
 }

@@ -47,6 +47,9 @@ func Run(init Init) error {
 		return fmt.Errorf("greeter: connect: %w", err)
 	}
 	defer sess.Close()
+	icons := iconPreload{scales: outputScales(sess.Outputs())}
+	defer icons.wait()
+	icons.start(preloadButtonIcons)
 	a := app.NewApplication(sess)
 	scaleText := followTextScale(a)
 	a.SetAccessibility(app.A11yOff)
@@ -124,6 +127,7 @@ func Run(init Init) error {
 		},
 	})
 	defer s.end()
+	icons.start(s.prompt.PreloadIcons)
 	win, err = a.NewWindow(windowConfig(s.root, init.OnPresented, s.captureKey))
 	if err != nil {
 		return err
@@ -157,6 +161,7 @@ func Run(init Init) error {
 		time.AfterFunc(d, func() { a.Invoke(fn) })
 	})
 	log.Printf("lys-greeter starting (%d sessions)", len(init.Sessions))
+	icons.wait()
 	err = a.Run()
 	if err == app.ErrClosed { //nolint:errorlint // the loop's sentinel
 		return nil
