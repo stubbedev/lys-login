@@ -272,7 +272,7 @@ func TestWithoutFprintdNoResultReachesTheLock(t *testing.T) {
 	}
 }
 
-func TestStoppingAWatchEndsItsDialOfASilentSystemBus(t *testing.T) {
+func TestStoppingAWatchEndsItsDialOfASilentBus(t *testing.T) {
 	sock := filepath.Join(sockdir.Dir(t), "silent")
 	ln, err := net.Listen("unix", sock)
 	if err != nil {
@@ -280,11 +280,14 @@ func TestStoppingAWatchEndsItsDialOfASilentSystemBus(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path="+sock)
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path="+sock)
 	watches := &busWatches{invoke: func(func()) { t.Error("a silent bus posted to the lock") }}
 	stopBattery := watches.battery(func(batteryLevel, bool) {})
 	stopFingerprint := watches.fingerprint("ada")(func(fprint.Result) {})
+	stopMedia := newSessionMedia(watches, config.MediaConfig{}).Watch(func(nowPlaying, bool) {})
 	stopBattery()
 	stopFingerprint()
+	stopMedia()
 	ended := make(chan struct{})
 	go func() {
 		watches.wait()
@@ -293,6 +296,6 @@ func TestStoppingAWatchEndsItsDialOfASilentSystemBus(t *testing.T) {
 	select {
 	case <-ended:
 	case <-time.After(waitBound):
-		t.Fatalf("the watches still dial a silent system bus %v after they were stopped", waitBound)
+		t.Fatalf("the watches still dial a silent bus %v after they were stopped", waitBound)
 	}
 }

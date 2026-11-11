@@ -3,7 +3,6 @@ package lock
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -24,12 +23,8 @@ const (
 
 type busDial func(context.Context) (*dbus.Conn, error)
 
-func dialSessionBus(context.Context) (*dbus.Conn, error) {
-	conn, err := dbus.ConnectSessionBus()
-	if err != nil {
-		return nil, fmt.Errorf("connect to the session bus: %w", err)
-	}
-	return conn, nil
+func dialSessionBus(ctx context.Context) (*dbus.Conn, error) {
+	return dbusx.DialSession(ctx, dialTimeout)
 }
 
 func dialSystemBus(ctx context.Context) (*dbus.Conn, error) {
