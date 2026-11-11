@@ -12,17 +12,23 @@ import (
 
 	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-lib/atomicfile"
+	"github.com/stubbedev/lys-lib/xdg"
 )
 
-// The discovery defaults sddm and gdm read, highest precedence first.
-var (
-	defaultSessionDirs  = []string{"/usr/local/share/wayland-sessions", "/usr/share/wayland-sessions"}
-	defaultXSessionDirs = []string{"/usr/local/share/xsessions", "/usr/share/xsessions"}
+// The directories of session files under a data directory.
+const (
+	waylandSessionsDir = "wayland-sessions"
+	xSessionsDir       = "xsessions"
+)
+
+const (
+	stateApp        = "lys-greeter"
+	lastSessionFile = "last-session"
 )
 
 // defaultStatePath is the last resort for the remembered session when
 // neither --state, XDG_STATE_HOME, nor HOME yields a location.
-const defaultStatePath = "/var/lib/lys-greeter/last-session"
+const defaultStatePath = "/var/lib/" + stateApp + "/" + lastSessionFile
 
 // Options are the parsed command line (config.rs Options).
 type Options struct {
@@ -60,10 +66,11 @@ func (e UsageError) Error() string {
 		"[--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]"
 }
 
-// ParseOptions parses the arguments after the program name. Everything
+// ParseOptions parses the arguments after the program name, taking the
+// defaults of --sessions, --xsessions and --state from env. Everything
 // after "--" is the fallback session argv; the repeatable --sessions
 // and --xsessions replace their defaults once given.
-func ParseOptions(args []string) (Options, error) {
+func ParseOptions(env xdg.Env, args []string) (Options, error) {
 	o := Options{ConfigPath: config.GreeterConfigPath}
 	value := func(i *int, flag, need string) (string, error) {
 		if *i+1 >= len(args) {
@@ -107,29 +114,42 @@ func ParseOptions(args []string) (Options, error) {
 		}
 	}
 	if len(o.SessionDirs) == 0 {
-		o.SessionDirs = append([]string(nil), defaultSessionDirs...)
+		o.SessionDirs = defaultSessionDirs(env, waylandSessionsDir)
 	}
 	if len(o.XSessionDirs) == 0 {
-		o.XSessionDirs = append([]string(nil), defaultXSessionDirs...)
+		o.XSessionDirs = defaultSessionDirs(env, xSessionsDir)
 	}
 	if o.StatePath == "" {
-		o.StatePath = defaultStateFile()
+		o.StatePath = defaultStateFile(env)
 	}
 	return o, nil
 }
 
+// defaultSessionDirs are the name directories of env's system data
+// directories, highest precedence first: the discovery defaults gdm
+// reads, and sddm's while XDG_DATA_DIRS names none. The data home is
+// left out: the greeter runs as its own user, whose home installs no
+// sessions.
+func defaultSessionDirs(env xdg.Env, name string) []string {
+	data := env.DataDirs()
+	dirs := make([]string, len(data))
+	for i, dir := range data {
+		dirs[i] = filepath.Join(dir, name)
+	}
+	return dirs
+}
+
 // defaultStateFile: $XDG_STATE_HOME/lys-greeter/last-session, else
-// $HOME/.local/state/..., else /var/lib/lys-greeter/last-session.
-// greetd's greeter user has an unusual HOME, so an explicit --state is
-// the robust choice.
-func defaultStateFile() string {
-	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
-		return filepath.Join(dir, "lys-greeter", "last-session")
+// $HOME/.local/state/..., else /var/lib/lys-greeter/last-session; a
+// variable that holds no absolute path counts as unset. greetd's
+// greeter user has an unusual HOME, so an explicit --state is the
+// robust choice.
+func defaultStateFile(env xdg.Env) string {
+	dir, ok := env.StateDir(stateApp)
+	if !ok {
+		return defaultStatePath
 	}
-	if home := os.Getenv("HOME"); home != "" {
-		return filepath.Join(home, ".local", "state", "lys-greeter", "last-session")
-	}
-	return defaultStatePath
+	return filepath.Join(dir, lastSessionFile)
 }
 
 // LastUserPath is the last-user file beside the session state file.

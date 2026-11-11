@@ -9,6 +9,7 @@ import (
 
 	"github.com/stubbedev/lys-desktop/resources"
 	"github.com/stubbedev/lys-lib/atomicfile"
+	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-ui/widget"
 
 	loginscreen "github.com/stubbedev/lys-login/internal/screen"
@@ -32,16 +33,23 @@ func themeIcons() []string {
 	return append([]string{sleepIcon, restartIcon, shutdownIcon, accessibilityIcon}, loginscreen.Icons()...)
 }
 
-// installIcons is install_icons: the embedded glyphs written to
-// $XDG_RUNTIME_DIR/lys-greeter-icons (the temp dir without one) and
-// that directory put first on the icon search path, so the widgets load
-// them by name and recolor them as symbolic.
-func installIcons() error {
-	base := os.Getenv("XDG_RUNTIME_DIR")
-	if base == "" {
-		base = os.TempDir()
+const iconsDirName = "lys-greeter-icons"
+
+// iconsDir is where the glyphs are written:
+// $XDG_RUNTIME_DIR/lys-greeter-icons, under the temp dir when env names
+// no absolute runtime directory.
+func iconsDir(env xdg.Env) string {
+	if dir, ok := env.RuntimeDir(iconsDirName); ok {
+		return dir
 	}
-	dir := filepath.Join(base, "lys-greeter-icons")
+	return filepath.Join(os.TempDir(), iconsDirName)
+}
+
+// installIcons is install_icons: the embedded glyphs written to
+// iconsDir and that directory put first on the icon search path, so the
+// widgets load them by name and recolor them as symbolic.
+func installIcons() error {
+	dir := iconsDir(xdg.OS)
 	if err := writeIcons(dir); err != nil {
 		return err
 	}
@@ -59,7 +67,7 @@ func iconSVG(name, file string) ([]byte, error) {
 
 // writeIcons materializes the glyph of every theme icon into dir.
 func writeIcons(dir string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil { //nolint:gosec // the session runtime dir, as install_icons uses it
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("greeter: icon dir %s: %w", dir, err)
 	}
 	for _, name := range themeIcons() {
