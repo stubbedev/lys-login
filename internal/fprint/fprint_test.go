@@ -63,7 +63,7 @@ func (d *fakeDevice) VerifyStart(finger string) *dbus.Error {
 
 func (d *fakeDevice) emit(t *testing.T, result string, done bool) {
 	t.Helper()
-	if err := d.conn.Emit(devicePath, DeviceIface+"."+statusMember, result, done); err != nil {
+	if err := verifyStatusSignal.Emit(d.conn, devicePath, verifyStatus{Result: result, Done: done}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -78,7 +78,11 @@ type rig struct {
 
 func newRig(t *testing.T, fingers []string, noDevice bool) *rig {
 	t.Helper()
-	bus := dbustest.Start(t)
+	return newRigOn(t, dbustest.Start(t), fingers, noDevice)
+}
+
+func newRigOn(t *testing.T, bus *dbustest.Bus, fingers []string, noDevice bool) *rig {
+	t.Helper()
 	server := bus.Conn(t)
 	dev := &fakeDevice{conn: server, fingers: fingers, started: make(chan struct{}, 8)}
 	if err := server.Export(&fakeManager{noDevice: noDevice}, ManagerPath, ManagerIface); err != nil {
@@ -178,7 +182,7 @@ func TestAnotherDevicesStatusIsNotOurs(t *testing.T) {
 	r := newRig(t, []string{"right-index-finger"}, false)
 	r.verify(t)
 	r.awaitStart(t)
-	if err := r.dev.conn.Emit("/net/reactivated/Fprint/Device/1", DeviceIface+"."+statusMember, "verify-match", true); err != nil {
+	if err := verifyStatusSignal.Emit(r.dev.conn, "/net/reactivated/Fprint/Device/1", verifyStatus{Result: "verify-match", Done: true}); err != nil {
 		t.Fatal(err)
 	}
 	r.dev.emit(t, "verify-no-match", true)

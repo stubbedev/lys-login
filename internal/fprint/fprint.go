@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/stubbedev/lys-lib/dbusx"
 	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 )
 
@@ -20,7 +21,6 @@ const (
 	errNoPrints   = BusName + ".Error.NoEnrolledPrints"
 	errNoService  = "org.freedesktop.DBus.Error.ServiceUnknown"
 	errNoName     = "org.freedesktop.DBus.Error.NameHasNoOwner"
-	statusMember  = "VerifyStatus"
 	anyFinger     = "any"
 	callTimeout   = 10 * time.Second
 	settleTimeout = 5 * time.Second
@@ -33,6 +33,13 @@ const (
 	NoMatch
 	Retry
 )
+
+type verifyStatus struct {
+	Result string `dbus:"result"`
+	Done   bool   `dbus:"done"`
+}
+
+var verifyStatusSignal = dbusx.NewSignal[verifyStatus](DeviceIface, "VerifyStatus")
 
 var ErrUnavailable = errors.New("fprint: no fingerprint reader or no enrolled finger")
 
@@ -49,18 +56,25 @@ func Verify(ctx context.Context, conn *dbus.Conn, user string, onResult func(Res
 		return err
 	}
 	defer settle(ctx, d, "Release")
-	match := []dbus.MatchOption{dbus.WithMatchObjectPath(dev), dbus.WithMatchInterface(DeviceIface), dbus.WithMatchMember(statusMember)}
-	if err := conn.AddMatchSignalContext(ctx, match...); err != nil {
-		return fmt.Errorf("fprint: match %s on %s: %w", statusMember, dev, err)
+	statuses := make(chan verifyStatus)
+	watching, stopWatching := context.WithCancel(context.WithoutCancel(ctx))
+	w, err := dbusx.WatchSignals(watching, conn, dbusx.FromOwner(BusName),
+		func(err error) { log.Printf("fprint: a status of %s: %v", dev, err) },
+		dbusx.On(verifyStatusSignal, dev, func(s verifyStatus, _ dbus.Sequence) error {
+			select {
+			case statuses <- s:
+			case <-watching.Done():
+			}
+			return nil
+		}))
+	if err != nil {
+		stopWatching()
+		return fmt.Errorf("fprint: follow %s on %s: %w", verifyStatusSignal.Name(), dev, err)
 	}
-	signals := make(chan *dbus.Signal, 8)
-	conn.Signal(signals)
 	defer func() {
-		conn.RemoveSignal(signals)
-		removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
-		defer cancel()
-		if err := conn.RemoveMatchSignalContext(removeCtx, match...); err != nil && !errors.Is(err, dbus.ErrClosed) {
-			log.Printf("fprint: stop matching %s on %s: %v", statusMember, dev, err)
+		stopWatching()
+		if err := w.Stop(); err != nil && !errors.Is(err, dbusx.ErrDisconnected) {
+			log.Printf("fprint: stop following %s on %s: %v", verifyStatusSignal.Name(), dev, err)
 		}
 	}()
 	if stopped, err := scan(ctx, d); stopped || err != nil {
@@ -71,20 +85,15 @@ func Verify(ctx context.Context, conn *dbus.Conn, user string, onResult func(Res
 		case <-ctx.Done():
 			settle(ctx, d, "VerifyStop")
 			return nil
-		case sig, ok := <-signals:
-			if !ok {
-				return fmt.Errorf("fprint: the connection to %s closed", BusName)
-			}
-			result, done, ok := status(sig, dev)
-			if !ok {
-				continue
-			}
-			again, err := deliver(result, onResult)
+		case <-w.Done():
+			return fmt.Errorf("fprint: follow %s on %s: %w", verifyStatusSignal.Name(), dev, w.Stop())
+		case st := <-statuses:
+			again, err := deliver(st.Result, onResult)
 			if err != nil || !again {
 				settle(ctx, d, "VerifyStop")
 				return err
 			}
-			if !done {
+			if !st.Done {
 				continue
 			}
 			settle(ctx, d, "VerifyStop")
@@ -120,15 +129,6 @@ func deliver(result string, onResult func(Result)) (again bool, err error) {
 		return false, fmt.Errorf("fprint: verification ended with %s", result)
 	}
 	return true, nil
-}
-
-func status(sig *dbus.Signal, dev dbus.ObjectPath) (result string, done, ok bool) {
-	if sig.Path != dev || sig.Name != DeviceIface+"."+statusMember || len(sig.Body) != 2 {
-		return "", false, false
-	}
-	result, okResult := sig.Body[0].(string)
-	done, okDone := sig.Body[1].(bool)
-	return result, done, okResult && okDone
 }
 
 func defaultDevice(ctx context.Context, conn *dbus.Conn) (dbus.ObjectPath, error) {
