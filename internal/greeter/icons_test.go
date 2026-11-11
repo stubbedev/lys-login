@@ -53,7 +53,7 @@ func TestTheGreetersFirstFrameAsksForNoIconItsPreloadDecoded(t *testing.T) {
 	icons.wait()
 
 	firstFrameAt(r.s.root, preloaded)
-	if asked != 0 || widget.TreeAssetsOwed(r.s.root) {
+	if asked != 0 || widget.TreeAssetsOwed(r.s.root) != 0 {
 		t.Errorf("the first frame at the preloaded scale asked for %d icon(s) off the loop: it would be presented without them, or held for them", asked)
 	}
 	firstFrameAt(r.s.root, other)
