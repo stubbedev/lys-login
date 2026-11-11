@@ -46,9 +46,9 @@ greetd → cage -s → lys-login greet → (login) → your session
 
 - Create the state directory:
   `install -d -o greeter -g greeter -m 0700 /var/lib/lys-greeter`.
-- Sessions come from `wayland-sessions` and `xsessions` in each
-  `$XDG_DATA_DIRS` directory (`/usr/local/share` and `/usr/share` when it names
-  none); `--sessions DIR` and `--xsessions DIR` replace them.
+- Sessions come from `/usr/local/share/wayland-sessions`,
+  `/usr/share/wayland-sessions` and the matching `xsessions`; `--sessions DIR`
+  and `--xsessions DIR` replace them.
 - `-- sway` appends a fallback session offered as "Custom".
 - There is no daemon, so `record-cursor` and the `lys-settings` apply button are
   unavailable, and `apply-config` needs root.

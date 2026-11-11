@@ -103,7 +103,7 @@ func main() {
 }
 
 func greet(args []string) int {
-	opts, err := greeter.ParseOptions(xdg.OS, args)
+	opts, err := greeter.ParseOptions(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -299,7 +299,7 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 	if err := fs.Parse(args); err != nil {
 		return dm.Options{}, 2
 	}
-	greet, err := greeter.ParseOptions(xdg.OS, fs.Args())
+	greet, err := greeter.ParseOptions(fs.Args())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter's arguments:", err)
 		return dm.Options{}, 2

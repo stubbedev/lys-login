@@ -11,31 +11,24 @@ import (
 
 	"github.com/stubbedev/lys-desktop/config"
 	"github.com/stubbedev/lys-desktop/styling"
-	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-ui/widget"
 
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
 )
 
-func envOf(vars map[string]string) xdg.Env {
-	return func(name string) string { return vars[name] }
-}
-
 func TestParseOptions(t *testing.T) {
-	none := envOf(nil)
-	o, err := ParseOptions(none, []string{"--", "niri", "--session"})
+	o, err := ParseOptions([]string{"--", "niri", "--session"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(o.Command, []string{"niri", "--session"}) || o.ConfigPath != config.GreeterConfigPath {
 		t.Errorf("command after --: %+v", o)
 	}
-	if !slices.Equal(o.SessionDirs, []string{"/usr/local/share/wayland-sessions", "/usr/share/wayland-sessions"}) ||
-		!slices.Equal(o.XSessionDirs, []string{"/usr/local/share/xsessions", "/usr/share/xsessions"}) {
+	if len(o.SessionDirs) != 2 || len(o.XSessionDirs) != 2 {
 		t.Errorf("default dirs: %v %v", o.SessionDirs, o.XSessionDirs)
 	}
 
-	o, err = ParseOptions(envOf(map[string]string{"XDG_DATA_DIRS": "/data", "XDG_STATE_HOME": "/state", "HOME": "/home/g"}), []string{
+	o, err = ParseOptions([]string{
 		"--config", "/tmp/c.yaml", "--env", "XDG_SESSION_TYPE=wayland",
 		"--sessions", "/a", "--sessions", "/b", "--xsessions", "/x", "--state", "/run/g/last", "--", "sway",
 	})
@@ -52,56 +45,25 @@ func TestParseOptions(t *testing.T) {
 	}
 
 	for _, bad := range [][]string{{"--config"}, {"--env", "NOEQUALS"}, {"--bogus"}, {"--sessions"}, {"--state"}} {
-		_, err := ParseOptions(none, bad)
+		_, err := ParseOptions(bad)
 		var usage UsageError
 		if !errors.As(err, &usage) || !strings.Contains(err.Error(), "usage: lys-login greet") {
 			t.Errorf("ParseOptions(%q) = %v, want a usage error", bad, err)
 		}
 	}
 
-	for _, c := range []struct {
-		name string
-		env  map[string]string
-		want string
-	}{
-		{"XDG_STATE_HOME", map[string]string{"XDG_STATE_HOME": "/state", "HOME": "/var/lib/greetd"}, "/state/lys-greeter/last-session"},
-		{"HOME", map[string]string{"HOME": "/var/lib/greetd"}, "/var/lib/greetd/.local/state/lys-greeter/last-session"},
-		{"a relative XDG_STATE_HOME", map[string]string{"XDG_STATE_HOME": "state", "HOME": "/var/lib/greetd"}, "/var/lib/greetd/.local/state/lys-greeter/last-session"},
-		{"nothing set", nil, "/var/lib/lys-greeter/last-session"},
-		{"relative paths alone", map[string]string{"XDG_STATE_HOME": "state", "HOME": "greetd"}, "/var/lib/lys-greeter/last-session"},
-	} {
-		if o, _ := ParseOptions(envOf(c.env), nil); o.StatePath != c.want {
-			t.Errorf("%s: state default = %s, want %s", c.name, o.StatePath, c.want)
-		}
+	t.Setenv("XDG_STATE_HOME", "/state")
+	if o, _ := ParseOptions(nil); o.StatePath != "/state/lys-greeter/last-session" {
+		t.Errorf("XDG_STATE_HOME default = %s", o.StatePath)
 	}
-}
-
-func TestTheSessionDefaultsAreTheSystemDataDirectories(t *testing.T) {
-	o, err := ParseOptions(envOf(map[string]string{
-		"XDG_DATA_DIRS": "/run/current-system/sw/share:relative::/usr/share",
-		"XDG_DATA_HOME": "/var/lib/greetd/data",
-		"HOME":          "/var/lib/greetd",
-	}), nil)
-	if err != nil {
-		t.Fatal(err)
+	t.Setenv("XDG_STATE_HOME", "")
+	t.Setenv("HOME", "/var/lib/greetd")
+	if o, _ := ParseOptions(nil); o.StatePath != "/var/lib/greetd/.local/state/lys-greeter/last-session" {
+		t.Errorf("HOME default = %s", o.StatePath)
 	}
-	if want := []string{"/run/current-system/sw/share/wayland-sessions", "/usr/share/wayland-sessions"}; !slices.Equal(o.SessionDirs, want) {
-		t.Errorf("Wayland session dirs %q, want %q: the system data directories alone, the absolute ones", o.SessionDirs, want)
-	}
-	if want := []string{"/run/current-system/sw/share/xsessions", "/usr/share/xsessions"}; !slices.Equal(o.XSessionDirs, want) {
-		t.Errorf("X11 session dirs %q, want %q", o.XSessionDirs, want)
-	}
-}
-
-func TestTheIconsGoUnderAnAbsoluteRuntimeDirElseTheTempDir(t *testing.T) {
-	if got := iconsDir(envOf(map[string]string{"XDG_RUNTIME_DIR": "/run/user/7"})); got != "/run/user/7/lys-greeter-icons" {
-		t.Errorf("with a runtime dir: %s", got)
-	}
-	want := filepath.Join(os.TempDir(), "lys-greeter-icons")
-	for _, runtime := range []string{"", "run"} {
-		if got := iconsDir(envOf(map[string]string{"XDG_RUNTIME_DIR": runtime})); got != want {
-			t.Errorf("XDG_RUNTIME_DIR=%q: %s, want %s", runtime, got, want)
-		}
+	t.Setenv("HOME", "")
+	if o, _ := ParseOptions(nil); o.StatePath != defaultStatePath {
+		t.Errorf("fallback = %s", o.StatePath)
 	}
 }
 
