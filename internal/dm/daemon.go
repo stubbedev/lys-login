@@ -33,18 +33,13 @@ type Options struct {
 	// Compositor is the greeter's compositor command, lys-wm; the daemon
 	// adds its kiosk config.
 	Compositor []string
-	// GreeterArgs follow `lys-login greet`: the config, the state file,
-	// the session directories.
-	GreeterArgs []string
+	// Greeter is the greeter's command line, resolved once here: the
+	// greeter is started with all of it said, and the daemon reads the
+	// same config and state files.
+	Greeter greeter.Options
 	// RuntimeDir holds the greeter's socket, ApplySocket, CursorSocket
 	// and the kiosk config.
 	RuntimeDir string
-	// GreeterConfig is the system config the greeter reads, whose
-	// runtime.yaml the logged-in user's changes go to.
-	GreeterConfig string
-	// GreeterState is the greeter's state file, beside which it
-	// remembers the last user.
-	GreeterState string
 	// CursorDir holds the cursor records the sessions hand over.
 	CursorDir string
 	Keyboard  keyboard.Sources
@@ -252,7 +247,7 @@ func (o Options) greeterKeyboard() xkb.Names {
 }
 
 func (o Options) greeterAccessibility() greeter.Accessibility {
-	a, err := greeter.LoadAccessibility(o.GreeterState)
+	a, err := greeter.LoadAccessibility(o.Greeter.StatePath)
 	if err != nil {
 		log.Printf("dm: the greeter starts without sticky or slow keys: %v", err)
 	}
@@ -262,11 +257,11 @@ func (o Options) greeterAccessibility() greeter.Accessibility {
 // greeterCursor is the cursor the next greeter shows: the greeter's
 // config, else the record the remembered user's last session left.
 func (o Options) greeterCursor() greeter.Cursor {
-	cfg, err := config.LoadGreeter(o.GreeterConfig, config.StderrDiagnostics)
+	cfg, err := config.LoadGreeter(o.Greeter.ConfigPath, config.StderrDiagnostics)
 	if err != nil {
 		log.Printf("dm: the greeter's config: %v", err)
 	}
-	return greeter.KioskCursor(cfg.Login.Greeter, o.CursorDir, greeter.ReadUsers(), greeter.LoadLast(greeter.LastUserPath(o.GreeterState)))
+	return greeter.KioskCursor(cfg.Login.Greeter, o.CursorDir, greeter.ReadUsers(), greeter.LoadLast(greeter.LastUserPath(o.Greeter.StatePath)))
 }
 
 // yamlString is s as a double-quoted YAML scalar.
@@ -359,7 +354,9 @@ func (o Options) greet(ctx context.Context, vt int, upgrades <-chan *pendingUpgr
 }
 
 func (o Options) greeterCommand() []string {
-	return append([]string{o.Self, "greet", "--hand-over"}, o.GreeterArgs...)
+	g := o.Greeter
+	g.HandOver = true
+	return append([]string{o.Self, "greet"}, g.Args()...)
 }
 
 func (o Options) greeterWorkerArgs(sock, kiosk string, vt int) []string {

@@ -24,6 +24,7 @@ import (
 
 	"github.com/stubbedev/lys-login/internal/auth"
 	"github.com/stubbedev/lys-login/internal/cursorrecord"
+	"github.com/stubbedev/lys-login/internal/greeter"
 )
 
 const (
@@ -118,16 +119,15 @@ func fakeOptions(dir, runtime string) Options {
 		panic(err)
 	}
 	return Options{
-		Service:       "lys-login",
-		VT:            7,
-		Self:          self,
-		GreeterUser:   u.Username,
-		Compositor:    []string{"sh"},
-		RuntimeDir:    runtime,
-		GreeterConfig: filepath.Join(dir, "config.yaml"),
-		GreeterState:  filepath.Join(dir, "last-session"),
-		CursorDir:     filepath.Join(dir, "cursor"),
-		Args:          []string{"fake"},
+		Service:     "lys-login",
+		VT:          7,
+		Self:        self,
+		GreeterUser: u.Username,
+		Compositor:  []string{"sh"},
+		RuntimeDir:  runtime,
+		Greeter:     greeter.Options{ConfigPath: filepath.Join(dir, "config.yaml"), StatePath: filepath.Join(dir, "last-session")},
+		CursorDir:   filepath.Join(dir, "cursor"),
+		Args:        []string{"fake"},
 	}
 }
 

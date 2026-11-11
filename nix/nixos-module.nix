@@ -57,6 +57,19 @@ self: {
     ]
     ++ lib.optional (cursorName != "") "XCURSOR_THEME=${cursorName}";
 
+  sessionDirFlags = flag: none: dirs:
+    if dirs == []
+    then [none]
+    else
+      lib.concatMap (d: [
+        flag
+        d
+      ])
+      dirs;
+  sessionDirArgs =
+    sessionDirFlags "--sessions" "--no-sessions" cfg.greeter.session.dirs
+    ++ sessionDirFlags "--xsessions" "--no-xsessions" cfg.greeter.session.x11Dirs;
+
   # The greetd `default_session` command: a kiosk compositor (cage) hosting the
   # lys-login greeter. The greeter discovers Wayland sessions from `session.dirs`,
   # lets the user pick one, and remembers the choice under `greeterStateDir`.
@@ -74,16 +87,6 @@ self: {
         e: "--env ${lib.escapeShellArg e}"
       )
       cfg.greeter.session.environment;
-    sessionDirArgs =
-      lib.concatMapStringsSep " " (
-        d: "--sessions ${lib.escapeShellArg d}"
-      )
-      cfg.greeter.session.dirs;
-    xsessionDirArgs =
-      lib.concatMapStringsSep " " (
-        d: "--xsessions ${lib.escapeShellArg d}"
-      )
-      cfg.greeter.session.x11Dirs;
     # Optional explicit fallback session, appended as a "Custom" entry.
     fallback = lib.optionalString (
       cfg.greeter.session.command != ""
@@ -100,7 +103,7 @@ self: {
   in
     "${wrapperPrefix}${envPrefix}${cageExe} -s -- "
     + "${greeterExe} greet --config /etc/lys-shell/config.yaml "
-    + "--state ${greeterStateDir}/last-session ${sessionDirArgs} ${xsessionDirArgs} ${envArgs} ${fallback}";
+    + "--state ${greeterStateDir}/last-session ${lib.escapeShellArgs sessionDirArgs} ${envArgs} ${fallback}";
 
   daemonArgs =
     [
@@ -126,16 +129,7 @@ self: {
       "--state"
       "${greeterStateDir}/last-session"
     ]
-    ++ lib.concatMap (d: [
-      "--sessions"
-      d
-    ])
-    cfg.greeter.session.dirs
-    ++ lib.concatMap (d: [
-      "--xsessions"
-      d
-    ])
-    cfg.greeter.session.x11Dirs
+    ++ sessionDirArgs
     ++ lib.concatMap (e: [
       "--env"
       e

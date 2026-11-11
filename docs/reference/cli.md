@@ -3,20 +3,23 @@
 ## lys-login greet
 
 ```text
-lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]... [--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]
+lys-login greet [--config PATH] [--sessions DIR]... [--no-sessions] [--xsessions DIR]... [--no-xsessions] [--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]
 ```
 
 | Flag | Default | Effect |
 | --- | --- | --- |
 | `--config PATH` | `/etc/lys-shell/config.yaml` | lys-shell config to theme from. |
-| `--sessions DIR` | `/usr/local/share/wayland-sessions`, `/usr/share/wayland-sessions` | Wayland session directory. Repeatable; replaces the defaults. |
-| `--xsessions DIR` | `/usr/local/share/xsessions`, `/usr/share/xsessions` | X11 session directory, started through `startx`. Repeatable; replaces the defaults. |
-| `--state PATH` | `$XDG_STATE_HOME/lys-greeter/last-session`, else `$HOME/.local/state/lys-greeter/last-session`, else `/var/lib/lys-greeter/last-session` | Last-session file; other [state](/guide/configuration#state) goes beside it. |
+| `--sessions DIR` | `wayland-sessions` in each `$XDG_DATA_DIRS` directory: `/usr/local/share/wayland-sessions`, `/usr/share/wayland-sessions` when it names none | Wayland session directory. Repeatable; replaces the defaults. |
+| `--xsessions DIR` | `xsessions` in each `$XDG_DATA_DIRS` directory: `/usr/local/share/xsessions`, `/usr/share/xsessions` when it names none | X11 session directory, started through `startx`. Repeatable; replaces the defaults. |
+| `--no-sessions` | | Offer no Wayland session from a directory. Contradicts `--sessions`. |
+| `--no-xsessions` | | Offer no X11 session. Contradicts `--xsessions`. |
+| `--state PATH` | `$XDG_STATE_HOME/lys-greeter/last-session`, else `$HOME/.local/state/lys-greeter/last-session`; a variable that holds no absolute path counts as unset, and with neither the flag is required | Last-session file; other [state](/guide/configuration#state) goes beside it. |
 | `--env KEY=VAL` | | Extra session environment, applied after the `XDG_SESSION_TYPE` derived from the session kind. Repeatable. |
 | `--hand-over` | off | Set by the daemon: after a login, keep showing the background until the daemon stops the compositor. Without it the greeter exits so greetd can start the session. |
 | `-- <argv...>` | | Fallback session offered as "Custom" (type `wayland`). |
 
-Exits 2 on a malformed command line or when there is no session to offer.
+Every `PATH` and `DIR` is absolute. Exits 2 on a malformed command line or when
+there is no session to offer.
 
 ## lys-login daemon
 
@@ -24,8 +27,11 @@ Exits 2 on a malformed command line or when there is no session to offer.
 lys-login daemon [--vt N] [--service NAME] [--greeter-user NAME] [--compositor PATH] [--runtime-dir DIR] [--splash PATH] [--autologin USER [--autologin-session ID]] [-- <greet args...>]
 ```
 
-Runs as root. Arguments after `--` go to `lys-login greet`; an empty session list
-stops it at startup.
+Runs as root. Arguments after `--` are `lys-login greet`'s; an empty session list
+stops it at startup. The daemon resolves what they leave unsaid once, in its own
+environment, and starts the greeter with every flag given: the session
+directories default to those of the daemon's `$XDG_DATA_DIRS`, and `--state` to
+`/var/lib/lys-greeter/last-session`, whatever the daemon's own home is.
 
 | Flag | Default | Effect |
 | --- | --- | --- |

@@ -1,7 +1,8 @@
 // Command lys-login is the login screen: one screen in two modes.
 //
-//	lys-login greet [--config PATH] [--sessions DIR]... [--xsessions DIR]...
-//	                [--state PATH] [--env KEY=VAL]... [--hand-over] [-- <session argv...>]
+//	lys-login greet [--config PATH] [--sessions DIR]... [--no-sessions]
+//	                [--xsessions DIR]... [--no-xsessions] [--state PATH]
+//	                [--env KEY=VAL]... [--hand-over] [-- <session argv...>]
 //	lys-login lock
 //	lys-login daemon --vt N --service NAME --greeter-user NAME
 //	                 --compositor PATH [--runtime-dir DIR] [--splash PATH]
@@ -103,7 +104,7 @@ func main() {
 }
 
 func greet(args []string) int {
-	opts, err := greeter.ParseOptions(args)
+	opts, err := greeter.ParseOptions(greeter.UserDefaults(xdg.OS), args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
@@ -299,7 +300,7 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 	if err := fs.Parse(args); err != nil {
 		return dm.Options{}, 2
 	}
-	greet, err := greeter.ParseOptions(fs.Args())
+	greet, err := greeter.ParseOptions(greeter.SystemDefaults(xdg.OS), fs.Args())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lys-login daemon: the greeter's arguments:", err)
 		return dm.Options{}, 2
@@ -320,10 +321,10 @@ func parseDaemonArgs(args []string) (dm.Options, int) {
 	}
 	return dm.Options{
 		WorkerOptions: *wo, GreeterUser: *greeterUser,
-		Compositor: []string{*compositor}, GreeterArgs: fs.Args(), RuntimeDir: *runtimeDir,
-		GreeterConfig: greet.ConfigPath, GreeterState: greet.StatePath, CursorDir: cursorrecord.Dir,
-		Keyboard: keyboard.System,
-		Splash:   *splash, Args: args, Autologin: autologin,
+		Compositor: []string{*compositor}, Greeter: greet, RuntimeDir: *runtimeDir,
+		CursorDir: cursorrecord.Dir,
+		Keyboard:  keyboard.System,
+		Splash:    *splash, Args: args, Autologin: autologin,
 	}, 0
 }
 

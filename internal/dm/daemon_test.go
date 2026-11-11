@@ -417,8 +417,17 @@ func TestGreeterKnowsTheRuntimeDir(t *testing.T) {
 }
 
 func TestTheGreeterHandsOverToTheDisplayManager(t *testing.T) {
-	o := Options{Self: "/bin/lys-login", GreeterArgs: []string{"--state", "/var/lib/s", "--", "fallback-session"}}
-	want := []string{"/bin/lys-login", "greet", "--hand-over", "--state", "/var/lib/s", "--", "fallback-session"}
+	greet, err := greeter.ParseOptions(greeter.SystemDefaults(func(string) string { return "" }), []string{"--", "fallback-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := Options{Self: "/bin/lys-login", Greeter: greet}
+	want := []string{
+		"/bin/lys-login", "greet", "--config", "/etc/lys-shell/config.yaml", "--state", "/var/lib/lys-greeter/last-session",
+		"--sessions", "/usr/local/share/wayland-sessions", "--sessions", "/usr/share/wayland-sessions",
+		"--xsessions", "/usr/local/share/xsessions", "--xsessions", "/usr/share/xsessions",
+		"--hand-over", "--", "fallback-session",
+	}
 	if got := o.greeterCommand(); !slices.Equal(got, want) {
 		t.Errorf("greeter command %q, want %q", got, want)
 	}
@@ -502,7 +511,7 @@ func TestTheRememberedStickyAndSlowKeysReachTheKiosk(t *testing.T) {
 	if err := greeter.SaveLast(greeter.AccessibilityPath(state), "sticky-keys\nslow-keys\nlarge-text\n"); err != nil {
 		t.Fatal(err)
 	}
-	o := Options{GreeterState: state}
+	o := Options{Greeter: greeter.Options{StatePath: state}}
 	var cfg kioskKeyboard
 	if err := yaml.Unmarshal([]byte(kioskConfig(kiosk{greet: []string{"lys-login", "greet"}, cursor: greeter.Cursor{Size: 24}, keyboard: xkb.Names{Layout: "de"}, a11y: o.greeterAccessibility()})), &cfg); err != nil {
 		t.Fatal(err)
