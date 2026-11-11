@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stubbedev/lys-lib/testhome"
 	"github.com/stubbedev/lys-lib/xkb"
 	"go.yaml.in/yaml/v3"
 
@@ -32,8 +33,10 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == "worker" && os.Args[2] == "session" {
 		os.Exit(fakeSessionWorker())
 	}
-	os.Exit(m.Run())
+	testhome.Run(m)
 }
+
+func TestTheTestsReachNoHostSession(t *testing.T) { testhome.RequireNoHostSession(t) }
 
 func fakeSessionWorker() int {
 	ch := newChannel(os.NewFile(3, "dm"))

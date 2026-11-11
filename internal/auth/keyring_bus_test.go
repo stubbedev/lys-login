@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/stubbedev/lys-lib/sockdir"
+	"github.com/stubbedev/lys-lib/testhome"
 	dbus "github.com/stubbedev/lys-lib/third_party/godbus"
 	"github.com/stubbedev/lys-lib/xdg"
 	"github.com/stubbedev/lys-secrets/control"
@@ -34,8 +35,10 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	testhome.Run(m)
 }
+
+func TestTheTestsReachNoHostSession(t *testing.T) { testhome.RequireNoHostSession(t) }
 
 func fakeKeyringMain(kind, answer string) error {
 	marks := os.Getenv("FAKE_KEYRING_MARKS")

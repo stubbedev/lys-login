@@ -12,9 +12,9 @@ import (
 
 	"github.com/stubbedev/lys-desktop/shell/lockclient"
 	"github.com/stubbedev/lys-desktop/swaytest"
-	"github.com/stubbedev/lys-desktop/testhome"
 	"github.com/stubbedev/lys-lib/logind"
 	"github.com/stubbedev/lys-lib/logind/logindtest"
+	"github.com/stubbedev/lys-lib/testhome"
 )
 
 // TestMain lets the test binary be lys-login: the tests re-exec it with
@@ -29,6 +29,8 @@ func TestMain(m *testing.M) {
 	}
 	testhome.Run(m)
 }
+
+func TestTheTestsReachNoHostSession(t *testing.T) { testhome.RequireNoHostSession(t) }
 
 const displaySession logind.SessionID = "1"
 
