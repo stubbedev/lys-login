@@ -347,9 +347,8 @@ func (d *seat) activate(s *session) {
 func (d *seat) start(l *pendingLogin, vt int, held io.Closer) {
 	d.c.hideText(vt)
 	if err := l.w.ch.send(request{Op: opStart, Cmd: l.cmd, Env: l.env}); err != nil {
-		l.w.wait()
+		log.Printf("dm: session: %v", errors.Join(err, l.w.wait()))
 		letGo(held, vt)
-		log.Printf("dm: session: %v", err)
 		return
 	}
 	s := &session{w: l.w, cmd: l.cmd, vt: vt, user: l.user, held: held}
@@ -391,7 +390,9 @@ func (d *seat) handle(ev sessionEvent) {
 
 func (d *seat) ended(s *session) {
 	close(s.stop)
-	s.w.wait()
+	if err := s.w.wait(); err != nil {
+		log.Printf("dm: the session of %s ended: %v", s.user, err)
+	}
 	letGo(s.held, s.vt)
 	s.held = nil
 	d.mu.Lock()

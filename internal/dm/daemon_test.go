@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stubbedev/lys-lib/testhome"
@@ -75,9 +78,36 @@ func testRequests() greeterRequests {
 	return greeterRequests{vt: 7, existing: func(string) bool { return false }}
 }
 
+func TestAWorkerThatCannotBeReapedHasItsHandleReleased(t *testing.T) {
+	before := openDescriptors()
+	self, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = (&worker{proc: self, ch: newChannel(r), f: r}).wait()
+	if !errors.Is(err, syscall.ECHILD) {
+		t.Errorf("waiting for a process that is not a child: %v, want ECHILD", err)
+	}
+	if after := openDescriptors(); after != before {
+		t.Errorf("%d descriptors open after the wait, %d before", after, before)
+	}
+	runtime.KeepAlive(self)
+}
+
 func finishLogin(t *testing.T, login *pendingLogin) []uint32 {
 	t.Helper()
-	defer login.w.wait()
+	defer func() {
+		if err := login.w.wait(); err != nil {
+			t.Errorf("reap the worker: %v", err)
+		}
+	}()
 	if err := login.w.ch.send(request{Op: opStart, Cmd: login.cmd, Env: login.env}); err != nil {
 		t.Fatal(err)
 	}

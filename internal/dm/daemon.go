@@ -587,7 +587,9 @@ func relay(conn net.Conn, w *worker) (loginState, error) {
 	case evAuthenticated:
 		return authenticatedLogin, auth.WriteGreetdSuccess(conn)
 	case evFailed:
-		w.wait()
+		if err := w.wait(); err != nil {
+			log.Printf("dm: a failed login: %v", err)
+		}
 		return endedLogin, auth.WriteGreetdError(conn, true, ev.Text)
 	}
 	w.cancel()
@@ -680,11 +682,24 @@ func (o Options) startSessionWorker(user string, vt int, autologin bool) (*worke
 // cancel ends a worker that has not started a session.
 func (w *worker) cancel() {
 	_ = w.ch.send(request{Op: opCancel})
-	w.wait()
+	if err := w.wait(); err != nil {
+		log.Printf("dm: cancel a login: %v", err)
+	}
 }
 
-// wait reaps the worker and closes the channel.
-func (w *worker) wait() {
-	_, _ = w.proc.Wait()
-	_ = w.f.Close()
+// wait reaps the worker and closes the channel. A worker that could not
+// be reaped has its process handle released all the same.
+func (w *worker) wait() error {
+	pid := w.proc.Pid
+	var errs []error
+	if _, err := w.proc.Wait(); err != nil {
+		errs = append(errs, fmt.Errorf("wait for worker %d: %w", pid, err))
+		if err := w.proc.Release(); err != nil {
+			errs = append(errs, fmt.Errorf("release worker %d: %w", pid, err))
+		}
+	}
+	if err := w.f.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("close the channel of worker %d: %w", pid, err))
+	}
+	return errors.Join(errs...)
 }
