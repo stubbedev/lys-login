@@ -1,5 +1,6 @@
 {inputs, ...}: {
   perSystem = {
+    inputs',
     lib,
     pkgs,
     ...
@@ -20,7 +21,7 @@
     # lys-ui (libvulkan, libva).
     libs = [pkgs.pam pkgs.libva pkgs.vulkan-loader];
   in {
-    packages.default = pkgs.buildGo127Module {
+    packages.default = (pkgs.buildGoModule.override {go = inputs'.devtools.packages.go;}) {
       pname = "lys-login";
       version = "0-unstable-${lib.substring 0 8 (builtins.unsafeDiscardStringContext (baseNameOf src))}";
 

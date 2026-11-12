@@ -8,6 +8,10 @@
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
+    devtools = {
+      url = "github:stubbedev/flakes.nix";
+      inputs.flake-parts.follows = "flake-parts";
+    };
     # The dev shell's test stack and the GPU driver setup through its
     # lys-lib input. The Go code comes through go.mod.
     lys-desktop = {
