@@ -3,10 +3,10 @@ module github.com/stubbedev/lys-login
 go 1.27.4
 
 require (
-	github.com/stubbedev/lys-desktop v0.0.8-0.20261112090219-2f0192fd8565
-	github.com/stubbedev/lys-lib v0.3.22-0.20261112084713-7486f28f5c0b
-	github.com/stubbedev/lys-secrets v0.3.22-0.20261112084506-698032d2c842
-	github.com/stubbedev/lys-ui v0.2.25-0.20261112084924-d155c9f417e0
+	github.com/stubbedev/lys-desktop v0.0.8-0.20261112123531-5812c3bacfb6
+	github.com/stubbedev/lys-lib v0.3.22-0.20261112123520-2151ba7db2c9
+	github.com/stubbedev/lys-secrets v0.3.22-0.20261112123448-0c66b0b1c230
+	github.com/stubbedev/lys-ui v0.2.25-0.20261112124348-3b6d939ca213
 	github.com/stubbedev/memory-go v0.5.0
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.49.0
