@@ -3,6 +3,7 @@ package lock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -144,13 +145,17 @@ func (m *sessionMedia) Next(bus string) {
 }
 
 func (b *busWatches) battery(onChange func(batteryLevel, bool)) (stop func()) {
-	return b.run("battery", dialSystemBus, func(ctx context.Context, conn *dbus.Conn) error {
+	return b.run("battery", dialSystemBus, func(ctx context.Context, conn *dbus.Conn) (err error) {
 		src := upower.NewOn(conn)
 		ticks, unsubscribe, err := src.Subscribe(ctx)
 		if err != nil {
 			return err
 		}
-		defer unsubscribe()
+		defer func() {
+			if stopErr := unsubscribe(); stopErr != nil {
+				err = errors.Join(err, fmt.Errorf("stop following UPower: %w", stopErr))
+			}
+		}()
 		for {
 			dev, err := src.Read(ctx)
 			if de, ok := errors.AsType[dbus.Error](err); ok && de.Name == "org.freedesktop.DBus.Error.ServiceUnknown" {
