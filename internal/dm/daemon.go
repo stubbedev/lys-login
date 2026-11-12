@@ -58,6 +58,8 @@ const AutologinService = "lys-login-autologin"
 // retryPause spaces greeters that fail to come up.
 const retryPause = 2 * time.Second
 
+const greeterShowWait = 30 * time.Second
+
 // StopSignals end a daemon: systemd stops one with SIGTERM and, as the service
 // sets SendSIGHUP, SIGHUP right after it, whose default would kill the daemon
 // before it could end the session.

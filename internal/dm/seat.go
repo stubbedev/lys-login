@@ -26,6 +26,7 @@ type greeterRun struct {
 	done     chan greetResult
 	upgrades chan *pendingUpgrade
 	cancel   context.CancelFunc
+	unseen   <-chan time.Time
 }
 
 type greetResult struct {
@@ -46,6 +47,7 @@ type seat struct {
 
 	events   chan sessionEvent
 	switches chan struct{}
+	shown    chan struct{}
 	greeter  *greeterRun
 	retry    <-chan time.Time
 	attempt  *upgradeAttempt
@@ -60,7 +62,7 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 	d := &seat{
 		ctx: ctx, o: o, c: c, owners: newSessionOwners(),
 		warnings: newWarningLogger(os.Stderr, os.Getenv(journalStreamEnv)),
-		events:   make(chan sessionEvent), switches: make(chan struct{}),
+		events:   make(chan sessionEvent), switches: make(chan struct{}), shown: make(chan struct{}),
 	}
 	var l *listeners
 	if r != nil {
@@ -81,7 +83,7 @@ func runDaemon(ctx context.Context, o Options, c console, may func(uint32) bool,
 	d.u = &upgrader{o: o, requests: make(chan *pendingUpgrade), listeners: l, cards: c.cards, gate: gate, mayUpgrade: may, drain: loginDrain}
 	go ApplySocket.serve(l.apply, applyChange(d.owners.authorizeApply(askPolkit), gate, o.Greeter.ConfigPath))
 	go CursorSocket.serve(l.cursor, gated(gate, recordCursor(d.owners, o.CursorDir)))
-	go SplashSocket.serve(l.splash, handOverSplash(o.isGreeter, quitSplash(o.Splash)))
+	go SplashSocket.serve(l.splash, greeterOnScreen(o.isGreeter, quitSplash(o.Splash), d.greeterShown))
 	go SwitchSocket.serve(l.switchUser, gated(gate, askSwitch(d.owners, d.switches)))
 	go d.u.serve()
 	defer func() {
@@ -166,8 +168,12 @@ func (d *seat) run() {
 			d.showSomething()
 		}
 		var greeterDone chan greetResult
-		if d.greeter != nil {
-			greeterDone = d.greeter.done
+		var unseen <-chan time.Time
+		if g := d.greeter; g != nil {
+			greeterDone = g.done
+			if !d.stopping {
+				unseen = g.unseen
+			}
 		}
 		requests := d.u.requests
 		if d.stopping {
@@ -183,6 +189,13 @@ func (d *seat) run() {
 			d.switchUser()
 		case r := <-greeterDone:
 			d.greeted(r)
+		case <-d.shown:
+			if d.greeter != nil {
+				d.greeter.unseen = nil
+			}
+		case <-unseen:
+			d.greeter.unseen = nil
+			d.warnings.Printf("dm: the greeter on VT %d is not on screen %s after it started: its compositor presented none of its frames, so no login form shows", d.greeter.vt, greeterShowWait)
 		case req := <-requests:
 			d.upgrade(req)
 		case <-d.retry:
@@ -242,12 +255,21 @@ func (d *seat) startGreeter(vt int) {
 		log.Printf("dm: %v", err)
 	}
 	ctx, cancel := context.WithCancel(d.ctx)
-	g := &greeterRun{vt: vt, done: make(chan greetResult, 1), upgrades: make(chan *pendingUpgrade), cancel: cancel}
+	g := &greeterRun{vt: vt, done: make(chan greetResult, 1), upgrades: make(chan *pendingUpgrade), cancel: cancel, unseen: time.After(greeterShowWait)}
 	d.greeter = g
 	go func() {
 		res, err := d.o.greet(ctx, vt, g.upgrades, d.u.drain, func(user string) bool { return d.sessionOf(user) != nil })
 		g.done <- greetResult{res, err}
 	}()
+}
+
+func (d *seat) greeterShown(ctx context.Context) error {
+	select {
+	case d.shown <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("note that the greeter is on screen: %w", ctx.Err())
+	}
 }
 
 func (d *seat) forward(a *upgradeAttempt) {

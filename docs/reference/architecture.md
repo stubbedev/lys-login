@@ -28,7 +28,10 @@ daemon the socket is reachable only by the greeter account.
 
 1. Before each greeter the daemon activates the VT, opens every DRM card it does
    not hold (without becoming DRM master), writes `kiosk.yaml` with the cursor,
-   keyboard and accessibility settings, and starts the greeter's worker.
+   keyboard and accessibility settings, and starts the greeter's worker. The
+   greeter tells the daemon on `splash.sock` when its first frame is on screen;
+   one that is not on screen 30 s after it starts is logged as a warning
+   (`journalctl -u lys-login -p warning`).
 2. Each login attempt is a new connection. The daemon starts a session worker
    over a socket pair and relays PAM prompts and answers as JSON lines.
 3. A wrong password ends that worker; the greeter shows PAM's reason.
@@ -132,7 +135,7 @@ is restarted by systemd like any crash.
 | `/run/lys-login/greeter.sock` | Greeter account (`0600`) | greetd protocol. |
 | `/run/lys-login/apply.sock` | Root, users with a running session, others through polkit | [`apply-config`](/guide/configuration#change-the-login-screen-from-your-session). |
 | `/run/lys-login/cursor.sock` | Users with a running session | [`record-cursor`](/guide/configuration#cursor). |
-| `/run/lys-login/splash.sock` | Root, greeter account | Greeter's first frame; quits lys-splash. |
+| `/run/lys-login/splash.sock` | Root, greeter account | Greeter's first frame: quits lys-splash, and tells the daemon the greeter is on screen. |
 | `/run/lys-login/upgrade.sock` | Root | [`upgrade`](/reference/cli#lys-login-upgrade). |
 | `/run/lys-login/switch.sock` | Root, users with a running session | [`switch-user`](/reference/cli#lys-login-switch-user). |
 | `/run/lys-login/kiosk.yaml` | Read by the greeter account | Generated lys-wm config. |

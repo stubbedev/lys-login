@@ -1,12 +1,15 @@
 package dm
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stubbedev/lys-login/internal/auth"
 )
@@ -113,5 +116,71 @@ func TestAutologinRunsOncePerBootWithoutAPassword(t *testing.T) {
 	}
 	if d.autologin() {
 		t.Error("a second autologin in the same boot started; after a logout the greeter shows")
+	}
+}
+
+type lines chan string
+
+func (l lines) Write(p []byte) (int, error) {
+	l <- string(p)
+	return len(p), nil
+}
+
+func runGreeterSeat(t *testing.T, unseen <-chan time.Time) (*seat, lines) {
+	t.Helper()
+	warnings := make(lines, 8)
+	d := testSeat(log.New(warnings, "", 0))
+	ctx, stop := context.WithCancel(context.Background())
+	d.ctx = ctx
+	d.u = &upgrader{requests: make(chan *pendingUpgrade)}
+	done := make(chan greetResult, 2)
+	d.greeter = &greeterRun{vt: d.o.VT, done: done, unseen: unseen, cancel: func() {
+		select {
+		case done <- greetResult{err: context.Canceled}:
+		default:
+		}
+	}}
+	ran := make(chan struct{})
+	go func() {
+		d.run()
+		close(ran)
+	}()
+	t.Cleanup(func() {
+		stop()
+		<-ran
+	})
+	return d, warnings
+}
+
+func TestAGreeterNeverOnScreenIsAWarning(t *testing.T) {
+	expired := make(chan time.Time, 1)
+	expired <- time.Now()
+	_, warnings := runGreeterSeat(t, expired)
+	select {
+	case got := <-warnings:
+		if want := fmt.Sprintf("dm: the greeter on VT 7 is not on screen %s after it started: its compositor presented none of its frames, so no login form shows\n", greeterShowWait); got != want {
+			t.Errorf("warning %q, want %q", got, want)
+		}
+	case <-time.After(stepDeadline):
+		t.Fatal("a greeter that never reached the screen was not reported")
+	}
+}
+
+func TestAGreeterOnScreenIsNoWarning(t *testing.T) {
+	me := me(t)
+	unseen := make(chan time.Time, 1)
+	d, warnings := runGreeterSeat(t, unseen)
+	dir := serveAt(t, SplashSocket, greeterOnScreen(func(uid uint32) bool { return uid == me }, func() error { return nil }, d.greeterShown))
+	if _, err := SplashSocket.Send(dir, Presented{}); err != nil {
+		t.Fatalf("the greeter's first frame: %v", err)
+	}
+	unseen <- time.Now()
+	if _, err := SplashSocket.Send(dir, Presented{}); err != nil {
+		t.Fatalf("a later frame: %v", err)
+	}
+	select {
+	case got := <-warnings:
+		t.Errorf("a greeter on screen was reported: %q", got)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

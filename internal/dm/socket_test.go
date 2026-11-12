@@ -138,17 +138,18 @@ func TestCursorRefusesAThemeThatIsNoDirectoryName(t *testing.T) {
 
 func TestSplashHandOverIsTheGreeters(t *testing.T) {
 	me := me(t)
-	var quits atomic.Int32
+	var quits, shown atomic.Int32
+	show := func(context.Context) error { shown.Add(1); return nil }
 	isGreeter := func(uid uint32) bool { return uid == me+1 }
-	dir := serveAt(t, SplashSocket, handOverSplash(isGreeter, func() error { quits.Add(1); return nil }))
+	dir := serveAt(t, SplashSocket, greeterOnScreen(isGreeter, func() error { quits.Add(1); return nil }, show))
 	if _, err := SplashSocket.Send(dir, Presented{}); err == nil || !strings.Contains(err.Error(), "only the greeter") {
 		t.Errorf("another user: %v, want a refusal", err)
 	}
-	if n := quits.Load(); n != 0 {
-		t.Fatalf("a refused hand-over quit the splash %d times", n)
+	if q, s := quits.Load(), shown.Load(); q != 0 || s != 0 {
+		t.Fatalf("a refused hand-over quit the splash %d times and showed the greeter %d times", q, s)
 	}
 
-	dir = serveAt(t, SplashSocket, handOverSplash(func(uid uint32) bool { return uid == me }, func() error { quits.Add(1); return nil }))
+	dir = serveAt(t, SplashSocket, greeterOnScreen(func(uid uint32) bool { return uid == me }, func() error { quits.Add(1); return nil }, show))
 	for range 2 {
 		if _, err := SplashSocket.Send(dir, Presented{}); err != nil {
 			t.Fatalf("the greeter: %v", err)
@@ -157,17 +158,25 @@ func TestSplashHandOverIsTheGreeters(t *testing.T) {
 	if n := quits.Load(); n != 1 {
 		t.Errorf("the splash was quit %d times, want once", n)
 	}
+	if n := shown.Load(); n != 2 {
+		t.Errorf("the daemon heard of %d greeters on screen, want each of the 2", n)
+	}
 }
 
 func TestTakeScreenFromSplashReachesTheDaemon(t *testing.T) {
 	me := me(t)
-	quit := make(chan struct{}, 1)
-	dir := serveAt(t, SplashSocket, handOverSplash(func(uid uint32) bool { return uid == me }, func() error { quit <- struct{}{}; return nil }))
+	quit, shown := make(chan struct{}, 1), make(chan struct{}, 1)
+	dir := serveAt(t, SplashSocket, greeterOnScreen(func(uid uint32) bool { return uid == me }, func() error { quit <- struct{}{}; return nil }, func(context.Context) error { shown <- struct{}{}; return nil }))
 	TakeScreenFromSplash(dir)()
 	select {
 	case <-quit:
 	default:
 		t.Fatal("the greeter's first frame did not quit the splash")
+	}
+	select {
+	case <-shown:
+	default:
+		t.Fatal("the greeter's first frame did not reach the daemon")
 	}
 	if TakeScreenFromSplash("") != nil {
 		t.Error("without a display manager the greeter has a hand-over to make")

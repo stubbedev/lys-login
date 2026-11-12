@@ -173,9 +173,9 @@ func TakeScreenFromSplash(runtimeDir string) func() {
 	}
 }
 
-func handOverSplash(isGreeter func(uid uint32) bool, quit func() error) handler[Presented] {
+func greeterOnScreen(isGreeter func(uid uint32) bool, quit func() error, shown func(context.Context) error) handler[Presented] {
 	var once sync.Once
-	return func(_ context.Context, p peer, _ Presented) (string, error) {
+	return func(ctx context.Context, p peer, _ Presented) (string, error) {
 		if p.UID != 0 && !isGreeter(p.UID) {
 			return "", dmsocket.Refuse(dmsocket.Unauthorized, "only the greeter may take the screen from the splash")
 		}
@@ -184,7 +184,7 @@ func handOverSplash(isGreeter func(uid uint32) bool, quit func() error) handler[
 				log.Printf("dm: quit the splash: %v", err)
 			}
 		})
-		return "", nil
+		return "", shown(ctx)
 	}
 }
 
