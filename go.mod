@@ -1,6 +1,6 @@
 module github.com/stubbedev/lys-login
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/stubbedev/lys-desktop v0.0.8-0.20261112090219-2f0192fd8565
