@@ -106,7 +106,10 @@ func testSeat(warnings *log.Logger) *seat {
 	quiet := func(int) error { return nil }
 	return &seat{
 		ctx: context.Background(), o: testOptions(), owners: newSessionOwners(), warnings: warnings,
-		c:      console{activate: quiet, showText: func(int, bool) error { return nil }, stop: quiet},
+		c: console{
+			activate: quiet, showText: func(int, bool) error { return nil }, stop: quiet,
+			say: func(int, string) error { return nil }, clearX: func(uint32) ([]int, error) { return nil, nil }, clock: systemClock,
+		},
 		events: make(chan sessionEvent), switches: make(chan struct{}), shown: make(chan struct{}),
 	}
 }

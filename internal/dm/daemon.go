@@ -55,9 +55,6 @@ type Autologin struct {
 
 const AutologinService = "lys-login-autologin"
 
-// retryPause spaces greeters that fail to come up.
-const retryPause = 2 * time.Second
-
 const greeterShowWait = 30 * time.Second
 
 // StopSignals end a daemon: systemd stops one with SIGTERM and, as the service
@@ -78,6 +75,9 @@ type console struct {
 	// showText gives the VT's console its cursor back (true), or clears it and
 	// hides the cursor (false).
 	showText func(vt int, on bool) error
+	say      func(vt int, text string) error
+	clearX   func(uid uint32) ([]int, error)
+	clock    clock
 	cards    *heldCards
 	stop     func(worker int) error
 	freeVT   func() (int, io.Closer, error)
@@ -88,9 +88,14 @@ type console struct {
 
 func systemConsole() console {
 	return console{
-		activate: activateVT, showText: showVTText, cards: newHeldCards(), stop: stopWorker,
-		freeVT: freeVT, release: disallocateVT, lock: lockLogindSession, switchTo: activateLogindSession,
+		activate: activateVT, showText: showVTText, say: sayOnVT, clearX: clearSharedX, clock: systemClock,
+		cards: newHeldCards(), stop: stopWorker, freeVT: freeVT, release: disallocateVT,
+		lock: lockLogindSession, switchTo: activateLogindSession,
 	}
+}
+
+func clearSharedX(uid uint32) ([]int, error) {
+	return clearStaleX(sharedTmp, uid, pidAlive)
 }
 
 // hideText leaves nothing on the kernel's console to see. The console shows
@@ -170,16 +175,23 @@ const (
 
 // showVTText writes the sequence to the VT's console.
 func showVTText(vt int, on bool) error {
+	if on {
+		return writeVT(vt, vtShowText)
+	}
+	return writeVT(vt, vtHideText)
+}
+
+func sayOnVT(vt int, text string) error {
+	return writeVT(vt, vtHideText+strings.ReplaceAll(text, "\n", "\r\n"))
+}
+
+func writeVT(vt int, s string) error {
 	tty, err := os.OpenFile(fmt.Sprintf("/dev/tty%d", vt), os.O_WRONLY|syscall.O_NOCTTY, 0) //nolint:gosec // the VT the daemon was told to run on
 	if err != nil {
 		return fmt.Errorf("open VT %d: %w", vt, err)
 	}
 	defer func() { _ = tty.Close() }()
-	sequence := vtHideText
-	if on {
-		sequence = vtShowText
-	}
-	if _, err := tty.WriteString(sequence); err != nil {
+	if _, err := tty.WriteString(s); err != nil {
 		return fmt.Errorf("write to VT %d: %w", vt, err)
 	}
 	return nil
@@ -320,7 +332,8 @@ func (o Options) greet(ctx context.Context, vt int, upgrades <-chan *pendingUpgr
 		return greeted{}, fmt.Errorf("write %s: %w", cfg, err)
 	}
 	gw := exec.Command(o.Self, o.greeterWorkerArgs(sock, cfg, vt)...) //nolint:gosec // lys-login itself
-	gw.Stdout, gw.Stderr = os.Stderr, os.Stderr
+	tail := newOutputTail(os.Stderr)
+	gw.Stdout, gw.Stderr, gw.WaitDelay = tail, tail, greeterOutputDrain
 	if err := gw.Start(); err != nil {
 		return greeted{}, fmt.Errorf("start the greeter worker: %w", err)
 	}
@@ -328,6 +341,9 @@ func (o Options) greet(ctx context.Context, vt int, upgrades <-chan *pendingUpgr
 	var exitErr error
 	go func() {
 		exitErr = gw.Wait()
+		if err := tail.flush(); err != nil {
+			log.Printf("dm: forward the greeter's last output: %v", err)
+		}
 		close(exited)
 	}()
 	conns, done := make(chan net.Conn), make(chan struct{})
@@ -350,7 +366,7 @@ func (o Options) greet(ctx context.Context, vt int, upgrades <-chan *pendingUpgr
 	_ = gw.Process.Signal(syscall.SIGTERM)
 	<-exited
 	if g == (greeted{}) && err == nil {
-		err = errors.Join(errors.New("the greeter ended"), exitErr)
+		err = &greeterExit{err: exitErr, output: tail.last()}
 	}
 	return g, err
 }

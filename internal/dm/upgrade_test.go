@@ -28,15 +28,16 @@ import (
 )
 
 const (
-	fakeDirEnv        = "LYS_FAKE_DIR"
-	fakeRuntimeEnv    = "LYS_FAKE_RUNTIME"
-	fakeGenerationEnv = "LYS_FAKE_GENERATION"
-	fakeBreakEnv      = "LYS_FAKE_BREAK_RESUME"
-	fakePanicEnv      = "LYS_FAKE_PANIC_RESUME"
-	fakeRootOnlyEnv   = "LYS_FAKE_ROOT_ONLY"
-	fakeDaemonMode    = "fake-daemon"
-	burstSize         = 3000
-	stepDeadline      = 30 * time.Second
+	fakeDirEnv         = "LYS_FAKE_DIR"
+	fakeRuntimeEnv     = "LYS_FAKE_RUNTIME"
+	fakeGenerationEnv  = "LYS_FAKE_GENERATION"
+	fakeBreakEnv       = "LYS_FAKE_BREAK_RESUME"
+	fakePanicEnv       = "LYS_FAKE_PANIC_RESUME"
+	fakeRootOnlyEnv    = "LYS_FAKE_ROOT_ONLY"
+	fakeGreeterFailEnv = "LYS_FAKE_GREETER_FAILS"
+	fakeDaemonMode     = "fake-daemon"
+	burstSize          = 3000
+	stepDeadline       = 30 * time.Second
 )
 
 func openDescriptors() int {
@@ -90,6 +91,12 @@ func fakeConsole(dir string) console {
 			appendLine("console-modes", strconv.FormatBool(on))
 			return nil
 		},
+		say: func(int, string) error {
+			appendLine("console-modes", "say")
+			return nil
+		},
+		clearX: func(uint32) ([]int, error) { return nil, nil },
+		clock:  systemClock,
 		cards: &heldCards{
 			glob: filepath.Join(dir, "card[0-9]*"),
 			open: func(path string) (openCard, error) {
@@ -194,6 +201,10 @@ func fakeResume(ctx context.Context, o Options, c console, may func(uint32) bool
 }
 
 func fakeGreeterWorker() int {
+	if os.Getenv(fakeGreeterFailEnv) != "" {
+		fmt.Fprint(os.Stderr, "xwayland: :0 is another user's: remove /tmp/.X0-lock: permission denied\nlys-login worker greeter: the greeter's compositor exited: exit status 1")
+		return 1
+	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM)
 	appendLine("greeters", fmt.Sprintf("%d %s", os.Getpid(), os.Getenv(fakeGenerationEnv)))
@@ -1076,6 +1087,9 @@ func stoppedDaemonStops(t *testing.T, dir string) []int {
 	c := console{
 		activate: func(int) error { t.Error("a stopped daemon took the VT"); return nil },
 		showText: func(int, bool) error { return nil },
+		say:      func(int, string) error { t.Error("a stopped daemon wrote to the VT"); return nil },
+		clearX:   func(uint32) ([]int, error) { return nil, nil },
+		clock:    systemClock,
 		cards:    newHeldCards(),
 		stop:     func(worker int) error { stopped = append(stopped, worker); return nil },
 	}

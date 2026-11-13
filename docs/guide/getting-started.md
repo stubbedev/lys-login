@@ -63,6 +63,15 @@ The daemon, its greeters and its workers log to one unit:
 journalctl -b -u lys-login
 ```
 
-A greeter that fails to start is retried every 2 seconds; the unit restarts if
-the daemon exits. To test a PAM service without logging out, see
+A greeter that fails is started again after 2 seconds. A greeter that fails
+within 30 seconds of its start waits twice as long each time (2, 4, 8, 16
+seconds); after 5 such failures in a row it is started every 5 minutes, and the
+VT shows why, with the last lines the greeter and its compositor wrote. A
+greeter that runs cleanly resets the count. The unit restarts if the daemon
+exits.
+
+When a session ends, the daemon removes the X display locks (`/tmp/.X<n>-lock`)
+and sockets (`/tmp/.X11-unix/X<n>`) it left behind: only those owned by the
+session's user whose lock names a process that no longer runs, so the next
+greeter or session can take the display. To test a PAM service without logging out, see
 [PAM services](/guide/pam#test-a-service).

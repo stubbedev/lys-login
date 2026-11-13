@@ -184,3 +184,19 @@ func TestAGreeterOnScreenIsNoWarning(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+func TestAnEndedSessionHasItsStaleXDisplaysCleared(t *testing.T) {
+	var calls consoleCalls
+	d := recordingSeat(&calls)
+	var cleared []uint32
+	d.c.clearX = func(uid uint32) ([]int, error) { cleared = append(cleared, uid); return []int{0}, nil }
+	alice := pipedSession(t, d, "alice", d.o.VT, "1")
+	if len(cleared) != 0 {
+		t.Fatalf("cleared %v while the session runs", cleared)
+	}
+	go func() { _ = alice.send(event{Kind: evEnded, Text: "signal: killed"}) }()
+	d.handle(<-d.events)
+	if want := []uint32{1000 + uint32(d.o.VT)}; !slices.Equal(cleared, want) {
+		t.Errorf("cleared the X displays of %v, want alice's uid %v once her session ended", cleared, want)
+	}
+}

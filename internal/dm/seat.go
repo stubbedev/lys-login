@@ -22,6 +22,7 @@ type sessionEvent struct {
 
 type greeterRun struct {
 	vt       int
+	started  time.Time
 	held     io.Closer
 	done     chan greetResult
 	upgrades chan *pendingUpgrade
@@ -50,6 +51,7 @@ type seat struct {
 	shown    chan struct{}
 	greeter  *greeterRun
 	retry    <-chan time.Time
+	failures failedRuns
 	attempt  *upgradeAttempt
 	stopping bool
 	orphans  []int
@@ -230,7 +232,7 @@ func (d *seat) waitForOrphans() bool {
 		log.Printf("dm: workers %v still run sessions this daemon did not start: the greeter waits for them to end", pids)
 		d.orphans = pids
 	}
-	d.retry = time.After(retryPause)
+	d.retry = d.c.clock.after(retryPause)
 	return true
 }
 
@@ -255,7 +257,7 @@ func (d *seat) startGreeter(vt int) {
 		log.Printf("dm: %v", err)
 	}
 	ctx, cancel := context.WithCancel(d.ctx)
-	g := &greeterRun{vt: vt, done: make(chan greetResult, 1), upgrades: make(chan *pendingUpgrade), cancel: cancel, unseen: time.After(greeterShowWait)}
+	g := &greeterRun{vt: vt, started: d.c.clock.now(), done: make(chan greetResult, 1), upgrades: make(chan *pendingUpgrade), cancel: cancel, unseen: time.After(greeterShowWait)}
 	d.greeter = g
 	go func() {
 		res, err := d.o.greet(ctx, vt, g.upgrades, d.u.drain, func(user string) bool { return d.sessionOf(user) != nil })
@@ -292,13 +294,15 @@ func (d *seat) greeted(r greetResult) {
 		a.park()
 		a = nil
 	}
-	switch {
-	case r.err != nil:
-		if !d.stopping {
-			log.Printf("dm: greeter: %v", r.err)
-			d.retry = time.After(retryPause)
-		}
+	if r.err != nil {
 		d.leaveGreeterVT(g, nil)
+		if !d.stopping {
+			d.retryGreeter(g, r.err)
+		}
+		return
+	}
+	d.failures = 0
+	switch {
 	case r.g.login == nil:
 		d.leaveGreeterVT(g, nil)
 		if a != nil {
@@ -312,6 +316,30 @@ func (d *seat) greeted(r greetResult) {
 		d.leaveGreeterVT(g, s)
 	default:
 		d.start(r.g.login, g.vt, g.held)
+	}
+}
+
+func (d *seat) retryGreeter(g *greeterRun, err error) {
+	ran := d.c.clock.now().Sub(g.started)
+	d.failures = d.failures.after(ran)
+	pause := d.failures.pause()
+	log.Printf("dm: greeter: %v; it ran %s, the next starts in %s", err, ran.Round(time.Millisecond), pause)
+	d.retry = d.c.clock.after(pause)
+	if !d.failures.escalated() {
+		return
+	}
+	if d.failures == escalateAfter {
+		log.Printf("dm: the greeter failed %d times in a row, each within %s of its start: it starts every %s until one runs, and VT %d says why", d.failures, fastFailure, pause, d.o.VT)
+	}
+	if g.vt != d.o.VT || len(d.running()) > 0 {
+		return
+	}
+	var output []string
+	if exit, ok := errors.AsType[*greeterExit](err); ok {
+		output = exit.output
+	}
+	if err := d.c.say(g.vt, failureNotice(d.failures, pause, err, output)); err != nil {
+		log.Printf("dm: tell VT %d why the greeter does not show: %v", g.vt, err)
 	}
 }
 
@@ -424,6 +452,9 @@ func (d *seat) ended(s *session) {
 		d.owners.remove(*s.uid)
 	}
 	log.Printf("dm: the session of %s on VT %d ended", s.user, s.vt)
+	if s.uid != nil {
+		d.clearX(s.user, *s.uid)
+	}
 	if !d.stopping && d.greeter == nil {
 		if sessions := d.running(); len(sessions) > 0 {
 			d.activate(sessions[len(sessions)-1])
@@ -433,6 +464,16 @@ func (d *seat) ended(s *session) {
 	}
 	if s.vt != d.o.VT && (d.greeter == nil || d.greeter.vt != s.vt) {
 		d.freeVT(s.vt)
+	}
+}
+
+func (d *seat) clearX(user string, uid uint32) {
+	cleared, err := d.c.clearX(uid)
+	for _, n := range cleared {
+		log.Printf("dm: cleared X display :%d, whose server in the ended session of %s (uid %d) left its lock behind", n, user, uid)
+	}
+	if err != nil {
+		log.Printf("dm: %v", err)
 	}
 }
 
